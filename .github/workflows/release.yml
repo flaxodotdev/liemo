@@ -55,6 +55,16 @@ jobs:
           security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/cert.p12"
 
+      - name: Notary credentials
+        # Fail in seconds, not after the build, if the Apple ID or app-specific password is wrong.
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool history --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" >/dev/null \
+            || { echo "::error::Apple rejected APPLE_ID / APPLE_APP_PASSWORD for team $APPLE_TEAM_ID (see native/RELEASING.md)"; exit 1; }
+
       - name: Build, bundle, sign, notarise
         env:
           SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
