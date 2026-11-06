@@ -1,0 +1,90 @@
+# Push a tag like v0.2.0 (matching native/Cargo.toml) to build, sign, notarise and publish
+# Liemo for Apple silicon and Intel. The app's updater reads the resulting GitHub Release.
+# Secrets and setup: native/RELEASING.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: macos-15        # arm64
+          - runner: macos-15-intel  # x86_64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: native
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches Cargo.toml
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag is $GITHUB_REF_NAME but Cargo.toml says $v"; exit 1; }
+
+      - name: FFmpeg
+        run: brew install ffmpeg pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - name: Signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          kc=$RUNNER_TEMP/build.keychain-db
+          pw=$(uuidgen)
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$kc"
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Build, bundle, sign, notarise
+        env:
+          SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          LIEMO_UPDATE_KEY: ${{ secrets.LIEMO_UPDATE_KEY }}
+        run: |
+          [ -n "$LIEMO_UPDATE_KEY" ] || { echo "::error::LIEMO_UPDATE_KEY isn't set; installed copies couldn't verify this release"; exit 1; }
+          scripts/bundle.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liemo-${{ matrix.runner }}
+          path: |
+            native/dist/*.zip
+            native/dist/*.zip.sig
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Liemo ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag

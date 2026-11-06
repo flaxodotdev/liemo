@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Liemo
 
-## Getting Started
+An open-source video editor for macOS, with an AI-editing MCP server built in.
 
-First, run the development server:
+- **The app**, native and GPU-accelerated, lives in [`native/`](native/): Rust + GPUI, FFmpeg, Metal.
+  Download it from [Releases](https://github.com/flaxodotdev/liemo/releases/latest); it keeps itself
+  up to date. Building, credits and the MCP server: [native/README.md](native/README.md);
+  releases: [native/RELEASING.md](native/RELEASING.md).
+- **The browser version**, the original prototype, is this Next.js app (below).
+
+Liemo is MIT licensed (see [LICENSE](LICENSE)). Third-party code, shaders, fonts and photos keep
+their own licences, listed in [native/README.md](native/README.md).
+
+## Browser version
+
+A browser video editor: frame-accurate timeline (`HH:MM:SS:FF` at 30 fps), media pool, music, images, overlays, text styles, fonts and effects.
+
+Next.js 15 (App Router) · TypeScript · Tailwind v4 · shadcn/ui (Radix) · zustand.
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Design system
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The visual language comes from `docs/DESIGN.md` (Framer tokens). It lives in code in two places:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `src/app/globals.css` holds every token: surfaces (`canvas`, `surface-1..3`), text (`ink`, `ink-muted`), the signal blue, gradient anchors and clip colours. It maps them onto shadcn's variables (`--background`, `--primary`, `--ring`, …) and defines the type scale as utilities: `type-display`, `type-headline`, `type-body`, `type-body-sm`, `type-caption`, `type-micro`, `type-label`, `type-timecode`.
+- `src/components/editor/primitives.tsx` has the editor building blocks (`Panel`, `PanelHeader`, `Group`, `SectionLabel`, `IconButton`, `FieldRow`, `SliderField`, `Timecode`, `Kbd`). Panels compose these instead of styling one-off markup.
 
-## Learn More
+Rules: dark only. Hierarchy comes from surface lift, not extra greys. Text is either `ink` or `ink-muted`. Blue (`signal`) is for focus, selection and snapping, never a fill. Buttons are pills.
 
-To learn more about Next.js, take a look at the following resources:
+## Layout
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/lib/editor/
+  assets.ts     sample footage, music, stills, overlays, fonts, text styles, effects
+  store.ts      zustand store: clips, tracks, selection, undo/redo, edit actions
+  render.ts     canvas compositor, media sync, thumbnails, file import
+  playback.ts   transport, rAF loop, Web Audio music synth
+  time.ts       FPS, timecode helpers
+src/components/editor/
+  editor.tsx    layout, keyboard shortcuts, boot
+  top-bar.tsx  library-panel.tsx  preview-panel.tsx  inspector-panel.tsx  timeline-panel.tsx
+src/components/ui/   shadcn components
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Imported media stays in the browser tab (object URLs). There is no export yet.

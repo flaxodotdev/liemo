@@ -1,0 +1,3482 @@
+{
+ "shaders": {
+  "ColorPanels": {
+   "frag": "color-panels.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 0.8,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 0.5,
+    "frame": 0,
+    "colors": [
+     "#ff9d00",
+     "#fd4f30",
+     "#809bff",
+     "#6d2eff",
+     "#333aff",
+     "#f15cff",
+     "#ffd557"
+    ],
+    "colorBack": "#000000",
+    "angle1": 0,
+    "angle2": 0,
+    "length": 1.1,
+    "edges": false,
+    "blur": 0,
+    "fadeIn": 1,
+    "fadeOut": 0.3,
+    "gradient": 0,
+    "density": 3
+   },
+   "uniforms": [
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_angle1",
+     "num",
+     "angle1"
+    ],
+    [
+     "u_angle2",
+     "num",
+     "angle2"
+    ],
+    [
+     "u_length",
+     "num",
+     "length"
+    ],
+    [
+     "u_edges",
+     "num",
+     "edges"
+    ],
+    [
+     "u_blur",
+     "num",
+     "blur"
+    ],
+    [
+     "u_fadeIn",
+     "num",
+     "fadeIn"
+    ],
+    [
+     "u_fadeOut",
+     "num",
+     "fadeOut"
+    ],
+    [
+     "u_density",
+     "num",
+     "density"
+    ],
+    [
+     "u_gradient",
+     "num",
+     "gradient"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "colorPanelsMeta": {
+     "maxColorCount": 7
+    }
+   }
+  },
+  "Dithering": {
+   "frag": "dithering.frag",
+   "defaults": {
+    "fit": "none",
+    "scale": 0.6,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colorBack": "#000000",
+    "colorFront": "#00b2ff",
+    "shape": "sphere",
+    "type": "4x4",
+    "size": 2
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colorFront",
+     "color",
+     "colorFront"
+    ],
+    [
+     "u_shape",
+     "enum:DitheringShapes",
+     "shape"
+    ],
+    [
+     "u_type",
+     "enum:DitheringTypes",
+     "type"
+    ],
+    [
+     "u_pxSize",
+     "num",
+     "size"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "DitheringShapes": {
+     "simplex": 1,
+     "warp": 2,
+     "dots": 3,
+     "wave": 4,
+     "ripple": 5,
+     "swirl": 6,
+     "sphere": 7
+    },
+    "DitheringTypes": {
+     "random": 1,
+     "2x2": 2,
+     "4x4": 3,
+     "8x8": 4
+    }
+   }
+  },
+  "DotOrbit": {
+   "frag": "dot-orbit.frag",
+   "defaults": {
+    "fit": "none",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1.5,
+    "frame": 0,
+    "colorBack": "#000000",
+    "colors": [
+     "#ffc96b",
+     "#ff6200",
+     "#ff2f00",
+     "#421100",
+     "#1a0000"
+    ],
+    "size": 1,
+    "sizeRange": 0,
+    "spreading": 1,
+    "stepsPerColor": 4
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_size",
+     "num",
+     "size"
+    ],
+    [
+     "u_sizeRange",
+     "num",
+     "sizeRange"
+    ],
+    [
+     "u_spreading",
+     "num",
+     "spreading"
+    ],
+    [
+     "u_stepsPerColor",
+     "num",
+     "stepsPerColor"
+    ],
+    [
+     "u_noiseTexture",
+     "noise",
+     ""
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "dotOrbitMeta": {
+     "maxColorCount": 10
+    }
+   }
+  },
+  "GemSmoke": {
+   "frag": "gem-smoke.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 0.6,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colorBack": "#f0efea",
+    "colorInner": "#fafaf5",
+    "colors": [
+     "#333333",
+     "#e7e6df"
+    ],
+    "outerGlow": 0.55,
+    "innerGlow": 1,
+    "innerDistortion": 0.8,
+    "outerDistortion": 0.6,
+    "offset": 0,
+    "angle": 0,
+    "size": 0.8,
+    "shape": "diamond"
+   },
+   "uniforms": [
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_image",
+     "image",
+     "image"
+    ],
+    [
+     "u_innerDistortion",
+     "num",
+     "innerDistortion"
+    ],
+    [
+     "u_outerDistortion",
+     "num",
+     "outerDistortion"
+    ],
+    [
+     "u_outerGlow",
+     "num",
+     "outerGlow"
+    ],
+    [
+     "u_innerGlow",
+     "num",
+     "innerGlow"
+    ],
+    [
+     "u_colorInner",
+     "color",
+     "colorInner"
+    ],
+    [
+     "u_offset",
+     "num",
+     "offset"
+    ],
+    [
+     "u_angle",
+     "num",
+     "angle"
+    ],
+    [
+     "u_size",
+     "num",
+     "size"
+    ],
+    [
+     "u_isImage",
+     "bool",
+     "image"
+    ],
+    [
+     "u_shape",
+     "enum:GemSmokeShapes",
+     "shape"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "gemSmokeMeta": {
+     "maxColorCount": 6
+    },
+    "POISSON_CONFIG_OPTIMIZED": {
+     "measurePerformance": false,
+     "workingSize": 512,
+     "iterations": 32
+    },
+    "GemSmokeShapes": {
+     "none": 0,
+     "circle": 1,
+     "daisy": 2,
+     "diamond": 3,
+     "metaballs": 4
+    }
+   }
+  },
+  "GodRays": {
+   "frag": "god-rays.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": -0.55,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "colorBack": "#000000",
+    "colorBloom": "#0000ff",
+    "colors": [
+     "#a600ff6e",
+     "#6200fff0",
+     "#ffffff",
+     "#33fff5"
+    ],
+    "density": 0.3,
+    "spotty": 0.3,
+    "midIntensity": 0.4,
+    "midSize": 0.2,
+    "intensity": 0.8,
+    "bloom": 0.4,
+    "speed": 0.75,
+    "frame": 0
+   },
+   "uniforms": [
+    [
+     "u_colorBloom",
+     "color",
+     "colorBloom"
+    ],
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_density",
+     "num",
+     "density"
+    ],
+    [
+     "u_spotty",
+     "num",
+     "spotty"
+    ],
+    [
+     "u_midIntensity",
+     "num",
+     "midIntensity"
+    ],
+    [
+     "u_midSize",
+     "num",
+     "midSize"
+    ],
+    [
+     "u_intensity",
+     "num",
+     "intensity"
+    ],
+    [
+     "u_bloom",
+     "num",
+     "bloom"
+    ],
+    [
+     "u_noiseTexture",
+     "noise",
+     ""
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "godRaysMeta": {
+     "maxColorCount": 5
+    }
+   }
+  },
+  "GrainGradient": {
+   "frag": "grain-gradient.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colorBack": "#000000",
+    "colors": [
+     "#7300ff",
+     "#eba8ff",
+     "#00bfff",
+     "#2a00ff"
+    ],
+    "softness": 0.5,
+    "intensity": 0.5,
+    "noise": 0.25,
+    "shape": "corners"
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_softness",
+     "num",
+     "softness"
+    ],
+    [
+     "u_intensity",
+     "num",
+     "intensity"
+    ],
+    [
+     "u_noise",
+     "num",
+     "noise"
+    ],
+    [
+     "u_shape",
+     "enum:GrainGradientShapes",
+     "shape"
+    ],
+    [
+     "u_noiseTexture",
+     "noise",
+     ""
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "grainGradientMeta": {
+     "maxColorCount": 7
+    },
+    "GrainGradientShapes": {
+     "wave": 1,
+     "dots": 2,
+     "truchet": 3,
+     "corners": 4,
+     "ripple": 5,
+     "blob": 6,
+     "sphere": 7
+    }
+   }
+  },
+  "LiquidMetal": {
+   "frag": "liquid-metal.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 0.6,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colorBack": "#AAAAAC",
+    "colorTint": "#ffffff",
+    "distortion": 0.07,
+    "repetition": 2,
+    "shiftRed": 0.3,
+    "shiftBlue": 0.3,
+    "contour": 0.4,
+    "softness": 0.1,
+    "angle": 70,
+    "shape": "diamond"
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colorTint",
+     "color",
+     "colorTint"
+    ],
+    [
+     "u_image",
+     "image",
+     "image"
+    ],
+    [
+     "u_contour",
+     "num",
+     "contour"
+    ],
+    [
+     "u_distortion",
+     "num",
+     "distortion"
+    ],
+    [
+     "u_softness",
+     "num",
+     "softness"
+    ],
+    [
+     "u_repetition",
+     "num",
+     "repetition"
+    ],
+    [
+     "u_shiftRed",
+     "num",
+     "shiftRed"
+    ],
+    [
+     "u_shiftBlue",
+     "num",
+     "shiftBlue"
+    ],
+    [
+     "u_angle",
+     "num",
+     "angle"
+    ],
+    [
+     "u_isImage",
+     "bool",
+     "image"
+    ],
+    [
+     "u_shape",
+     "enum:LiquidMetalShapes",
+     "shape"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "POISSON_CONFIG_OPTIMIZED": {
+     "measurePerformance": false,
+     "workingSize": 512,
+     "iterations": 40
+    },
+    "LiquidMetalShapes": {
+     "none": 0,
+     "circle": 1,
+     "daisy": 2,
+     "diamond": 3,
+     "metaballs": 4
+    }
+   }
+  },
+  "MeshGradient": {
+   "frag": "mesh-gradient.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colors": [
+     "#e0eaff",
+     "#241d9a",
+     "#f75092",
+     "#9f50d3"
+    ],
+    "distortion": 0.8,
+    "swirl": 0.1,
+    "grainMixer": 0,
+    "grainOverlay": 0
+   },
+   "uniforms": [
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_distortion",
+     "num",
+     "distortion"
+    ],
+    [
+     "u_swirl",
+     "num",
+     "swirl"
+    ],
+    [
+     "u_grainMixer",
+     "num",
+     "grainMixer"
+    ],
+    [
+     "u_grainOverlay",
+     "num",
+     "grainOverlay"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "meshGradientMeta": {
+     "maxColorCount": 10
+    }
+   }
+  },
+  "Metaballs": {
+   "frag": "metaballs.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colorBack": "#000000",
+    "colors": [
+     "#6e33cc",
+     "#ff5500",
+     "#ffc105",
+     "#ffc800",
+     "#f585ff"
+    ],
+    "count": 10,
+    "size": 0.83
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_size",
+     "num",
+     "size"
+    ],
+    [
+     "u_count",
+     "num",
+     "count"
+    ],
+    [
+     "u_noiseTexture",
+     "noise",
+     ""
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "metaballsMeta": {
+     "maxColorCount": 8,
+     "maxBallsCount": 20
+    }
+   }
+  },
+  "NeuroNoise": {
+   "frag": "neuro-noise.frag",
+   "defaults": {
+    "fit": "none",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colorFront": "#ffffff",
+    "colorMid": "#47a6ff",
+    "colorBack": "#000000",
+    "brightness": 0.05,
+    "contrast": 0.3
+   },
+   "uniforms": [
+    [
+     "u_colorFront",
+     "color",
+     "colorFront"
+    ],
+    [
+     "u_colorMid",
+     "color",
+     "colorMid"
+    ],
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_brightness",
+     "num",
+     "brightness"
+    ],
+    [
+     "u_contrast",
+     "num",
+     "contrast"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    }
+   }
+  },
+  "PerlinNoise": {
+   "frag": "perlin-noise.frag",
+   "defaults": {
+    "fit": "none",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 0.5,
+    "frame": 0,
+    "colorBack": "#632ad5",
+    "colorFront": "#fccff7",
+    "proportion": 0.35,
+    "softness": 0.1,
+    "octaveCount": 1,
+    "persistence": 1,
+    "lacunarity": 1.5
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colorFront",
+     "color",
+     "colorFront"
+    ],
+    [
+     "u_proportion",
+     "num",
+     "proportion"
+    ],
+    [
+     "u_softness",
+     "num",
+     "softness"
+    ],
+    [
+     "u_octaveCount",
+     "num",
+     "octaveCount"
+    ],
+    [
+     "u_persistence",
+     "num",
+     "persistence"
+    ],
+    [
+     "u_lacunarity",
+     "num",
+     "lacunarity"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    }
+   }
+  },
+  "PulsingBorder": {
+   "frag": "pulsing-border.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 0.6,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colorBack": "#000000",
+    "colors": [
+     "#0dc1fd",
+     "#d915ef",
+     "#ff3f2ecc"
+    ],
+    "roundness": 0.25,
+    "thickness": 0.1,
+    "margin": 0,
+    "marginLeft": 0,
+    "marginRight": 0,
+    "marginTop": 0,
+    "marginBottom": 0,
+    "aspectRatio": "auto",
+    "softness": 0.75,
+    "intensity": 0.2,
+    "bloom": 0.25,
+    "spots": 5,
+    "spotSize": 0.5,
+    "pulse": 0.25,
+    "smoke": 0.3,
+    "smokeSize": 0.6
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_roundness",
+     "num",
+     "roundness"
+    ],
+    [
+     "u_thickness",
+     "num",
+     "thickness"
+    ],
+    [
+     "u_marginLeft",
+     "num",
+     "marginLeft"
+    ],
+    [
+     "u_marginRight",
+     "num",
+     "marginRight"
+    ],
+    [
+     "u_marginTop",
+     "num",
+     "marginTop"
+    ],
+    [
+     "u_marginBottom",
+     "num",
+     "marginBottom"
+    ],
+    [
+     "u_aspectRatio",
+     "enum:PulsingBorderAspectRatios",
+     "aspectRatio"
+    ],
+    [
+     "u_softness",
+     "num",
+     "softness"
+    ],
+    [
+     "u_intensity",
+     "num",
+     "intensity"
+    ],
+    [
+     "u_bloom",
+     "num",
+     "bloom"
+    ],
+    [
+     "u_spots",
+     "num",
+     "spots"
+    ],
+    [
+     "u_spotSize",
+     "num",
+     "spotSize"
+    ],
+    [
+     "u_pulse",
+     "num",
+     "pulse"
+    ],
+    [
+     "u_smoke",
+     "num",
+     "smoke"
+    ],
+    [
+     "u_smokeSize",
+     "num",
+     "smokeSize"
+    ],
+    [
+     "u_noiseTexture",
+     "noise",
+     ""
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "pulsingBorderMeta": {
+     "maxColorCount": 5,
+     "maxSpots": 4
+    },
+    "PulsingBorderAspectRatios": {
+     "auto": 0,
+     "square": 1
+    }
+   }
+  },
+  "SimplexNoise": {
+   "frag": "simplex-noise.frag",
+   "defaults": {
+    "fit": "none",
+    "scale": 0.6,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 0.5,
+    "frame": 0,
+    "colors": [
+     "#4449CF",
+     "#FFD1E0",
+     "#F94446",
+     "#FFD36B",
+     "#FFFFFF"
+    ],
+    "stepsPerColor": 2,
+    "softness": 0
+   },
+   "uniforms": [
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_stepsPerColor",
+     "num",
+     "stepsPerColor"
+    ],
+    [
+     "u_softness",
+     "num",
+     "softness"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "simplexNoiseMeta": {
+     "maxColorCount": 10
+    }
+   }
+  },
+  "SmokeRing": {
+   "frag": "smoke-ring.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 0.8,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 0.5,
+    "frame": 0,
+    "colorBack": "#000000",
+    "colors": [
+     "#ffffff"
+    ],
+    "noiseScale": 3,
+    "noiseIterations": 8,
+    "radius": 0.25,
+    "thickness": 0.65,
+    "innerShape": 0.7
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_noiseScale",
+     "num",
+     "noiseScale"
+    ],
+    [
+     "u_thickness",
+     "num",
+     "thickness"
+    ],
+    [
+     "u_radius",
+     "num",
+     "radius"
+    ],
+    [
+     "u_innerShape",
+     "num",
+     "innerShape"
+    ],
+    [
+     "u_noiseIterations",
+     "num",
+     "noiseIterations"
+    ],
+    [
+     "u_noiseTexture",
+     "noise",
+     ""
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "smokeRingMeta": {
+     "maxColorCount": 10,
+     "maxNoiseIterations": 8
+    }
+   }
+  },
+  "Spiral": {
+   "frag": "spiral.frag",
+   "defaults": {
+    "fit": "none",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "colorBack": "#001429",
+    "colorFront": "#79D1FF",
+    "density": 1,
+    "distortion": 0,
+    "strokeWidth": 0.5,
+    "strokeTaper": 0,
+    "strokeCap": 0,
+    "noise": 0,
+    "noiseFrequency": 0,
+    "softness": 0,
+    "speed": 1,
+    "frame": 0
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colorFront",
+     "color",
+     "colorFront"
+    ],
+    [
+     "u_density",
+     "num",
+     "density"
+    ],
+    [
+     "u_distortion",
+     "num",
+     "distortion"
+    ],
+    [
+     "u_strokeWidth",
+     "num",
+     "strokeWidth"
+    ],
+    [
+     "u_strokeTaper",
+     "num",
+     "strokeTaper"
+    ],
+    [
+     "u_strokeCap",
+     "num",
+     "strokeCap"
+    ],
+    [
+     "u_noiseFrequency",
+     "num",
+     "noiseFrequency"
+    ],
+    [
+     "u_noise",
+     "num",
+     "noise"
+    ],
+    [
+     "u_softness",
+     "num",
+     "softness"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    }
+   }
+  },
+  "Swirl": {
+   "frag": "swirl.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 0.32,
+    "frame": 0,
+    "colorBack": "#330000",
+    "colors": [
+     "#ffd1d1",
+     "#ff8a8a",
+     "#660000"
+    ],
+    "bandCount": 4,
+    "twist": 0.1,
+    "center": 0.2,
+    "proportion": 0.5,
+    "softness": 0,
+    "noiseFrequency": 0.4,
+    "noise": 0.2
+   },
+   "uniforms": [
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_bandCount",
+     "num",
+     "bandCount"
+    ],
+    [
+     "u_twist",
+     "num",
+     "twist"
+    ],
+    [
+     "u_center",
+     "num",
+     "center"
+    ],
+    [
+     "u_proportion",
+     "num",
+     "proportion"
+    ],
+    [
+     "u_softness",
+     "num",
+     "softness"
+    ],
+    [
+     "u_noiseFrequency",
+     "num",
+     "noiseFrequency"
+    ],
+    [
+     "u_noise",
+     "num",
+     "noise"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "swirlMeta": {
+     "maxColorCount": 10
+    }
+   }
+  },
+  "Voronoi": {
+   "frag": "voronoi.frag",
+   "defaults": {
+    "fit": "none",
+    "scale": 0.5,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 0.5,
+    "frame": 0,
+    "colors": [
+     "#ff8247",
+     "#ffe53d"
+    ],
+    "stepsPerColor": 3,
+    "colorGlow": "#ffffff",
+    "colorGap": "#2e0000",
+    "distortion": 0.4,
+    "gap": 0.04,
+    "glow": 0
+   },
+   "uniforms": [
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_stepsPerColor",
+     "num",
+     "stepsPerColor"
+    ],
+    [
+     "u_colorGlow",
+     "color",
+     "colorGlow"
+    ],
+    [
+     "u_colorGap",
+     "color",
+     "colorGap"
+    ],
+    [
+     "u_distortion",
+     "num",
+     "distortion"
+    ],
+    [
+     "u_gap",
+     "num",
+     "gap"
+    ],
+    [
+     "u_glow",
+     "num",
+     "glow"
+    ],
+    [
+     "u_noiseTexture",
+     "noise",
+     ""
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "voronoiMeta": {
+     "maxColorCount": 5
+    }
+   }
+  },
+  "Warp": {
+   "frag": "warp.frag",
+   "defaults": {
+    "fit": "none",
+    "scale": 1,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colors": [
+     "#121212",
+     "#9470ff",
+     "#121212",
+     "#8838ff"
+    ],
+    "proportion": 0.45,
+    "softness": 1,
+    "distortion": 0.25,
+    "swirl": 0.8,
+    "swirlIterations": 10,
+    "shapeScale": 0.1,
+    "shape": "checks"
+   },
+   "uniforms": [
+    [
+     "u_colors",
+     "colors",
+     "colors"
+    ],
+    [
+     "u_colorsCount",
+     "count",
+     "colors"
+    ],
+    [
+     "u_proportion",
+     "num",
+     "proportion"
+    ],
+    [
+     "u_softness",
+     "num",
+     "softness"
+    ],
+    [
+     "u_distortion",
+     "num",
+     "distortion"
+    ],
+    [
+     "u_swirl",
+     "num",
+     "swirl"
+    ],
+    [
+     "u_swirlIterations",
+     "num",
+     "swirlIterations"
+    ],
+    [
+     "u_shapeScale",
+     "num",
+     "shapeScale"
+    ],
+    [
+     "u_shape",
+     "enum:WarpPatterns",
+     "shape"
+    ],
+    [
+     "u_noiseTexture",
+     "noise",
+     ""
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    },
+    "warpMeta": {
+     "maxColorCount": 10
+    },
+    "WarpPatterns": {
+     "checks": 0,
+     "stripes": 1,
+     "edge": 2
+    }
+   }
+  },
+  "Water": {
+   "frag": "water.frag",
+   "defaults": {
+    "fit": "contain",
+    "scale": 0.8,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0,
+    "originX": 0.5,
+    "originY": 0.5,
+    "worldWidth": 0,
+    "worldHeight": 0,
+    "speed": 1,
+    "frame": 0,
+    "colorBack": "#909090",
+    "colorHighlight": "#ffffff",
+    "highlights": 0.07,
+    "layering": 0.5,
+    "edges": 0.8,
+    "waves": 0.3,
+    "caustic": 0.1,
+    "size": 1
+   },
+   "uniforms": [
+    [
+     "u_image",
+     "image",
+     "image"
+    ],
+    [
+     "u_colorBack",
+     "color",
+     "colorBack"
+    ],
+    [
+     "u_colorHighlight",
+     "color",
+     "colorHighlight"
+    ],
+    [
+     "u_highlights",
+     "num",
+     "highlights"
+    ],
+    [
+     "u_layering",
+     "num",
+     "layering"
+    ],
+    [
+     "u_waves",
+     "num",
+     "waves"
+    ],
+    [
+     "u_edges",
+     "num",
+     "edges"
+    ],
+    [
+     "u_caustic",
+     "num",
+     "caustic"
+    ],
+    [
+     "u_size",
+     "num",
+     "size"
+    ],
+    [
+     "u_fit",
+     "enum:ShaderFitOptions",
+     "fit"
+    ],
+    [
+     "u_rotation",
+     "num",
+     "rotation"
+    ],
+    [
+     "u_scale",
+     "num",
+     "scale"
+    ],
+    [
+     "u_offsetX",
+     "num",
+     "offsetX"
+    ],
+    [
+     "u_offsetY",
+     "num",
+     "offsetY"
+    ],
+    [
+     "u_originX",
+     "num",
+     "originX"
+    ],
+    [
+     "u_originY",
+     "num",
+     "originY"
+    ],
+    [
+     "u_worldWidth",
+     "num",
+     "worldWidth"
+    ],
+    [
+     "u_worldHeight",
+     "num",
+     "worldHeight"
+    ]
+   ],
+   "enums": {
+    "ShaderFitOptions": {
+     "none": 0,
+     "contain": 1,
+     "cover": 2
+    }
+   }
+  }
+ },
+ "components": {
+  "shader-color-panels": {
+   "paper": "ColorPanels",
+   "defaults": {
+    "speed": 1,
+    "colors": [
+     "#3a3a52",
+     "#4a4a68",
+     "#52527a",
+     "#5a5a8a"
+    ],
+    "colorBack": "#12121a",
+    "density": 3,
+    "length": 1.1
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-dithering": {
+   "paper": "Dithering",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#12121a",
+    "colorFront": "#6a6a85",
+    "shape": "wave",
+    "type": "4x4",
+    "size": 2
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-dot-orbit": {
+   "paper": "DotOrbit",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#12121a",
+    "colors": [
+     "#4a4a68",
+     "#52527a",
+     "#3a3a5c"
+    ],
+    "size": 1,
+    "spreading": 1
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-gem-smoke": {
+   "paper": "GemSmoke",
+   "defaults": {
+    "speed": 1,
+    "colors": [
+     "#3a3a5c",
+     "#52527a"
+    ],
+    "colorBack": "#0a0a10",
+    "innerDistortion": 0.8,
+    "outerDistortion": 0.6,
+    "outerGlow": 0.55,
+    "innerGlow": 1,
+    "size": 0.8
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-god-rays": {
+   "paper": "GodRays",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#12121a",
+    "colorBloom": "#3a3a5c",
+    "colors": [
+     "#5a5a7e",
+     "#8a8a95",
+     "#ffffff",
+     "#3a3a5c"
+    ],
+    "intensity": 0.8,
+    "density": 0.3,
+    "bloom": 0.4
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-grain-gradient": {
+   "paper": "GrainGradient",
+   "defaults": {
+    "speed": 1,
+    "colors": [
+     "#3a3a52",
+     "#4a4a68",
+     "#5a5a7e"
+    ],
+    "colorBack": "#12121a",
+    "softness": 0.6,
+    "intensity": 0.2,
+    "noise": 0.15
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-liquid-metal": {
+   "paper": "LiquidMetal",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#2a2a30",
+    "colorTint": "#8a8a95",
+    "distortion": 0.1,
+    "repetition": 1.5,
+    "contour": 0.4,
+    "softness": 0.05,
+    "shape": "none"
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-mesh-gradient": {
+   "paper": "MeshGradient",
+   "defaults": {
+    "speed": 1,
+    "colors": [
+     "#12121a",
+     "#232338",
+     "#3a3a5c",
+     "#52527a"
+    ],
+    "distortion": 0.6,
+    "swirl": 0.1
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-metaballs": {
+   "paper": "Metaballs",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#12121a",
+    "colors": [
+     "#3a3a5c",
+     "#52527a",
+     "#8a8a95"
+    ],
+    "count": 10,
+    "size": 0.83
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-neuro-noise": {
+   "paper": "NeuroNoise",
+   "defaults": {
+    "speed": 1,
+    "colorFront": "#8a8a95",
+    "colorMid": "#4a4a68",
+    "colorBack": "#12121a",
+    "brightness": 0.05,
+    "contrast": 0.3
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-perlin-noise": {
+   "paper": "PerlinNoise",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#12121a",
+    "colorFront": "#6a6a85",
+    "proportion": 0.35,
+    "softness": 0.1
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-pulsing-border": {
+   "paper": "PulsingBorder",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#12121a",
+    "colors": [
+     "#52527a",
+     "#8a8a95",
+     "#3a3a5c"
+    ],
+    "roundness": 0.25,
+    "thickness": 0.1,
+    "intensity": 0.2,
+    "bloom": 0.25
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-simplex-noise": {
+   "paper": "SimplexNoise",
+   "defaults": {
+    "speed": 1,
+    "colors": [
+     "#12121a",
+     "#3a3a5c",
+     "#52527a",
+     "#8a8a95"
+    ],
+    "stepsPerColor": 2,
+    "softness": 0.1
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-smoke-ring": {
+   "paper": "SmokeRing",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#12121a",
+    "colors": [
+     "#c8c8d0"
+    ],
+    "radius": 0.25,
+    "thickness": 0.65,
+    "scale": 0.8
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-spiral": {
+   "paper": "Spiral",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#12121a",
+    "colorFront": "#52527a",
+    "density": 1,
+    "strokeWidth": 0.5,
+    "softness": 0.2
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-swirl": {
+   "paper": "Swirl",
+   "defaults": {
+    "speed": 1,
+    "colors": [
+     "#52527a",
+     "#3a3a5c",
+     "#232338"
+    ],
+    "colorBack": "#12121a",
+    "bandCount": 4,
+    "twist": 0.1,
+    "softness": 0.2
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-voronoi": {
+   "paper": "Voronoi",
+   "defaults": {
+    "speed": 1,
+    "colors": [
+     "#3a3a5c",
+     "#52527a"
+    ],
+    "colorGap": "#12121a",
+    "distortion": 0.4,
+    "gap": 0.04,
+    "glow": 0
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-warp": {
+   "paper": "Warp",
+   "defaults": {
+    "speed": 1,
+    "colors": [
+     "#12121a",
+     "#3a3a5c",
+     "#12121a",
+     "#52527a"
+    ],
+    "proportion": 0.5,
+    "softness": 1,
+    "distortion": 0.2,
+    "swirl": 0.4
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  },
+  "shader-water": {
+   "paper": "Water",
+   "defaults": {
+    "speed": 1,
+    "colorBack": "#16202b",
+    "colorHighlight": "#5a6a7a",
+    "highlights": 0.06,
+    "waves": 0.3,
+    "caustic": 0.08
+   },
+   "fixed": {
+    "fit": "cover"
+   }
+  }
+ },
+ "presets": {
+  "shader-grain-gradient-arcade": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "dots",
+    "colorBack": "#111111",
+    "colors": [
+     "#ff5e3a",
+     "#ffd23f",
+     "#3bceac",
+     "#0ead69"
+    ],
+    "softness": 0.8,
+    "intensity": 0.6,
+    "noise": 0.35,
+    "scale": 0.6
+   },
+   "note": "Arcade: retro grainy dots in orange, yellow and green on black."
+  },
+  "shader-grain-gradient-blush": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "blob",
+    "colorBack": "#fff4ef",
+    "colors": [
+     "#ffb3c6",
+     "#ffd6a5",
+     "#cdb4ff"
+    ],
+    "softness": 0.9,
+    "intensity": 0.2,
+    "noise": 0.12
+   },
+   "note": "Blush: pastel pink and apricot blob morphing on warm off-white."
+  },
+  "shader-grain-gradient-dune": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "wave",
+    "colorBack": "#2b1a0e",
+    "colors": [
+     "#a0522d",
+     "#d9a066",
+     "#f3d9b1"
+    ],
+    "softness": 1,
+    "intensity": 0.35,
+    "noise": 0.45,
+    "rotation": 90,
+    "scale": 0.8
+   },
+   "note": "Dune: sandy grain wave in tan, caramel and rust."
+  },
+  "shader-grain-gradient-horizon": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "wave",
+    "colorBack": "#0b1d3a",
+    "colors": [
+     "#ff8a5b",
+     "#ffcf87",
+     "#9ad0ff"
+    ],
+    "softness": 0.9,
+    "intensity": 0.15,
+    "noise": 0.25,
+    "rotation": 180
+   },
+   "note": "Horizon: peach horizon band rolling between navy and pale sky."
+  },
+  "shader-grain-gradient-nebula": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "corners",
+    "colorBack": "#05010f",
+    "colors": [
+     "#7a2cff",
+     "#ff4ecd",
+     "#2ec5ff"
+    ],
+    "softness": 1,
+    "intensity": 0.7,
+    "noise": 0.2,
+    "scale": 0.6
+   },
+   "note": "Nebula: magenta and cyan glow blooming from the corners of deep space."
+  },
+  "shader-grain-gradient-orb": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "sphere",
+    "colorBack": "#0a0a12",
+    "colors": [
+     "#4f7cff",
+     "#b06bff",
+     "#ffd1f0"
+    ],
+    "softness": 0.6,
+    "intensity": 0.3,
+    "noise": 0.15
+   },
+   "note": "Orb: large grainy sphere in periwinkle, violet and pink."
+  },
+  "shader-grain-gradient-sunrise": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "wave",
+    "colorBack": "#1b0b2e",
+    "colors": [
+     "#ff6b6b",
+     "#ffb36b",
+     "#ffe29a"
+    ],
+    "softness": 0.8,
+    "intensity": 0.2,
+    "noise": 0.2
+   },
+   "note": "Sunrise: grainy wave of coral and gold rising over a plum night."
+  },
+  "shader-grain-gradient-tide": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "ripple",
+    "colorBack": "#021a1f",
+    "colors": [
+     "#00c2a8",
+     "#7cf5d9",
+     "#0a6b6b"
+    ],
+    "softness": 0.6,
+    "intensity": 0.3,
+    "noise": 0.2,
+    "scale": 0.7
+   },
+   "note": "Tide: teal ripple ring pulsing out of a dark sea-green core."
+  },
+  "shader-grain-gradient-ultraviolet": {
+   "base": "shader-grain-gradient",
+   "props": {
+    "speed": 1,
+    "shape": "blob",
+    "colorBack": "#0d0221",
+    "colors": [
+     "#2b2bff",
+     "#ff2bd6",
+     "#00f0ff"
+    ],
+    "softness": 0.5,
+    "intensity": 0.45,
+    "noise": 0.25
+   },
+   "note": "Ultraviolet: electric magenta and blue blob morphing on ultraviolet black."
+  },
+  "shader-mesh-gradient-aurora": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#020617",
+     "#0ea5a4",
+     "#22d3ee",
+     "#7c3aed",
+     "#020617"
+    ],
+    "distortion": 1,
+    "swirl": 0.8,
+    "rotation": 270
+   },
+   "note": "Aurora: cyan and violet ribbons swirling out of a near-black sky."
+  },
+  "shader-mesh-gradient-dusk": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#1a1446",
+     "#5b2a86",
+     "#f2709c",
+     "#ff9472",
+     "#2b1e5c"
+    ],
+    "distortion": 0.9,
+    "swirl": 0.3,
+    "rotation": 200
+   },
+   "note": "Dusk: violet dusk with coral and peach light drifting through deep indigo."
+  },
+  "shader-mesh-gradient-ember": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#120404",
+     "#5c0f0f",
+     "#e8410c",
+     "#ffb347"
+    ],
+    "distortion": 0.8,
+    "swirl": 0.5,
+    "rotation": 320,
+    "scale": 0.8
+   },
+   "note": "Ember: molten orange and amber pooling in dark oxblood."
+  },
+  "shader-mesh-gradient-ink": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#0b0b0f",
+     "#f4f4f5",
+     "#6b6b76"
+    ],
+    "distortion": 1,
+    "swirl": 0.25,
+    "grainOverlay": 0.15,
+    "rotation": 90
+   },
+   "note": "Ink: monochrome ink folds in charcoal and silver with grain."
+  },
+  "shader-mesh-gradient-lagoon": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#d6f5ff",
+     "#2bb3ff",
+     "#00d4c0",
+     "#0b3d91"
+    ],
+    "distortion": 0.7,
+    "swirl": 0.35,
+    "rotation": 90
+   },
+   "note": "Lagoon: bright aqua and teal shallows with a deep-blue undertow."
+  },
+  "shader-mesh-gradient-lavender": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#e9e4ff",
+     "#b8a6ff",
+     "#7f6bff",
+     "#ffd6f2"
+    ],
+    "distortion": 0.9,
+    "swirl": 0.1,
+    "grainMixer": 0.2,
+    "rotation": 135
+   },
+   "note": "Lavender: soft lilac and pink haze with grain-softened edges."
+  },
+  "shader-mesh-gradient-mint": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#f2fff8",
+     "#9ff2c8",
+     "#3dd6a0",
+     "#c7f0ff",
+     "#1fae8c"
+    ],
+    "distortion": 0.8,
+    "swirl": 0.2,
+    "rotation": 180
+   },
+   "note": "Mint: airy mint and sky-blue pastel wash around a deeper green core."
+  },
+  "shader-mesh-gradient-peach": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#fff1e6",
+     "#ffb38a",
+     "#ff7a59",
+     "#f9d5a7"
+    ],
+    "distortion": 0.6,
+    "swirl": 0.15,
+    "grainOverlay": 0.08,
+    "rotation": 45,
+    "scale": 1.2
+   },
+   "note": "Peach: warm peach and cream glow with a whisper of film grain."
+  },
+  "shader-mesh-gradient-synthwave": {
+   "base": "shader-mesh-gradient",
+   "props": {
+    "speed": 1,
+    "colors": [
+     "#05030f",
+     "#05030f",
+     "#3a1c71",
+     "#d76d77",
+     "#ffaf7b"
+    ],
+    "distortion": 0.9,
+    "swirl": 0.3,
+    "rotation": 160,
+    "offsetX": -0.2
+   },
+   "note": "Synthwave: night-purple field lit by a warm coral sunset glow."
+  },
+  "shader-swirl-candy": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#ffe3f1",
+    "colors": [
+     "#ff8fc7",
+     "#b69cff",
+     "#7fd6ff"
+    ],
+    "bandCount": 3,
+    "twist": 0.15,
+    "softness": 1,
+    "noise": 0
+   },
+   "note": "Candy: pastel pink, lilac and sky-blue spiral, soft and sweet."
+  },
+  "shader-swirl-citrus": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#fff8e1",
+    "colors": [
+     "#ffd166",
+     "#ef476f",
+     "#06d6a0"
+    ],
+    "bandCount": 3,
+    "twist": 0.25,
+    "softness": 0.4,
+    "noise": 0
+   },
+   "note": "Citrus: juicy yellow, pink and green bands spiralling on cream."
+  },
+  "shader-swirl-ember": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#1a0000",
+    "colors": [
+     "#ffb703",
+     "#fb8500",
+     "#9d0208"
+    ],
+    "bandCount": 4,
+    "twist": 0.3,
+    "softness": 0.8,
+    "noise": 0.3,
+    "center": 0
+   },
+   "note": "Ember: gold and orange fire bands spinning around a dark core."
+  },
+  "shader-swirl-hypno": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#0b0b0b",
+    "colors": [
+     "#f5f5f5"
+    ],
+    "bandCount": 6,
+    "twist": 0.25,
+    "softness": 0,
+    "noise": 0,
+    "center": 0
+   },
+   "note": "Hypno: high-contrast black and white hypnotic spiral."
+  },
+  "shader-swirl-lilac": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#2e1a47",
+    "colors": [
+     "#e0c3fc",
+     "#8ec5fc"
+    ],
+    "bandCount": 2,
+    "twist": 0.1,
+    "softness": 1,
+    "noise": 0.15
+   },
+   "note": "Lilac: dreamy lilac and baby-blue swirl around a dark eye."
+  },
+  "shader-swirl-neon": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#07001a",
+    "colors": [
+     "#00f5d4",
+     "#9b5de5",
+     "#f15bb5"
+    ],
+    "bandCount": 4,
+    "twist": 0.25,
+    "softness": 0.6,
+    "noise": 0.2,
+    "center": 0
+   },
+   "note": "Neon: neon teal, purple and pink vortex around a dark core."
+  },
+  "shader-swirl-retro": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#f4e9d8",
+    "colors": [
+     "#e76f51",
+     "#f4a261",
+     "#2a9d8f",
+     "#264653"
+    ],
+    "bandCount": 4,
+    "twist": 0.2,
+    "softness": 0,
+    "noise": 0
+   },
+   "note": "Retro: seventies spiral in orange, sand and teal."
+  },
+  "shader-swirl-sunburst": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#ff7a3d",
+    "colors": [
+     "#fff4d6",
+     "#ffc98b",
+     "#ff7a3d"
+    ],
+    "bandCount": 2,
+    "twist": 0.3,
+    "center": 0.2,
+    "softness": 0.2,
+    "noise": 0,
+    "offsetY": 0.9
+   },
+   "note": "Sunburst: retro cream and orange bands sweeping in from above."
+  },
+  "shader-swirl-tide": {
+   "base": "shader-swirl",
+   "props": {
+    "speed": 1,
+    "colorBack": "#012a4a",
+    "colors": [
+     "#a9d6e5",
+     "#61a5c2",
+     "#2c7da0"
+    ],
+    "bandCount": 5,
+    "twist": 0.2,
+    "softness": 1,
+    "noise": 0.3,
+    "noiseFrequency": 0.4
+   },
+   "note": "Tide: silky blue bands twisting into a deep navy whirlpool."
+  },
+  "shader-warp-acid": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 3,
+    "shape": "checks",
+    "colors": [
+     "#0a0a0a",
+     "#c6ff00",
+     "#00e5ff"
+    ],
+    "proportion": 0.5,
+    "softness": 0.3,
+    "distortion": 0.2,
+    "swirl": 0.7,
+    "swirlIterations": 8,
+    "shapeScale": 0.3
+   },
+   "note": "Acid: loud lime and cyan fluid swirling over black."
+  },
+  "shader-warp-cream": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 2,
+    "shape": "edge",
+    "colors": [
+     "#fff3e8",
+     "#ffb199",
+     "#ff6f61"
+    ],
+    "proportion": 0.55,
+    "softness": 1.5,
+    "distortion": 0.1,
+    "swirl": 0.4,
+    "swirlIterations": 5,
+    "shapeScale": 0.7
+   },
+   "note": "Cream: soft peach-to-coral cream gradient with a gentle drift."
+  },
+  "shader-warp-deep-sea": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 4,
+    "shape": "stripes",
+    "colors": [
+     "#020617",
+     "#0f3d5e",
+     "#1fb5a5"
+    ],
+    "proportion": 0.6,
+    "softness": 1,
+    "distortion": 0.15,
+    "swirl": 0.3,
+    "swirlIterations": 4,
+    "shapeScale": 1,
+    "rotation": 60
+   },
+   "note": "Deep Sea: diagonal teal bands rippling through midnight blue."
+  },
+  "shader-warp-marble": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 2,
+    "shape": "edge",
+    "colors": [
+     "#f5f3ee",
+     "#c9c3b8",
+     "#2b2b2b"
+    ],
+    "proportion": 0.3,
+    "softness": 0.4,
+    "distortion": 0.25,
+    "swirl": 0.9,
+    "swirlIterations": 10,
+    "shapeScale": 0.8
+   },
+   "note": "Marble: cream and charcoal marble veins swirling together."
+  },
+  "shader-warp-ocean": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 2,
+    "shape": "stripes",
+    "colors": [
+     "#00111f",
+     "#0077b6",
+     "#90e0ef",
+     "#caf0f8"
+    ],
+    "proportion": 0.5,
+    "softness": 0.8,
+    "distortion": 0.3,
+    "swirl": 0.5,
+    "swirlIterations": 6,
+    "shapeScale": 0.6,
+    "rotation": 30
+   },
+   "note": "Ocean: glossy aqua currents traced with dark ink edges."
+  },
+  "shader-warp-rose-gold": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 3,
+    "shape": "checks",
+    "colors": [
+     "#2a1515",
+     "#b76e79",
+     "#f6d1c1"
+    ],
+    "proportion": 0.5,
+    "softness": 1,
+    "distortion": 0.1,
+    "swirl": 0.9,
+    "swirlIterations": 6,
+    "shapeScale": 0.25,
+    "scale": 2
+   },
+   "note": "Rose Gold: satin rose-gold folds with a soft sheen."
+  },
+  "shader-warp-silk": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 2,
+    "shape": "edge",
+    "colors": [
+     "#1b1033",
+     "#6d3bd8",
+     "#f5a3ff",
+     "#fde7ff"
+    ],
+    "proportion": 0.45,
+    "softness": 1,
+    "distortion": 0.15,
+    "swirl": 0.6,
+    "swirlIterations": 8,
+    "shapeScale": 0.5
+   },
+   "note": "Silk: violet and pink liquid silk folding in slow waves."
+  },
+  "shader-warp-storm": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 3,
+    "shape": "edge",
+    "colors": [
+     "#0b0620",
+     "#3b1d8f",
+     "#8f5cff",
+     "#e0d4ff"
+    ],
+    "proportion": 0.5,
+    "softness": 1,
+    "distortion": 0.3,
+    "swirl": 1,
+    "swirlIterations": 10,
+    "shapeScale": 0.4
+   },
+   "note": "Storm: deep violet and lavender storm of marbled fluid."
+  },
+  "shader-warp-sunset": {
+   "base": "shader-warp",
+   "props": {
+    "speed": 3,
+    "shape": "checks",
+    "colors": [
+     "#2d0b16",
+     "#ff5f6d",
+     "#ffc371"
+    ],
+    "proportion": 0.5,
+    "softness": 1,
+    "distortion": 0.2,
+    "swirl": 0.8,
+    "swirlIterations": 10,
+    "shapeScale": 0.2
+   },
+   "note": "Sunset: marbled coral, peach and wine flowing like warm liquid."
+  }
+ }
+}

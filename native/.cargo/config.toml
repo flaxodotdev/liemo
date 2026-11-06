@@ -1,0 +1,5 @@
+# The Command Line Tools on this machine ship a macOS SDK their own linker can't read
+# ("unknown architecture arm64e.x1"), which breaks C build scripts such as ffmpeg-sys.
+# Xcode's SDK works, so point builds at it.
+[env]
+SDKROOT = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
