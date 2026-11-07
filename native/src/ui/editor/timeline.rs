@@ -124,8 +124,10 @@ impl Editor {
 
         // Header column: corner, then the track heads, scrolled with the lanes.
         let mut heads = div().absolute().left_0().right_0().top(px(-self.scroll_y)).flex().flex_col();
+        let last = self.store.tracks.last().map(|t| t.id.clone());
         for t in self.store.tracks.clone() {
-            heads = heads.child(self.track_head(&t, cx));
+            let end = Some(&t.id) == last.as_ref();
+            heads = heads.child(self.track_head(&t, end, cx));
         }
         let header_col = div()
             .w(px(HEAD_W))
@@ -141,7 +143,8 @@ impl Editor {
         let content_w = self.content_w();
         let mut lanes = div().absolute().left(px(-self.scroll_x)).top(px(-self.scroll_y)).w(px(content_w)).flex().flex_col();
         for t in self.store.tracks.clone() {
-            lanes = lanes.child(self.lane(&t, cx));
+            let end = Some(&t.id) == last.as_ref();
+            lanes = lanes.child(self.lane(&t, end, cx));
         }
         let lanes_view = div()
             .id("tl-lanes")
@@ -289,7 +292,8 @@ impl Editor {
             )
     }
 
-    fn track_head(&self, t: &Track, cx: &mut Context<Self>) -> impl IntoElement {
+    /// `last`: the bottom track draws no divider under itself (it would sit on the panel's edge).
+    fn track_head(&self, t: &Track, last: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let id = t.id.clone();
         let small = |name: &str, active: bool, tip: String, key: &'static str, cx: &mut Context<Self>| {
             let id = id.clone();
@@ -324,7 +328,7 @@ impl Editor {
             .flex()
             .items_center()
             .gap(px(6.))
-            .border_b_1()
+            .when(!last, |d| d.border_b_1())
             .border_color(hairline_soft())
             .pl_3()
             .pr(px(6.))
@@ -334,7 +338,7 @@ impl Editor {
             .child(lock)
     }
 
-    fn lane(&self, t: &Track, cx: &mut Context<Self>) -> impl IntoElement {
+    fn lane(&self, t: &Track, last: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let zoom = self.store.zoom;
         let target = match &self.drop_target {
             Some(DropTarget::Lane { track, time, ok }) if *track == t.id => Some((*time, *ok)),
@@ -350,7 +354,7 @@ impl Editor {
             .relative()
             .h(px(h))
             .flex_none()
-            .border_b_1()
+            .when(!last, |d| d.border_b_1())
             .border_color(hairline_soft())
             .when(target.map(|t| t.1).unwrap_or(false), |d| d.bg(alpha(signal(), 0.06)))
             .when(target.map(|t| !t.1).unwrap_or(false), |d| d.bg(alpha(coral(), 0.05)))

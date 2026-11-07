@@ -178,6 +178,8 @@ impl Editor {
             .size_full()
             .when(self.hover_clip.is_some() || bx.is_some(), |d| d.cursor_move())
             .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, window, cx| this.stage_mouse_down(ev, window, cx)))
+            // A quick click releases before the window-wide drag listeners are drawn; end it here.
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| this.drag_end(cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
                 if this.drag.is_some() {
                     return;

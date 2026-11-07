@@ -344,6 +344,10 @@ impl Editor {
         if let Some(t) = std::env::var("RAYNA_TIME").ok().and_then(|v| v.parse::<f64>().ok()) {
             ed.store.time = t;
         }
+        // Test hook: RAYNA_SCROLL_Y=<px> scrolls the timeline down (clamped on the first frame).
+        if let Some(y) = std::env::var("RAYNA_SCROLL_Y").ok().and_then(|v| v.parse::<f32>().ok()) {
+            ed.scroll_y = y;
+        }
         if let Some(i) = std::env::var("RAYNA_SELECT").ok().and_then(|v| v.parse::<usize>().ok()) {
             ed.store.selected = ed.store.clips.get(i).map(|c| c.id.clone());
         }
@@ -893,7 +897,7 @@ impl Editor {
         cx.notify();
     }
 
-    fn drag_end(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn drag_end(&mut self, cx: &mut Context<Self>) {
         let Some(drag) = self.drag.take() else { return };
         match drag {
             Drag::Slider { history, .. } => {
@@ -1379,7 +1383,14 @@ impl Render for Editor {
                         let e1 = e1.clone();
                         window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _w, cx| {
                             if phase == DispatchPhase::Bubble {
-                                e1.update(cx, |this, cx| this.drag_move(ev.position, ev.modifiers, cx));
+                                // A release can land before this listener exists (a quick click
+                                // ends before the next frame). Moving with no button held means
+                                // the drag is over, so end it instead of following the pointer.
+                                if ev.pressed_button.is_none() {
+                                    e1.update(cx, |this, cx| this.drag_end(cx));
+                                } else {
+                                    e1.update(cx, |this, cx| this.drag_move(ev.position, ev.modifiers, cx));
+                                }
                             }
                         });
                         let e2 = e2.clone();
