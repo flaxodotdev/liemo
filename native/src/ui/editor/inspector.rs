@@ -20,10 +20,16 @@ use std::rc::Rc;
 pub enum MenuEntry {
     Label(String),
     Separator,
-    Item { label: String, checked: bool, act: Rc<dyn Fn(&mut Editor)> },
+    /// `font`: draw the label in this font family (font pickers).
+    Item { label: String, checked: bool, act: Rc<dyn Fn(&mut Editor)>, font: Option<String> },
 }
 pub fn item(label: impl Into<String>, checked: bool, act: impl Fn(&mut Editor) + 'static) -> MenuEntry {
-    MenuEntry::Item { label: label.into(), checked, act: Rc::new(act) }
+    MenuEntry::Item { label: label.into(), checked, act: Rc::new(act), font: None }
+}
+/// A font's name, shown in that font.
+pub fn font_item(family: impl Into<String>, checked: bool, act: impl Fn(&mut Editor) + 'static) -> MenuEntry {
+    let family = family.into();
+    MenuEntry::Item { label: family.clone(), checked, act: Rc::new(act), font: Some(family) }
 }
 
 const SWATCHES: [&str; 9] = ["#ffffff", "#22c55e", "#0099ff", "#6a4cf5", "#d44df0", "#ff5577", "#ff7a3d", "#ffd9a0", "#1b0f2e"];
@@ -85,7 +91,7 @@ impl Editor {
                     menu = match e {
                         MenuEntry::Label(l) => menu.label(l.clone()),
                         MenuEntry::Separator => menu.separator(),
-                        MenuEntry::Item { label, checked, act } => {
+                        MenuEntry::Item { label, checked, act, .. } => {
                             let act = act.clone();
                             let ed = ed.clone();
                             menu.item(PopupMenuItem::new(label.clone()).checked(*checked).on_click(move |_, _, cx| {
@@ -108,8 +114,14 @@ impl Editor {
         let open = self.combo.as_ref() == Some(&id);
         let tid = id.clone();
         // The same pill as a normal select; only what opens differs.
+        // A font picker shows the current font in itself.
+        let trigger_font = entries.iter().find_map(|e| match e {
+            MenuEntry::Item { checked: true, font: Some(f), .. } => Some(f.clone()),
+            _ => None,
+        });
         let trigger = Button::new(id.clone())
             .label(current)
+            .when_some(trigger_font, |b, f| b.font_family(f))
             .outline()
             .dropdown_caret(true)
             .w_full()
@@ -146,7 +158,7 @@ impl Editor {
         enum Row {
             Label(String),
             Sep,
-            Item(String, bool, usize),
+            Item(String, bool, usize, Option<String>),
         }
         let mut rows: Vec<Row> = vec![];
         let mut acts: Vec<Rc<dyn Fn(&mut Editor)>> = vec![];
@@ -160,7 +172,7 @@ impl Editor {
                         rows.push(Row::Sep);
                     }
                 }
-                MenuEntry::Item { label, checked, act } => {
+                MenuEntry::Item { label, checked, act, font } => {
                     if !q.is_empty() && !label.to_lowercase().contains(&q) {
                         continue;
                     }
@@ -170,14 +182,14 @@ impl Editor {
                     if *checked && checked_at.is_none() {
                         checked_at = Some(acts.len());
                     }
-                    rows.push(Row::Item(label.clone(), *checked, acts.len()));
+                    rows.push(Row::Item(label.clone(), *checked, acts.len(), font.clone()));
                     acts.push(act.clone());
                 }
             }
         }
         let n = acts.len();
         // Which list row each item is, for keeping the highlight in view.
-        let row_of: Rc<Vec<usize>> = Rc::new(rows.iter().enumerate().filter_map(|(r, row)| if let Row::Item(_, _, i) = row { Some((*i, r)) } else { None }).map(|(_, r)| r).collect());
+        let row_of: Rc<Vec<usize>> = Rc::new(rows.iter().enumerate().filter_map(|(r, row)| if let Row::Item(_, _, i, _) = row { Some((*i, r)) } else { None }).map(|(_, r)| r).collect());
         let start = checked_at.unwrap_or(0);
         let hi = if n == 0 {
             0
@@ -236,7 +248,7 @@ impl Editor {
             .children(rows.into_iter().map(|row| match row {
                 Row::Label(l) => div().px_2().pt_2().pb_1().child(label(l)).into_any_element(),
                 Row::Sep => div().my_1().h(px(1.)).bg(hairline_soft()).into_any_element(),
-                Row::Item(text, checked, i) => {
+                Row::Item(text, checked, i, font) => {
                     let act = acts[i].clone();
                     div()
                         .id(("combo-item", i))
@@ -250,7 +262,7 @@ impl Editor {
                         .cursor_pointer()
                         .when(i == hi, |d| d.bg(surface3()))
                         .hover(|s| s.bg(surface2()))
-                        .child(div().flex_1().min_w_0().truncate().child(text))
+                        .child(div().flex_1().min_w_0().truncate().when_some(font, |d, f| d.font_family(f).text_size(px(15.))).child(text))
                         .when(checked, |d| d.child(icon("check", 13., ink())))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.combo = None;
@@ -453,7 +465,7 @@ impl Editor {
             }
         };
         let font_item = |fam: &'static str| {
-            item(fam, fam == t.font, set(Box::new(move |t: &mut TextProps| {
+            font_item(fam, fam == t.font, set(Box::new(move |t: &mut TextProps| {
                 t.font = fam.into();
                 t.weight = font_def(fam).weight;
             })))
