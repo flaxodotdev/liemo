@@ -5,6 +5,7 @@ mod agent_ui;
 mod export_ui;
 pub mod geometry;
 mod inspector;
+pub mod layout;
 mod library;
 mod preview;
 mod timeline;
@@ -85,6 +86,8 @@ pub enum ClipMode {
 pub type Apply = Rc<dyn Fn(&mut Editor, f64)>;
 
 pub enum Drag {
+    /// Resizing a panel by dragging the gap beside it.
+    Resize { edge: layout::Edge, start: f32, size0: f32 },
     Slider { key: String, min: f64, max: f64, step: f64, apply: Apply, history: bool },
     Scrub { was_playing: bool },
     Clip { id: String, mode: ClipMode, x0: f32, y0: f32, o_start: f64, o_dur: f64, o_in: f64, pts: Vec<f64>, moved: bool },
@@ -114,8 +117,10 @@ pub struct Editor {
     export_name: Entity<InputState>,
     /// The open searchable select (long lists: fonts, effects, transitions), its search field,
     /// highlighted row and list scroll.
-    /// The Agent tab's chat.
+    /// The AI sidebar's chat.
     pub agent: agent_ui::AgentChat,
+    /// Panel sizes and which panels are open.
+    pub layout: layout::Layout,
     pub combo: Option<SharedString>,
     pub combo_input: Entity<InputState>,
     pub combo_hi: usize,
@@ -299,6 +304,7 @@ impl Editor {
             text_input,
             export_name,
             agent: agent,
+            layout: layout::Layout::load(),
             combo: std::env::var("RAYNA_COMBO").ok().map(SharedString::from),
             combo_input,
             combo_hi: usize::MAX,
@@ -525,6 +531,11 @@ impl Editor {
             self.toggle_play();
         } else if cmd {
             match k {
+                // Panels, as in VS Code.
+                "b" if m.alt => self.toggle_panel(layout::Edge::Inspector, cx),
+                "b" => self.toggle_panel(layout::Edge::Library, cx),
+                "j" => self.toggle_panel(layout::Edge::Timeline, cx),
+                "i" => self.toggle_agent(cx),
                 "z" if m.shift => s.redo(),
                 "z" => s.undo(),
                 "y" => s.redo(),
@@ -883,6 +894,7 @@ impl Editor {
             Drag::Clip { id, mode, x0, y0, o_start, o_dur, o_in, pts, moved } => {
                 self.clip_drag_move(id.clone(), *mode, *x0, *y0, *o_start, *o_dur, *o_in, pts, moved, pos);
             }
+            Drag::Resize { edge, start, size0 } => self.resize_drag(*edge, *start, *size0, pos),
             Drag::StageMove { id, o, b0, start, begun } => {
                 if let Some(p) = self.stage_point(pos) {
                     self.stage_move(id, *o, *b0, *start, begun, p, mods);
@@ -942,6 +954,7 @@ impl Editor {
                 self.readout = None;
             }
             Drag::Range { .. } => {}
+            Drag::Resize { .. } => self.layout.save(),
         }
         cx.notify();
     }
@@ -1384,7 +1397,6 @@ impl Render for Editor {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .gap_2()
                     .child(
                         div()
                             .flex()
@@ -1392,20 +1404,21 @@ impl Render for Editor {
                             .flex_1()
                             .min_w_0()
                             .min_h_0()
-                            .gap_2()
                             .child(
                                 div()
                                     .flex()
                                     .flex_1()
                                     .min_h_0()
-                                    .gap_2()
-                                    .child(self.render_library(window, cx))
-                                    .child(self.render_preview(window, cx))
-                                    .child(self.render_inspector(window, cx)),
+                                    .when(self.layout.lib, |d| d.child(self.render_library(window, cx)).child(self.splitter(layout::Edge::Library, cx)))
+                                    .child(div().flex().flex_1().min_w(px(280.)).min_h_0().child(self.render_preview(window, cx)))
+                                    .when(self.layout.insp, |d| d.child(self.splitter(layout::Edge::Inspector, cx)).child(self.render_inspector(window, cx))),
                             )
-                            .child(div().h(px(320.)).min_h(px(240.)).flex_none().flex().flex_col().child(self.render_timeline(window, cx))),
+                            .when(self.layout.tl, |d| {
+                                d.child(self.splitter(layout::Edge::Timeline, cx))
+                                    .child(div().h(px(self.layout.tl_h)).flex_none().flex().flex_col().child(self.render_timeline(window, cx)))
+                            }),
                     )
-                    .when(self.agent.open, |d| d.child(self.render_agent(cx))),
+                    .when(self.agent.open, |d| d.child(self.splitter(layout::Edge::Agent, cx)).child(self.render_agent(cx))),
             )
             .when_some(self.export.is_some().then_some(()), |d, _| d.child(self.render_export(window, cx)))
             .when(dragging, |d| {

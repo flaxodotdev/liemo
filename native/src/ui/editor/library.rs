@@ -301,8 +301,7 @@ impl Editor {
         };
 
         panel()
-            .w(px(330.))
-            .min_w(px(280.))
+            .w(px(self.layout.lib_w))
             .flex_none()
             .flex_row()
             .child(tabs)
@@ -312,7 +311,12 @@ impl Editor {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(panel_header().px_3().child(div().relative().flex_1().child(self.track_bounds("input:search")).child(Input::new(&self.search_input).prefix(icon("search", 16., ink_muted())).aria_label("Search library"))))
+                    .child(
+                        panel_header()
+                            .px_3()
+                            .child(div().relative().flex_1().child(self.track_bounds("input:search")).child(Input::new(&self.search_input).prefix(icon("search", 16., ink_muted())).aria_label("Search library")))
+                            .child(icon_button("lib-close", "x", "Close library", Some("⌘B"), 28., Variant::Ghost, cx.listener(|this, _, _, cx| this.toggle_panel(super::layout::Edge::Library, cx)))),
+                    )
                     .child(div().id("lib-scroll").flex_1().min_h_0().overflow_y_scroll().pb_3().children(body)),
             )
     }

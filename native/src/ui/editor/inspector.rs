@@ -311,10 +311,13 @@ impl Editor {
             None => self.project_inspector(),
         };
         panel()
-            .w(px(300.))
-            .min_w(px(260.))
+            .w(px(self.layout.insp_w))
             .flex_none()
-            .child(panel_header().child(label("Inspector")))
+            .child(
+                panel_header()
+                    .child(label("Inspector").flex_1())
+                    .child(icon_button("insp-close", "x", "Close inspector", Some("⌥⌘B"), 26., Variant::Ghost, cx.listener(|this, _, _, cx| this.toggle_panel(super::layout::Edge::Inspector, cx)))),
+            )
             .child(div().id("inspector-scroll").flex_1().min_h_0().overflow_y_scroll().child(div().flex().flex_col().px_4().pb_4().children(body)))
     }
 
@@ -332,6 +335,9 @@ impl Editor {
             ("⌘D", "Duplicate clip"),
             ("+ −", "Zoom timeline"),
             ("N", "Toggle snapping"),
+            ("⌘B ⌘J", "Show or hide library, timeline"),
+            ("⌥⌘B", "Show or hide inspector"),
+            ("⌘I", "Show or hide Liemo AI"),
         ];
         vec![
             group(None, None, false)

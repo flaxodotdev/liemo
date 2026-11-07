@@ -120,7 +120,8 @@ impl Editor {
                     .child(icon("zoom-out", 16., ink_muted()))
                     .child(self.slider("tl-zoom", zoom, 12.0, 240.0, 1.0, false, Rc::new(|e: &mut Editor, v| e.zoom_to(v)), cx))
                     .child(icon("zoom-in", 16., ink_muted())),
-            );
+            )
+            .child(icon_button("tl-close", "x", "Close timeline", Some("⌘J"), 28., Variant::Ghost, cx.listener(|this, _, _, cx| this.toggle_panel(super::layout::Edge::Timeline, cx))));
 
         // Header column: corner, then the track heads, scrolled with the lanes.
         let mut heads = div().absolute().left_0().right_0().top(px(-self.scroll_y)).flex().flex_col();

@@ -47,6 +47,22 @@ impl Editor {
                 this.store.redo();
                 cx.notify();
             })).bg(surface1()).when(!self.store.can_redo(), |d| d.opacity(0.4)))
+            .child({
+                // Panel toggles, as in VS Code's title bar.
+                use super::layout::Edge;
+                let t = |id: &'static str, ic: &'static str, tip: &'static str, key: &'static str, on: bool, e: Edge, cx: &mut Context<Self>| {
+                    icon_button(id, ic, tip, Some(key), 32., Variant::Ghost, cx.listener(move |this, _, _, cx| this.toggle_panel(e, cx)))
+                        .text_color(if on { ink() } else { ink_muted() })
+                        .when(on, |d| d.bg(surface1()))
+                };
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(t("tog-lib", "panel-left", "Library", "⌘B", self.layout.lib, Edge::Library, cx))
+                    .child(t("tog-tl", "panel-bottom", "Timeline", "⌘J", self.layout.tl, Edge::Timeline, cx))
+                    .child(t("tog-insp", "panel-right", "Inspector", "⌥⌘B", self.layout.insp, Edge::Inspector, cx))
+            })
             .child(
                 button("ai", Variant::Secondary, 40.)
                     .pl(px(6.))

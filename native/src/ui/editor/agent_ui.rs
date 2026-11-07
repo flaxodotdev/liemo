@@ -14,7 +14,6 @@ use gpui_component::input::{Textarea, TextareaState};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-pub const SIDEBAR_W: f32 = 380.0;
 
 pub enum Msg {
     User(String),
@@ -528,7 +527,7 @@ impl Editor {
         );
 
         panel()
-            .w(px(SIDEBAR_W))
+            .w(px(self.layout.agent_w))
             .flex_none()
             .h_full()
             .child(header)
