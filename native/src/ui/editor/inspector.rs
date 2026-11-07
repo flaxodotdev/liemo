@@ -276,10 +276,17 @@ impl Editor {
             .border_color(hairline())
             .shadow_lg()
             .capture_key_down(keys)
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.combo = None;
-                cx.notify();
-            }))
+            .on_mouse_down_out({
+                // A press on the select's own button is left to its click, which toggles closed.
+                let key = geo_key.clone();
+                cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                    if this.geo.borrow().get(&key).is_some_and(|b| b.contains(&ev.position)) {
+                        return;
+                    }
+                    this.combo = None;
+                    cx.notify();
+                })
+            })
             .child(
                 div()
                     .relative()
