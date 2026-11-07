@@ -195,7 +195,9 @@ fn run_app() {
             render::text::system_families();
         });
         std::thread::spawn(|| {
-            agent::installed();
+            for (p, _) in agent::installed() {
+                p.models();
+            }
         });
         // Once an update is in place, quit so the relaunch can start the new version.
         cx.spawn(async move |cx| loop {

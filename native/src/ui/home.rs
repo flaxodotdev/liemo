@@ -100,7 +100,7 @@ pub fn create_project(sample: bool, name: Option<String>, np: &NewProject) -> an
         vec![]
     };
     let now = storage::now_ms();
-    p.name = name.unwrap_or_else(|| if sample { "Lisbon summer reel".into() } else { "Untitled project".into() });
+    p.name = name.unwrap_or_else(|| if sample { "Nature reel".into() } else { "Untitled project".into() });
     p.created_at = now;
     p.updated_at = now;
     p.duration = project_end(&clips);
@@ -595,7 +595,7 @@ impl Home {
 
         let starts = [
             ("blank", "Blank", "plus", "An empty timeline"),
-            ("sample", "The sample", "sparkles", "Lisbon reel, laid out for this shape"),
+            ("sample", "The sample", "sparkles", "Nature reel, laid out for this shape"),
             ("video", "Video files", "upload", "Your footage, straight onto the timeline"),
         ];
         let start_list = div().flex().gap(px(6.)).children(starts.iter().map(|(id, title, ic, desc)| {
@@ -1128,7 +1128,7 @@ impl Render for Home {
                             .flex()
                             .gap_3()
                             .child(self.start_card("blank", "Blank project", "Any shape: YouTube, Reels, TikTok, Shorts, Stories, square and portrait posts.", "plus", None, cx))
-                            .child(self.start_card("sample", "Start from the sample", "The Lisbon summer reel: footage, titles, music and effects, ready to remix in any shape.", "sparkles", Some(sample_strip), cx))
+                            .child(self.start_card("sample", "Start from the sample", "A nature reel: footage, titles, music and effects, ready to remix in any shape.", "sparkles", Some(sample_strip), cx))
                             .child(self.start_card("video", "Start from a video", "Pick video, photo or audio files. They go straight onto a new timeline.", "upload", None, cx)),
                     )
                     .child(

@@ -209,6 +209,11 @@ impl Editor {
         let combo_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search").default_value(combo_q));
         let agent = agent_ui::AgentChat::new(window, cx);
         let mut subs = vec![];
+        subs.push(cx.subscribe_in(&agent.picker_input, window, |_: &mut Editor, _, ev: &InputEvent, _w, cx| {
+            if let InputEvent::Change = ev {
+                cx.notify();
+            }
+        }));
         subs.push(cx.subscribe_in(&agent.input, window, |this: &mut Editor, input, ev: &InputEvent, window, cx| {
             if let InputEvent::PressEnter { .. } = ev {
                 let text = input.read(cx).value().to_string();
@@ -510,6 +515,7 @@ impl Editor {
             || self.export_name.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.combo_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.agent.input.read(cx).focus_handle(cx).contains_focused(window, cx)
+            || self.agent.picker_input.read(cx).focus_handle(cx).contains_focused(window, cx)
     }
 
     fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {

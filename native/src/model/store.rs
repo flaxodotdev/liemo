@@ -221,7 +221,7 @@ pub fn accepts(tracks: &[Track], track_id: &str, t: AssetType) -> bool {
     tracks.iter().find(|x| x.id == track_id).map(|tr| track_kinds(tr.kind).contains(&t)).unwrap_or(false)
 }
 
-/// The "Lisbon summer reel" sample, used as a project template.
+/// The "Nature reel" sample, used as a project template.
 pub fn sample_clips() -> Vec<Clip> {
     let tracks = default_tracks();
     let mut clips = vec![];

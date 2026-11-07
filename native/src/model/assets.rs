@@ -1,13 +1,12 @@
 // Asset library: procedural sample clips, music, stills, overlays, fonts, text styles and fades,
 // plus the registry that imported media joins.
 
-use super::time::{lerp, rng, tc, H, W};
+use super::time::{rng, tc, H, W};
 use super::types::*;
 use crate::render::canvas::{hex, pixmap, rgba, Canvas};
 use crate::render::text::{fill_text, Align, Baseline, TextStyle};
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::f32::consts::PI;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tiny_skia::Pixmap;
@@ -70,145 +69,6 @@ pub fn chord(q: &str) -> &'static [i32] {
         "min7" => &[0, 3, 7, 10],
         "sus" => &[0, 5, 7, 14],
         _ => &[0, 4, 7],
-    }
-}
-
-// ---------- Sample scenes (stand-ins for footage) ----------
-fn coast(c: &mut Canvas, t: f32) {
-    let g = c.linear(0.0, 0.0, 0.0, H() * 0.62, &[(0.0, hex("#2b1d5c")), (0.55, hex("#d4507a")), (1.0, hex("#ff9a4d"))]);
-    c.set_fill(g);
-    c.fill_rect(0.0, 0.0, W(), H());
-    c.set_fill_color(hex("#ffd9a0"));
-    c.begin_path();
-    c.arc(W() * 0.62, H() * 0.5 + t * 14.0, 70.0, 0.0, PI * 2.0);
-    c.fill();
-    let s = c.linear(0.0, H() * 0.6, 0.0, H(), &[(0.0, hex("#3a2a6a")), (1.0, hex("#0d0b24"))]);
-    c.set_fill(s);
-    c.fill_rect(0.0, H() * 0.6, W(), H() * 0.4);
-    c.set_stroke_color(rgba(255, 200, 150, 0.35));
-    c.set_line_width(2.0);
-    for i in 0..14 {
-        let fi = i as f32;
-        let y = H() * 0.62 + fi * fi * 1.9;
-        c.begin_path();
-        let mut x = 0.0;
-        while x <= W() {
-            c.line_to(x, y + (x * 0.02 + t * 1.6 + fi).sin() * (1.0 + fi * 0.4));
-            x += 20.0;
-        }
-        c.stroke();
-    }
-}
-
-fn drive(c: &mut Canvas, t: f32) {
-    c.fill_rect_color(0.0, 0.0, W(), H(), hex("#07070d"));
-    let mut r = rng(7);
-    for i in 0..40 {
-        let bw = 40.0 + r.next() * 90.0;
-        let bh = 120.0 + r.next() * 260.0;
-        let x = (((i as f32 * 70.0 - t * 160.0) % (W() + 200.0)) + W() + 200.0) % (W() + 200.0) - 100.0;
-        c.fill_rect_color(x, H() * 0.55 - bh, bw, bh, hex("#12121e"));
-        for k in 0..18 {
-            if r.next() > 0.55 {
-                let col = if r.next() > 0.5 { hex("#ffcf6b") } else { hex("#6bc8ff") };
-                c.set_alpha(0.7);
-                c.fill_rect_color(x + 6.0 + (k % 3) as f32 * (bw / 3.2), H() * 0.55 - bh + 10.0 + (k / 3) as f32 * 22.0, 6.0, 9.0, col);
-            }
-        }
-        c.set_alpha(1.0);
-    }
-    c.set_fill_color(hex("#0e0e16"));
-    c.begin_path();
-    c.move_to(0.0, H());
-    c.line_to(W() * 0.46, H() * 0.55);
-    c.line_to(W() * 0.54, H() * 0.55);
-    c.line_to(W(), H());
-    c.fill();
-    c.set_fill_color(hex("#f5f5f5"));
-    for i in 0..8 {
-        let p = (i as f32 / 8.0 + t * 0.6) % 1.0;
-        let pp = p * p;
-        c.fill_rect(W() / 2.0 - lerp(2.0, 18.0, pp) / 2.0, lerp(H() * 0.56, H(), pp), lerp(2.0, 18.0, pp), lerp(4.0, 70.0, pp));
-    }
-    let glow = c.radial(W() * 0.3, H() * 0.5, 0.0, W() * 0.3, H() * 0.5, 300.0, &[(0.0, rgba(255, 60, 90, 0.25)), (1.0, rgba(0, 0, 0, 0.0))]);
-    c.set_fill(glow);
-    c.fill_rect(0.0, 0.0, W(), H());
-}
-
-fn aurora(c: &mut Canvas, t: f32) {
-    c.fill_rect_color(0.0, 0.0, W(), H(), hex("#04060f"));
-    let mut r = rng(3);
-    c.set_fill_color(hex("#fff"));
-    for i in 0..160 {
-        c.set_alpha(0.3 + 0.7 * (t * 2.0 + i as f32).sin().abs());
-        let x = r.next() * W();
-        let y = r.next() * H() * 0.7;
-        c.fill_rect(x, y, 1.5, 1.5);
-    }
-    c.set_alpha(1.0);
-    c.set_op("screen");
-    for (col, o) in [(rgba(60, 255, 170, 0.22), 0.0), (rgba(106, 76, 245, 0.28), 2.0), (rgba(212, 77, 240, 0.18), 4.0)] {
-        c.set_fill_color(col);
-        for b in 0..3 {
-            let b = b as f32;
-            c.begin_path();
-            c.move_to(0.0, H());
-            let mut x = 0.0;
-            while x <= W() {
-                c.line_to(x, H() * 0.35 + (x * 0.004 + t * 0.7 + o + b).sin() * 80.0 + (x * 0.011 - t + b).sin() * 30.0 - b * 25.0);
-                x += 16.0;
-            }
-            c.line_to(W(), H());
-            c.fill();
-        }
-    }
-    c.set_op("source-over");
-    c.set_fill_color(hex("#02030a"));
-    c.begin_path();
-    c.move_to(0.0, H());
-    let mut x = 0.0;
-    while x <= W() {
-        c.line_to(x, H() * 0.82 - (x * 0.007).sin().abs() * 90.0 - (x * 0.03).sin() * 12.0);
-        x += 40.0;
-    }
-    c.line_to(W(), H());
-    c.fill();
-}
-
-fn studio(c: &mut Canvas, t: f32) {
-    let g = c.linear(0.0, 0.0, 0.0, H(), &[(0.0, hex("#1a1a1a")), (0.7, hex("#3a3a3a")), (1.0, hex("#202020"))]);
-    c.set_fill(g);
-    c.fill_rect(0.0, 0.0, W(), H());
-    let lx = W() / 2.0 + (t * 0.9).sin() * 380.0;
-    let s = c.radial(lx, H() * 0.5, 10.0, lx, H() * 0.5, 520.0, &[(0.0, rgba(255, 255, 255, 0.35)), (1.0, rgba(255, 255, 255, 0.0))]);
-    c.set_fill(s);
-    c.fill_rect(0.0, 0.0, W(), H());
-    c.save();
-    c.translate(W() / 2.0, H() * 0.58);
-    c.rotate(t * 0.5);
-    c.fill_rect_color(-80.0, -80.0, 160.0, 160.0, hex("#f2f2f2"));
-    c.restore();
-    c.set_fill_color(rgba(0, 0, 0, 0.35));
-    c.begin_path();
-    c.move_to(W() / 2.0 + 150.0, H() * 0.78);
-    c.ellipse(W() / 2.0, H() * 0.78, 150.0, 18.0, 0.0, PI * 2.0, false);
-    c.fill();
-}
-
-fn ink(c: &mut Canvas, t: f32) {
-    c.fill_rect_color(0.0, 0.0, W(), H(), hex("#f3f0ea"));
-    let mut r = rng(11);
-    for i in 0..9 {
-        let x = W() * (0.2 + r.next() * 0.6);
-        let y0 = H() * (0.2 + r.next() * 0.5);
-        let y = y0 + t * 20.0 * (r.next() + 0.3);
-        let rad = 40.0 + t * (30.0 + r.next() * 50.0);
-        let (cr, cg, cb) = match i % 3 { 0 => (106, 76, 245), 1 => (212, 77, 240), _ => (20, 20, 40) };
-        let g = c.radial(x, y, 0.0, x, y, rad, &[(0.0, rgba(cr, cg, cb, 0.55)), (1.0, rgba(cr, cg, cb, 0.0))]);
-        c.set_fill(g);
-        c.begin_path();
-        c.circle(x, y, rad);
-        c.fill();
     }
 }
 
@@ -353,14 +213,63 @@ fn rec_frame(c: &mut Canvas, t: f32) {
     fill_text(c, &tc(t as f64), W() - m - 200.0, m + 43.0, &st, Align::Left, Baseline::Alphabetic, hex("#fff"));
 }
 
+// ---------- Sample footage: nature photographs (Unsplash licence) in slow camera moves ----------
+struct Shot {
+    jpg: &'static [u8],
+    /// Zoom from, zoom to, and the drift across the clip as a fraction of the frame (x, y).
+    zoom: (f32, f32),
+    pan: (f32, f32),
+}
+const SHOTS: [Shot; 6] = [
+    Shot { jpg: include_bytes!("../../assets/footage/coastal-cliffs.jpg"), zoom: (1.04, 1.16), pan: (0.03, -0.01) },
+    Shot { jpg: include_bytes!("../../assets/footage/canyon-sunset.jpg"), zoom: (1.14, 1.05), pan: (-0.04, 0.0) },
+    Shot { jpg: include_bytes!("../../assets/footage/snow-peaks.jpg"), zoom: (1.06, 1.12), pan: (-0.03, 0.02) },
+    Shot { jpg: include_bytes!("../../assets/footage/forest-waterfall.jpg"), zoom: (1.03, 1.15), pan: (0.0, 0.02) },
+    Shot { jpg: include_bytes!("../../assets/footage/valley-pines.jpg"), zoom: (1.12, 1.04), pan: (0.03, 0.0) },
+    Shot { jpg: include_bytes!("../../assets/footage/ocean-surf.jpg"), zoom: (1.05, 1.18), pan: (-0.02, -0.02) },
+];
+const SHOT_LEN: f32 = 6.0;
+
+fn shot_image(i: usize) -> &'static Pixmap {
+    static P: OnceLock<Vec<Pixmap>> = OnceLock::new();
+    &P.get_or_init(|| {
+        SHOTS
+            .iter()
+            .map(|s| {
+                let img = image::load_from_memory(s.jpg).expect("bundled footage").to_rgba8();
+                let (w, h) = img.dimensions();
+                crate::render::canvas::from_straight(img.as_raw(), w, h)
+            })
+            .collect()
+    })[i]
+}
+
+/// A slow, eased push-in or pull-out with a drift, always covering the frame.
+fn shot(c: &mut Canvas, t: f32, i: usize) {
+    let s = &SHOTS[i];
+    let pm = shot_image(i);
+    let p = (t / SHOT_LEN).clamp(0.0, 1.0);
+    let e = p * p * (3.0 - 2.0 * p);
+    let zoom = s.zoom.0 + (s.zoom.1 - s.zoom.0) * e;
+    let (iw, ih) = (pm.width() as f32, pm.height() as f32);
+    let k = (W() / iw).max(H() / ih) * zoom;
+    let (dw, dh) = (iw * k, ih * k);
+    // The drift stays inside the overscan, so no edge ever shows.
+    let (sx, sy) = ((dw - W()) / 2.0, (dh - H()) / 2.0);
+    let ox = (s.pan.0 * (e - 0.5) * 2.0 * W()).clamp(-sx, sx);
+    let oy = (s.pan.1 * (e - 0.5) * 2.0 * H()).clamp(-sy, sy);
+    c.draw_image_scaled(pm, (W() - dw) / 2.0 + ox, (H() - dh) / 2.0 + oy, dw, dh);
+}
+
 pub fn scenes() -> Vec<Asset> {
     use AssetType::Scene;
     vec![
-        Asset::drawn("sc-coast", Scene, "Coastline at dusk", "4K · 24p · Lisbon", 6.0, coast),
-        Asset::drawn("sc-drive", Scene, "Night drive", "HD · 30p · Dashcam", 5.0, drive),
-        Asset::drawn("sc-aurora", Scene, "Aurora field", "4K · 24p · Timelapse", 6.0, aurora),
-        Asset::drawn("sc-studio", Scene, "Studio sweep", "HD · 60p · Product", 4.0, studio),
-        Asset::drawn("sc-ink", Scene, "Ink in water", "4K · 120p · Macro", 5.0, ink),
+        Asset::drawn("sc-coast", Scene, "Coastal cliffs", "4K · 24p · Sea stacks", 6.0, SCENE_DRAWS[0]),
+        Asset::drawn("sc-drive", Scene, "Canyon sunset", "4K · 24p · Golden hour", 6.0, SCENE_DRAWS[1]),
+        Asset::drawn("sc-aurora", Scene, "Snow peaks", "4K · 24p · Aerial", 6.0, SCENE_DRAWS[2]),
+        Asset::drawn("sc-studio", Scene, "Forest waterfall", "4K · 24p · Gorge", 6.0, SCENE_DRAWS[3]),
+        Asset::drawn("sc-ink", Scene, "Valley pines", "4K · 24p · Yosemite", 6.0, SCENE_DRAWS[4]),
+        Asset::drawn("sc-surf", Scene, "Ocean surf", "4K · 30p · Aerial", 6.0, SCENE_DRAWS[5]),
     ]
 }
 /// Animated shader backgrounds from remocn (see fx::paper).
@@ -370,7 +279,7 @@ pub fn shaders() -> Vec<Asset> {
         .map(|b| Asset { shader: Some(b.id.as_str()), ..Asset::base(&format!("sh-{}", b.id.trim_start_matches("shader-")), AssetType::Scene, &b.name, &b.sub, 8.0) })
         .collect()
 }
-pub const SCENE_DRAWS: [DrawFn; 5] = [coast, drive, aurora, studio, ink];
+pub const SCENE_DRAWS: [DrawFn; 6] = [|c, t| shot(c, t, 0), |c, t| shot(c, t, 1), |c, t| shot(c, t, 2), |c, t| shot(c, t, 3), |c, t| shot(c, t, 4), |c, t| shot(c, t, 5)];
 
 pub fn music() -> Vec<Asset> {
     let m = |id: &str, name: &str, sub: &str, bpm: f64, dur: f64, roots: [i32; 4], quality: &'static str, hue: &'static str| Asset {

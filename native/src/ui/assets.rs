@@ -60,6 +60,10 @@ const ICONS: &[(&str, &[u8])] = &[
     // Agent marks for the Connect AI button (Simple Icons, CC0; trademarks of their owners).
     ("brand-claude", include_bytes!("../../assets/icons/brand-claude.svg")),
     ("brand-openai", include_bytes!("../../assets/icons/brand-openai.svg")),
+    ("brand-cursor", include_bytes!("../../assets/icons/brand-cursor.svg")),
+    ("brand-githubcopilot", include_bytes!("../../assets/icons/brand-githubcopilot.svg")),
+    ("brand-qwen", include_bytes!("../../assets/icons/brand-qwen.svg")),
+    ("brand-opencode", include_bytes!("../../assets/icons/brand-opencode.svg")),
     ("brand-googlegemini", include_bytes!("../../assets/icons/brand-googlegemini.svg")),
 ];
 

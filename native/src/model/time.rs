@@ -65,9 +65,6 @@ pub fn rng(seed: i64) -> Rng {
     Rng::new(seed as u32)
 }
 
-pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
-}
 pub fn snap_frame(t: f64) -> f64 {
     (t * FPS()).round() / FPS()
 }

@@ -36,7 +36,8 @@ src/ui/        GPUI views: home, editor (top bar, library, preview, inspector, t
 Effects include 100 Instagram-style filters (`src/fx/looks.rs`): the feed filters follow
 [CSSgram](https://github.com/una/CSSgram)'s recreations (MIT), plus the Stories city filters and
 film and mood looks. Effect and transition thumbnails use photographs from Unsplash (Unsplash
-licence), bundled in `assets/photos`.
+licence), bundled in `assets/photos`. The sample footage is nature photography from Unsplash
+(Unsplash licence) in `assets/footage`, played as slow camera moves.
 
 Shader filters, shader transitions and the animated shader backgrounds come from
 [remocn](https://github.com/Remocn/remocn-studio) (MIT). Its WebGL fragment shaders are in

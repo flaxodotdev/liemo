@@ -230,7 +230,7 @@ pub fn definitions() -> Vec<Value> {
     });
     vec![
         tool("list_projects", "List projects", "Every Liemo project: id, name, format, length, clip count and when it was edited.", json!({}), &[]),
-        tool("create_project", "Create a project", "Make a new project. Pick a format (see list_formats) or give width/height for a custom size. template \"sample\" starts from the Lisbon summer reel.",
+        tool("create_project", "Create a project", "Make a new project. Pick a format (see list_formats) or give width/height for a custom size. template \"sample\" starts from the nature reel sample.",
             json!({
                 "name": { "type": "string" },
                 "format": { "type": "string", "enum": FORMATS.iter().map(|f| f.id).chain(["custom"]).collect::<Vec<_>>(), "description": "Defaults to youtube (16:9)" },
