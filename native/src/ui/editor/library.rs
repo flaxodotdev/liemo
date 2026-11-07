@@ -251,6 +251,25 @@ impl Editor {
             Tab::Text => vec![
                 section("Text styles", None, grid(text_presets().iter().filter(|a| matches(&a.name, &a.sub)).map(|a| self.asset_card(a, true, cx).into_any_element()))),
                 section("Fonts", Some("Click to apply"), rows(FONTS.iter().filter(|f| matches(f.family, f.role)).map(|f| self.font_card(f.family, cx)))),
+                {
+                    // Every font on this Mac, previewed in itself. Without a search only the first
+                    // few show, so the panel stays quick.
+                    let all = crate::render::text::system_families();
+                    let hits: Vec<&'static String> = all.iter().filter(|f| matches(f, "installed")).collect();
+                    let cap = if q.is_empty() { 24 } else { 120 };
+                    let more = hits.len().saturating_sub(cap);
+                    let list = rows(hits.iter().take(cap).map(|f| self.font_card(f.as_str(), cx)));
+                    section(
+                        "Installed fonts",
+                        Some(if all.is_empty() { "None found" } else { "On this Mac" }),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(list)
+                            .when(more > 0, |d| d.child(micro(format!("{more} more. Search to find a font by name.")).px_1())),
+                    )
+                },
             ],
             Tab::Effects => {
                 let mut v = vec![micro("Click an effect to add it to the selected clip, or drag it onto any clip. Effects stack, and every setting can be changed in the inspector.")

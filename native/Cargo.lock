@@ -5219,6 +5219,7 @@ dependencies = [
  "dirs 6.0.0",
  "ed25519-dalek",
  "ffmpeg-next",
+ "fontdb",
  "futures",
  "gif 0.14.2",
  "gpui-component",

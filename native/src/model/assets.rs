@@ -426,8 +426,18 @@ pub const FONTS: [FontDef; 6] = [
     FontDef { family: "JetBrains Mono", role: "Mono · Technical", weight: 500.0, track: 0.0 },
     FontDef { family: "Caveat", role: "Script · Handwritten", weight: 700.0, track: 0.0 },
 ];
+/// A bundled font, or any font installed on the Mac (made once per family); unknown → Mona Sans.
 pub fn font_def(family: &str) -> &'static FontDef {
-    FONTS.iter().find(|f| f.family == family).unwrap_or(&FONTS[0])
+    if let Some(f) = FONTS.iter().find(|f| f.family == family) {
+        return f;
+    }
+    if !crate::render::text::is_installed(family) {
+        return &FONTS[0];
+    }
+    static INSTALLED: OnceLock<parking_lot::Mutex<HashMap<String, &'static FontDef>>> = OnceLock::new();
+    let mut m = INSTALLED.get_or_init(Default::default).lock();
+    *m.entry(family.to_string())
+        .or_insert_with(|| Box::leak(Box::new(FontDef { family: Box::leak(family.to_string().into_boxed_str()), role: "Installed", weight: 400.0, track: 0.0 })))
 }
 
 fn tp(content: &str, font: &str, size: f64, weight: f64, color: &str, align: TextAlign, anim: TextAnim, boxed: bool, y: f64) -> TextProps {

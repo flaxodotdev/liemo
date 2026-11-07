@@ -241,16 +241,20 @@ impl Editor {
                 e.store.update_text(&id, move |t| f(t));
             }
         };
-        let font_entries: Vec<MenuEntry> = FONTS
-            .iter()
-            .map(|f| {
-                let fam = f.family;
-                item(fam, fam == t.font, set(Box::new(move |t: &mut TextProps| {
-                    t.font = fam.into();
-                    t.weight = font_def(fam).weight;
-                })))
-            })
-            .collect();
+        let font_item = |fam: &'static str| {
+            item(fam, fam == t.font, set(Box::new(move |t: &mut TextProps| {
+                t.font = fam.into();
+                t.weight = font_def(fam).weight;
+            })))
+        };
+        // The bundled faces, then every font installed on this Mac.
+        let mut font_entries: Vec<MenuEntry> = FONTS.iter().map(|f| font_item(f.family)).collect();
+        let installed = crate::render::text::system_families();
+        if !installed.is_empty() {
+            font_entries.push(MenuEntry::Separator);
+            font_entries.push(MenuEntry::Label(format!("Installed on this Mac ({})", installed.len())));
+            font_entries.extend(installed.iter().map(|f| font_item(f.as_str())));
+        }
         let weights = [(400.0, "Regular"), (500.0, "Medium"), (600.0, "Semibold"), (700.0, "Bold"), (800.0, "Heavy")];
         let weight_label = weights.iter().find(|(w, _)| *w == t.weight).map(|(_, l)| *l).unwrap_or("Regular");
         let weight_entries: Vec<MenuEntry> = weights.iter().map(|(w, l)| {

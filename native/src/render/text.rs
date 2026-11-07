@@ -1,6 +1,6 @@
-// Canvas text: the six bundled faces (variable where the family is), shaped with rustybuzz and
-// filled as outlines, with system fallbacks for glyphs a face lacks (katakana, braille) and
-// Apple Color Emoji for emoji.
+// Canvas text: the six bundled faces (variable where the family is) and any font installed on
+// the Mac, shaped with rustybuzz and filled as outlines, with system fallbacks for glyphs a face
+// lacks (katakana, braille) and Apple Color Emoji for emoji.
 
 use super::canvas::{pixmap, Canvas};
 use parking_lot::Mutex;
@@ -38,8 +38,11 @@ pub struct TextStyle<'a> {
     pub spacing: f32,
 }
 
+#[derive(Clone, Copy)]
 struct FontData {
     data: &'static [u8],
+    /// Face index inside a collection (.ttc).
+    index: u32,
     variable: bool,
 }
 
@@ -48,12 +51,12 @@ fn fonts() -> &'static Vec<FontData> {
     static F: OnceLock<Vec<FontData>> = OnceLock::new();
     F.get_or_init(|| {
         let mut v = vec![
-            FontData { data: FONT_MONA, variable: true },
-            FontData { data: FONT_INTER, variable: true },
-            FontData { data: FONT_INSTRUMENT, variable: false },
-            FontData { data: FONT_BEBAS, variable: false },
-            FontData { data: FONT_JETBRAINS, variable: true },
-            FontData { data: FONT_CAVEAT, variable: true },
+            FontData { index: 0, data: FONT_MONA, variable: true },
+            FontData { index: 0, data: FONT_INTER, variable: true },
+            FontData { index: 0, data: FONT_INSTRUMENT, variable: false },
+            FontData { index: 0, data: FONT_BEBAS, variable: false },
+            FontData { index: 0, data: FONT_JETBRAINS, variable: true },
+            FontData { index: 0, data: FONT_CAVEAT, variable: true },
         ];
         for p in [
             "/System/Library/Fonts/Menlo.ttc",
@@ -65,23 +68,109 @@ fn fonts() -> &'static Vec<FontData> {
             "/Library/Fonts/Arial Unicode.ttf",
         ] {
             if let Ok(bytes) = std::fs::read(p) {
-                v.push(FontData { data: Box::leak(bytes.into_boxed_slice()), variable: false });
+                v.push(FontData { data: Box::leak(bytes.into_boxed_slice()), index: 0, variable: false });
             }
         }
         v
     })
 }
 
-pub fn family_index(family: &str) -> usize {
-    match family {
+fn bundled_index(family: &str) -> Option<usize> {
+    Some(match family {
         "Mona Sans" => 0,
         "Inter" => 1,
         "Instrument Serif" => 2,
         "Bebas Neue" => 3,
         "JetBrains Mono" => 4,
         "Caveat" => 5,
-        _ => 0,
+        _ => return None,
+    })
+}
+
+// ---------- Installed fonts ----------
+/// Faces loaded from installed fonts live at SYSTEM_BASE + n, one per (family, weight).
+const SYSTEM_BASE: usize = 1 << 20;
+
+fn system_db() -> &'static fontdb::Database {
+    static D: OnceLock<fontdb::Database> = OnceLock::new();
+    D.get_or_init(|| {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        db
+    })
+}
+
+/// Every installed font family, sorted, without the hidden system ones (".SF…").
+pub fn system_families() -> &'static Vec<String> {
+    static F: OnceLock<Vec<String>> = OnceLock::new();
+    F.get_or_init(|| {
+        let mut v: Vec<String> = system_db()
+            .faces()
+            .filter_map(|f| f.families.iter().find(|(_, l)| *l == fontdb::Language::English_UnitedStates).or(f.families.first()).map(|(n, _)| n.clone()))
+            .filter(|n| !n.starts_with('.') && !n.starts_with("System Font"))
+            .collect();
+        v.sort_by_key(|n| n.to_lowercase());
+        v.dedup();
+        v
+    })
+}
+
+pub fn is_installed(family: &str) -> bool {
+    system_families().binary_search_by_key(&family.to_lowercase(), |n| n.to_lowercase()).is_ok()
+}
+
+struct Loaded {
+    faces: Vec<FontData>,
+    by_key: HashMap<(String, u32), usize>,
+    files: HashMap<std::path::PathBuf, &'static [u8]>,
+}
+fn loaded() -> &'static Mutex<Loaded> {
+    static L: OnceLock<Mutex<Loaded>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(Loaded { faces: vec![], by_key: HashMap::new(), files: HashMap::new() }))
+}
+
+/// The installed face closest to `family` at `weight`, loaded once.
+fn system_face(family: &str, weight: f32) -> Option<usize> {
+    let w = ((weight / 100.0).round() * 100.0).clamp(100.0, 900.0) as u32;
+    let key = (family.to_string(), w);
+    if let Some(i) = loaded().lock().by_key.get(&key) {
+        return Some(*i);
     }
+    let db = system_db();
+    let id = db.query(&fontdb::Query { families: &[fontdb::Family::Name(family)], weight: fontdb::Weight(w as u16), stretch: fontdb::Stretch::Normal, style: fontdb::Style::Normal })?;
+    let face = db.face(id)?;
+    let mut l = loaded().lock();
+    let data: &'static [u8] = match &face.source {
+        fontdb::Source::File(path) => match l.files.get(path) {
+            Some(d) => d,
+            None => {
+                let d: &'static [u8] = Box::leak(std::fs::read(path).ok()?.into_boxed_slice());
+                l.files.insert(path.clone(), d);
+                d
+            }
+        },
+        fontdb::Source::Binary(b) => Box::leak((**b).as_ref().to_vec().into_boxed_slice()),
+        #[allow(unreachable_patterns)]
+        _ => return None,
+    };
+    let variable = ttf_parser::Face::parse(data, face.index).map(|f| f.variation_axes().into_iter().any(|a| a.tag == Tag::from_bytes(b"wght"))).unwrap_or(false);
+    l.faces.push(FontData { data, index: face.index, variable });
+    let i = SYSTEM_BASE + l.faces.len() - 1;
+    l.by_key.insert(key, i);
+    Some(i)
+}
+
+fn font(idx: usize) -> Option<FontData> {
+    if idx >= SYSTEM_BASE {
+        loaded().lock().faces.get(idx - SYSTEM_BASE).copied()
+    } else {
+        fonts().get(idx).copied()
+    }
+}
+
+/// The face that draws `family` at `weight`: a bundled one, an installed one, or Mona Sans.
+pub fn face_index(family: &str, weight: f32) -> usize {
+    bundled_index(family).or_else(|| system_face(family, weight)).unwrap_or(0)
 }
 
 thread_local! {
@@ -89,13 +178,13 @@ thread_local! {
 }
 
 fn with_face<R>(idx: usize, weight: f32, size: f32, f: impl FnOnce(&Face<'static>) -> R) -> Option<R> {
-    let fd = fonts().get(idx)?;
+    let fd = font(idx)?;
     let (w, opsz) = if fd.variable { (weight.round() as u32, if idx == 1 { size.clamp(14.0, 32.0).round() as u32 } else { 0 }) } else { (0, 0) };
     FACES.with(|faces| {
         let mut faces = faces.borrow_mut();
         let key = (idx, w, opsz);
         if !faces.contains_key(&key) {
-            let mut face = Face::from_slice(fd.data, 0)?;
+            let mut face = Face::from_slice(fd.data, fd.index)?;
             if fd.variable {
                 let mut vars = vec![Variation { tag: Tag::from_bytes(b"wght"), value: w as f32 }];
                 if opsz > 0 {
@@ -140,7 +229,7 @@ struct Shaped {
 }
 
 fn shape(text: &str, st: &TextStyle) -> Shaped {
-    let primary = family_index(st.family);
+    let primary = face_index(st.family, st.weight);
     let mut glyphs = vec![];
     let mut pen = 0.0f32;
     // Split into runs by face.
@@ -188,7 +277,7 @@ pub fn measure(text: &str, st: &TextStyle) -> f32 {
 
 /// Ascent and descent (both positive) in px, from the face's hhea metrics.
 pub fn metrics(st: &TextStyle) -> (f32, f32) {
-    with_face(family_index(st.family), st.weight, st.size, |f| {
+    with_face(face_index(st.family, st.weight), st.weight, st.size, |f| {
         let k = st.size / f.units_per_em() as f32;
         (f.ascender() as f32 * k, -(f.descender() as f32) * k)
     })
@@ -222,7 +311,7 @@ fn glyph_cache() -> &'static Mutex<HashMap<GlyphKey, Option<Arc<Path>>>> {
 
 /// Glyph outline in font units (y up).
 fn glyph_path(face: usize, gid: u16, weight: f32, size: f32) -> Option<Arc<Path>> {
-    let variable = fonts().get(face).map(|f| f.variable).unwrap_or(false);
+    let variable = font(face).map(|f| f.variable).unwrap_or(false);
     let w = if variable { weight.round() as u32 } else { 0 };
     let o = if variable && face == 1 { size.clamp(14.0, 32.0).round() as u32 } else { 0 };
     let key = (face, gid, w, o);
@@ -282,8 +371,9 @@ pub fn fill_text(c: &mut Canvas, text: &str, x: f32, y: f32, st: &TextStyle, ali
         Baseline::Alphabetic => y,
         Baseline::Middle => y + (asc - desc) / 2.0,
     };
-    let primary = family_index(st.family);
-    let faux_bold = !fonts()[primary].variable && st.weight >= 600.0;
+    let primary = face_index(st.family, st.weight);
+    // Bundled static faces get a faux bold; installed families bring their own bold faces.
+    let faux_bold = primary < SYSTEM_BASE && !font(primary).map(|f| f.variable).unwrap_or(false) && st.weight >= 600.0;
     let ts = c.transform();
     let mut pb = PathBuilder::new();
     let mut any = false;

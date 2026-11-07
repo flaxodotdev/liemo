@@ -199,7 +199,7 @@ fn clip_prop() -> Value {
 pub fn definitions() -> Vec<Value> {
     let text_props = json!({
         "content": { "type": "string", "description": "The words; use \\n for a second line" },
-        "font": { "type": "string", "enum": FONTS.iter().map(|f| f.family).collect::<Vec<_>>() },
+        "font": { "type": "string", "description": format!("A bundled font ({}) or any font installed on this Mac (list_library kind \"font\")", FONTS.iter().map(|f| f.family).collect::<Vec<_>>().join(", ")) },
         "size": { "type": "number", "description": "Font size in canvas units" },
         "weight": { "type": "number", "enum": [400, 500, 600, 700, 800] },
         "color": { "type": "string", "description": "#rrggbb" },
@@ -423,6 +423,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
             }
             if want("font") {
                 m.insert("fonts".into(), json!(FONTS.iter().map(|f| json!({ "family": f.family, "role": f.role, "weight": f.weight })).collect::<Vec<_>>()));
+                m.insert("installedFonts".into(), json!(crate::render::text::system_families()));
             }
             if want("imported") {
                 if let Ok(id) = resolve(a) {
@@ -852,6 +853,11 @@ fn overlaps(st: &Store, id: &str) -> Vec<String> {
 fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
     if st.clip(cid).and_then(|c| c.text.as_ref()).is_none() {
         return Err("That clip isn't a text clip".into());
+    }
+    if let Some(v) = s(a, "font") {
+        if !FONTS.iter().any(|f| f.family == v) && !crate::render::text::is_installed(v) {
+            return Err(format!("\"{v}\" isn't a bundled font or installed on this Mac. list_library with kind \"font\" lists them.").into());
+        }
     }
     let a = a.clone();
     st.update_text(cid, |t| {

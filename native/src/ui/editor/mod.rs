@@ -183,7 +183,9 @@ impl Editor {
         let focus = cx.focus_handle();
 
         let name_input = cx.new(|cx| InputState::new(window, cx).default_value(store.name.clone()));
-        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search library"));
+        // Test hook: RAYNA_QUERY pre-fills the library search.
+        let query0 = std::env::var("RAYNA_QUERY").unwrap_or_default();
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search library").default_value(query0.clone()));
         let text_input = cx.new(|cx| TextareaState::new(window, cx).rows(2));
         let export_name = cx.new(|cx| InputState::new(window, cx));
         let mut subs = vec![];
@@ -281,7 +283,7 @@ impl Editor {
             media_rev: 0,
             seen_media_rev: 0,
             tab: library::saved_tab(),
-            query: String::new(),
+            query: query0,
             scroll_x: 0.0,
             scroll_y: 0.0,
             snap_at: None,

@@ -92,6 +92,19 @@ fn main() {
         for id in ["ascii", "braille", "rain", "moon", "vhs", "crt", "kaleidoscope", "sketch", "thermal", "dither", "tilt-shift", "glitch", "blocks"] {
             save_png(&render::thumbs::effect_thumb(id), &format!("{dir}/fx-{id}.png"));
         }
+        // Installed fonts: a few families at two weights.
+        let fams = render::text::system_families();
+        println!("{} installed font families", fams.len());
+        let mut c = Canvas::new(1280, 720);
+        c.fill_all(render::canvas::hex("#101012"));
+        for (i, fam) in ["Georgia", "Avenir Next", "Futura", "Didot", "Snell Roundhand", "SF Pro", "Helvetica Neue", "Baskerville"].iter().enumerate() {
+            let y = 70.0 + i as f32 * 82.0;
+            for (j, w) in [400.0, 700.0].iter().enumerate() {
+                let st = render::text::TextStyle { family: fam, weight: *w, size: 48.0, spacing: 0.0 };
+                render::text::fill_text(&mut c, &format!("{fam} {w}"), 40.0 + j as f32 * 620.0, y, &st, render::text::Align::Left, render::text::Baseline::Alphabetic, render::canvas::hex("#ffffff"));
+            }
+        }
+        save_png(&c.into_pixmap(), &format!("{dir}/fonts.png"));
         for b in fx::paper::backgrounds() {
             match fx::paper::render(&b.id, 2.0, 480, 270) {
                 Some(p) => save_png(&p, &format!("{dir}/bg-{}.png", b.id)),
@@ -157,6 +170,10 @@ fn run_app() {
             MenuItem::action("Quit Liemo", Quit),
         ])]);
         update::check_on_launch();
+        // Index installed fonts off the main thread, ready for the font menus.
+        std::thread::spawn(|| {
+            render::text::system_families();
+        });
         // Once an update is in place, quit so the relaunch can start the new version.
         cx.spawn(async move |cx| loop {
             cx.background_executor().timer(std::time::Duration::from_millis(250)).await;
