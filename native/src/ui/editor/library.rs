@@ -16,7 +16,7 @@ use gpui::{div, img, px, AnyElement, App, Context, FontWeight, ObjectFit, Pixels
 use gpui_component::input::Input;
 use std::sync::Arc;
 
-const TABS: [(Tab, &str, &str); 8] = [
+const TABS: [(Tab, &str, &str); 7] = [
     (Tab::Media, "Media", "film"),
     (Tab::Music, "Music", "music-2"),
     (Tab::Images, "Images", "image"),
@@ -24,7 +24,6 @@ const TABS: [(Tab, &str, &str); 8] = [
     (Tab::Text, "Text", "type"),
     (Tab::Effects, "Effects", "sparkles"),
     (Tab::Transitions, "Transitions", "blend"),
-    (Tab::Agent, "Agent", "message-circle"),
 ];
 
 pub fn saved_tab() -> Tab {
@@ -155,7 +154,7 @@ impl Editor {
         })
     }
 
-    pub(super) fn render_library(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_library(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tabs = div()
             .id("lib-tabs")
             .w(px(72.))
@@ -299,8 +298,6 @@ impl Editor {
                 v.push(section("Fades", None, rows(FADES.iter().filter(|(_, n, s)| matches(n, s)).map(|(id, n, s)| self.fade_row(id, n, s, cx)))));
                 v
             }
-            // The Agent tab draws its own column (below).
-            Tab::Agent => vec![],
         };
 
         panel()
@@ -309,17 +306,15 @@ impl Editor {
             .flex_none()
             .flex_row()
             .child(tabs)
-            .child(if self.tab == Tab::Agent {
-                div().flex().flex_col().flex_1().min_w_0().child(self.render_agent(window, cx))
-            } else {
+            .child(
                 div()
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_w_0()
                     .child(panel_header().px_3().child(div().relative().flex_1().child(self.track_bounds("input:search")).child(Input::new(&self.search_input).prefix(icon("search", 16., ink_muted())).aria_label("Search library"))))
-                    .child(div().id("lib-scroll").flex_1().min_h_0().overflow_y_scroll().pb_3().children(body))
-            })
+                    .child(div().id("lib-scroll").flex_1().min_h_0().overflow_y_scroll().pb_3().children(body)),
+            )
     }
 
     fn asset_card(&self, a: &Asset, show_dur: bool, cx: &mut Context<Self>) -> impl IntoElement {

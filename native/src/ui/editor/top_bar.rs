@@ -48,6 +48,14 @@ impl Editor {
                 cx.notify();
             })).bg(surface1()).when(!self.store.can_redo(), |d| d.opacity(0.4)))
             .child(
+                button("ai", Variant::Secondary, 40.)
+                    .pl(px(6.))
+                    .bg(if self.agent.open { surface3() } else { surface1() })
+                    .child(agent_stack(if self.agent.open { surface3() } else { surface1() }))
+                    .child("AI")
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_agent(cx))),
+            )
+            .child(
                 button("import", Variant::Secondary, 40.)
                     .bg(surface1())
                     .child(icon("upload", 16., ink()))

@@ -51,7 +51,6 @@ pub enum Tab {
     Text,
     Effects,
     Transitions,
-    Agent,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -371,7 +370,6 @@ impl Editor {
             ed.tab = match t.as_str() {
                 "effects" => Tab::Effects,
                 "transitions" => Tab::Transitions,
-                "agent" => Tab::Agent,
                 "text" => Tab::Text,
                 "music" => Tab::Music,
                 _ => ed.tab,
@@ -1381,16 +1379,34 @@ impl Render for Editor {
             .pb_3()
             .child(self.render_top_bar(window, cx))
             .child(
+                // Everything under the top bar: the editor, and the AI sidebar beside it, full height.
                 div()
                     .flex()
                     .flex_1()
                     .min_h_0()
                     .gap_2()
-                    .child(self.render_library(window, cx))
-                    .child(self.render_preview(window, cx))
-                    .child(self.render_inspector(window, cx)),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .gap_2()
+                                    .child(self.render_library(window, cx))
+                                    .child(self.render_preview(window, cx))
+                                    .child(self.render_inspector(window, cx)),
+                            )
+                            .child(div().h(px(320.)).min_h(px(240.)).flex_none().flex().flex_col().child(self.render_timeline(window, cx))),
+                    )
+                    .when(self.agent.open, |d| d.child(self.render_agent(cx))),
             )
-            .child(div().h(px(320.)).min_h(px(240.)).flex_none().flex().flex_col().child(self.render_timeline(window, cx)))
             .when_some(self.export.is_some().then_some(()), |d, _| d.child(self.render_export(window, cx)))
             .when(dragging, |d| {
                 // While a pointer drag runs, follow the pointer anywhere in the window.

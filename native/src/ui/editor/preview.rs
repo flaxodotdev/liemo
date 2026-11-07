@@ -63,6 +63,9 @@ impl Editor {
             // shrink the picture and overlay inside it by a pixel a side.
             .child(div().absolute().top_0().left_0().size_full().rounded(px(6.)).border_1().border_color(if over_stage { signal() } else { white_a(0.1) }));
 
+        // A narrow preview (e.g. with the AI sidebar open) shows just the current time and drops
+        // the frame-step buttons (← and → still step), so nothing collides.
+        let compact = pw0 > 0.0 && pw0 < 600.0;
         let transport = div()
             .flex()
             .items_center()
@@ -74,10 +77,9 @@ impl Editor {
             .child(
                 div()
                     .flex()
-                    .min_w_0()
-                    .child(timecode(tc(now), 15.).text_color(ink()))
-                    .child(timecode(" / ", 15.).text_color(ink_muted()))
-                    .child(timecode(tc(end), 15.).text_color(ink_muted())),
+                    .flex_none()
+                    .child(timecode(tc(now), if compact { 13. } else { 15. }).text_color(ink()))
+                    .when(!compact, |d| d.child(timecode(" / ", 15.).text_color(ink_muted())).child(timecode(tc(end), 15.).text_color(ink_muted()))),
             )
             .child(
                 div()
@@ -91,10 +93,12 @@ impl Editor {
                         this.seek(0.0);
                         cx.notify();
                     })))
-                    .child(icon_button("prev-frame", "chevron-left", "Previous frame", Some("←"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
-                        this.step(-1);
-                        cx.notify();
-                    })))
+                    .when(!compact, |d| {
+                        d.child(icon_button("prev-frame", "chevron-left", "Previous frame", Some("←"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
+                            this.step(-1);
+                            cx.notify();
+                        })))
+                    })
                     .child(
                         button("play", Variant::Primary, 44.)
                             .w(px(44.))
@@ -106,10 +110,12 @@ impl Editor {
                                 cx.notify();
                             })),
                     )
-                    .child(icon_button("next-frame", "chevron-right", "Next frame", Some("→"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
-                        this.step(1);
-                        cx.notify();
-                    })))
+                    .when(!compact, |d| {
+                        d.child(icon_button("next-frame", "chevron-right", "Next frame", Some("→"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
+                            this.step(1);
+                            cx.notify();
+                        })))
+                    })
                     .child(icon_button("go-end", "skip-forward", "Go to end", Some("End"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
                         this.pause();
                         let e = this.store.end();
