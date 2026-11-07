@@ -51,6 +51,8 @@ const ICONS: &[(&str, &[u8])] = &[
     ("x", include_bytes!("../../assets/icons/x.svg")),
     ("zoom-in", include_bytes!("../../assets/icons/zoom-in.svg")),
     ("zoom-out", include_bytes!("../../assets/icons/zoom-out.svg")),
+    ("arrow-up", include_bytes!("../../assets/icons/arrow-up.svg")),
+    ("message-circle", include_bytes!("../../assets/icons/message-circle.svg")),
     ("liemo-mark", include_bytes!("../../assets/icons/liemo-mark.svg")),
     // Agent marks for the Connect AI button (Simple Icons, CC0; trademarks of their owners).
     ("brand-claude", include_bytes!("../../assets/icons/brand-claude.svg")),

@@ -5,6 +5,7 @@ mod mcp;
 mod media;
 mod storage;
 mod update;
+mod agent;
 mod ui;
 mod model;
 mod render;
@@ -53,6 +54,25 @@ fn main() {
     }
     if args.get(1).map(String::as_str) == Some("--version") {
         println!("Liemo {}", update::current_version());
+        return;
+    }
+    // `liemo agent-test <provider> <project-id> <prompt> [session]`: one agent turn, events printed.
+    if args.get(1).map(String::as_str) == Some("agent-test") {
+        let (Some(p), Some(project), Some(prompt)) = (args.get(2).and_then(|p| agent::Provider::from_id(p)), args.get(3), args.get(4)) else {
+            eprintln!("usage: liemo agent-test <claude|codex|gemini|opencode|grok> <project-id> <prompt> [session]");
+            std::process::exit(2);
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let turn = agent::Turn { provider: p, model: String::new(), prompt: prompt.clone(), session: args.get(5).cloned(), project_id: project.clone(), project_name: "Test".into() };
+        agent::start(turn, move |e| {
+            let _ = tx.send(e);
+        });
+        for e in rx {
+            println!("{e:?}");
+            if matches!(e, agent::Event::Done(_)) {
+                break;
+            }
+        }
         return;
     }
     // Release tooling (see update.rs and scripts/).
@@ -170,9 +190,12 @@ fn run_app() {
             MenuItem::action("Quit Liemo", Quit),
         ])]);
         update::check_on_launch();
-        // Index installed fonts off the main thread, ready for the font menus.
+        // Index installed fonts and find the AI tools off the main thread.
         std::thread::spawn(|| {
             render::text::system_families();
+        });
+        std::thread::spawn(|| {
+            agent::installed();
         });
         // Once an update is in place, quit so the relaunch can start the new version.
         cx.spawn(async move |cx| loop {

@@ -1,6 +1,7 @@
 // The editor window: owns the edit (Store), playback, the preview renderer, autosave, imports and
 // every pointer drag. Panels are split across the files in this module.
 
+mod agent_ui;
 mod export_ui;
 pub mod geometry;
 mod inspector;
@@ -50,6 +51,7 @@ pub enum Tab {
     Text,
     Effects,
     Transitions,
+    Agent,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -113,6 +115,8 @@ pub struct Editor {
     export_name: Entity<InputState>,
     /// The open searchable select (long lists: fonts, effects, transitions), its search field,
     /// highlighted row and list scroll.
+    /// The Agent tab's chat.
+    pub agent: agent_ui::AgentChat,
     pub combo: Option<SharedString>,
     pub combo_input: Entity<InputState>,
     pub combo_hi: usize,
@@ -199,7 +203,14 @@ impl Editor {
         // Test hooks: RAYNA_COMBO=<select id> opens that searchable select, RAYNA_COMBO_QUERY fills its search.
         let combo_q = std::env::var("RAYNA_COMBO_QUERY").unwrap_or_default();
         let combo_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search").default_value(combo_q));
+        let agent = agent_ui::AgentChat::new(window, cx);
         let mut subs = vec![];
+        subs.push(cx.subscribe_in(&agent.input, window, |this: &mut Editor, input, ev: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { .. } = ev {
+                let text = input.read(cx).value().to_string();
+                this.agent_send(text, window, cx);
+            }
+        }));
         subs.push(cx.subscribe_in(&name_input, window, |this: &mut Editor, input, ev: &InputEvent, _w, cx| {
             if let InputEvent::Change = ev {
                 this.store.name = input.read(cx).value().to_string();
@@ -288,6 +299,7 @@ impl Editor {
             search_input,
             text_input,
             export_name,
+            agent: agent,
             combo: std::env::var("RAYNA_COMBO").ok().map(SharedString::from),
             combo_input,
             combo_hi: usize::MAX,
@@ -344,6 +356,10 @@ impl Editor {
         if let Some(t) = std::env::var("RAYNA_TIME").ok().and_then(|v| v.parse::<f64>().ok()) {
             ed.store.time = t;
         }
+        // Test hook: RAYNA_AGENT_PROMPT sends that message to the agent once the editor is up.
+        if let Ok(p) = std::env::var("RAYNA_AGENT_PROMPT") {
+            cx.defer_in(window, move |this: &mut Editor, window, cx| this.agent_send(p, window, cx));
+        }
         // Test hook: RAYNA_SCROLL_Y=<px> scrolls the timeline down (clamped on the first frame).
         if let Some(y) = std::env::var("RAYNA_SCROLL_Y").ok().and_then(|v| v.parse::<f32>().ok()) {
             ed.scroll_y = y;
@@ -355,6 +371,7 @@ impl Editor {
             ed.tab = match t.as_str() {
                 "effects" => Tab::Effects,
                 "transitions" => Tab::Transitions,
+                "agent" => Tab::Agent,
                 "text" => Tab::Text,
                 "music" => Tab::Music,
                 _ => ed.tab,
@@ -488,6 +505,7 @@ impl Editor {
             || self.text_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.export_name.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.combo_input.read(cx).focus_handle(cx).contains_focused(window, cx)
+            || self.agent.input.read(cx).focus_handle(cx).contains_focused(window, cx)
     }
 
     fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
