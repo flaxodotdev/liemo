@@ -1,7 +1,7 @@
 // The preview: the composited frame, direct manipulation on top of it (click to select, drag to
 // move, corners to scale, the round handle to rotate), safe-area guides and the transport.
 
-use super::geometry::{clip_box, corners, hit_test, inside};
+use super::geometry::{clip_box, corners, hit_test};
 use super::{DropTarget, Editor};
 use crate::model::time::{tc, FPS, H, W};
 use crate::ui::theme::*;
@@ -51,16 +51,17 @@ impl Editor {
             .overflow_hidden()
             .rounded(px(6.))
             .bg(black())
-            .border_1()
-            .border_color(if over_stage { signal() } else { white_a(0.1) })
             .shadow_lg()
             .child(self.track_bounds("stage"))
-            .when_some(self.frame.clone(), |d, f| d.child(img(f).absolute().size_full().rounded(px(5.)).object_fit(ObjectFit::Fill)))
+            .when_some(self.frame.clone(), |d, f| d.child(img(f).absolute().size_full().rounded(px(6.)).object_fit(ObjectFit::Fill)))
             .child(self.render_stage_overlay(w, cx))
             .when(guides, |d| {
                 d.child(div().absolute().top(px(h * 0.05)).left(px(w * 0.05)).w(px(w * 0.9)).h(px(h * 0.9)).border_1().border_dashed().border_color(white_a(0.25)))
                     .child(div().absolute().top(px(h * 0.1)).left(px(w * 0.1)).w(px(w * 0.8)).h(px(h * 0.8)).border_1().border_dashed().border_color(alpha(signal(), 0.4)))
-            });
+            })
+            // The stage's edge, drawn over the picture: as a border on the stage itself it would
+            // shrink the picture and overlay inside it by a pixel a side.
+            .child(div().absolute().top_0().left_0().size_full().rounded(px(6.)).border_1().border_color(if over_stage { signal() } else { white_a(0.1) }));
 
         let transport = div()
             .flex()
@@ -142,12 +143,18 @@ impl Editor {
         let guides = self.stage_guides.clone();
         let readout = self.readout.clone();
 
+        // Edges that land on the stage's edge are drawn just inside it, so a full-frame clip shows
+        // all four sides evenly instead of losing the right and bottom ones to the clip.
+        let (sw, sh) = (W() * k, H() * k);
+        // clamp() panics when the stage hasn't been measured yet (lo > hi); this can't.
+        let inside = |v: f32, lo: f32, hi: f32| v.min(hi).max(lo);
         let outline = move |b: super::geometry::BoxR, color: gpui::Hsla, width: f32| {
             canvas(|_, _, _| {}, move |bounds: Bounds<Pixels>, _, window, _| {
                 let o = bounds.origin;
                 let pts = corners(&b);
                 let mut pb = PathBuilder::stroke(px(width));
-                let at = |(x, y): (f32, f32)| point(o.x + px(x * k), o.y + px(y * k));
+                let half = width / 2.0;
+                let at = |(x, y): (f32, f32)| point(o.x + px(inside(x * k, half, sw - half)), o.y + px(inside(y * k, half, sh - half)));
                 pb.move_to(at(pts[0]));
                 pb.line_to(at(pts[1]));
                 pb.line_to(at(pts[2]));
@@ -205,8 +212,8 @@ impl Editor {
                     div()
                         .id(("scale-handle", i))
                         .absolute()
-                        .left(px(p.0 * k - 5.))
-                        .top(px(p.1 * k - 5.))
+                        .left(px(inside(p.0 * k, 5., sw - 5.) - 5.))
+                        .top(px(inside(p.1 * k, 5., sh - 5.) - 5.))
                         .size(px(10.))
                         .rounded(px(2.))
                         .border_1()
@@ -279,10 +286,9 @@ impl Editor {
     fn stage_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let Some(p) = self.stage_point(ev.position) else { return };
         let t = self.store.time;
-        // Prefer the selected clip when it's under the pointer, so a clip behind a title stays
-        // grabbable once selected.
-        let sel = self.store.selected_clip().cloned().filter(|c| c.visual() && t >= c.start && t < c.start + c.dur && inside(c, p.0, p.1));
-        let hit = sel.or_else(|| hit_test(&self.store.clips, &self.store.tracks, p.0, p.1, t).cloned());
+        // The topmost clip under the pointer, as you see it: clicking a title over a selected
+        // background picks the title.
+        let hit = hit_test(&self.store.clips, &self.store.tracks, p.0, p.1, t).cloned();
         let Some(hit) = hit else {
             self.store.select(None);
             cx.notify();
