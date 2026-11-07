@@ -127,6 +127,7 @@ impl Editor {
                     this.combo = Some(tid.clone());
                     // usize::MAX: start on the current choice (resolved when the list is built).
                     this.combo_hi = usize::MAX;
+                    this.combo_jump.set(true);
                     this.combo_input.update(cx, |s, cx| {
                         s.set_value("", window, cx);
                         s.focus(window, cx);
@@ -181,8 +182,16 @@ impl Editor {
         let hi = if n == 0 {
             0
         } else if self.combo_hi == usize::MAX {
-            // Just opened: show the current choice a few rows down from the top.
-            self.combo_scroll.scroll_to_item(row_of[start].saturating_sub(3));
+            // Just opened: show the current choice a few rows down from the top, once, so the
+            // list scrolls freely afterwards.
+            // Keep asking until the list has been laid out (the first frame has no rows yet).
+            if self.combo_jump.get() {
+                let row = row_of[start].saturating_sub(3);
+                self.combo_scroll.scroll_to_top_of_item(row);
+                if self.combo_scroll.bounds_for_item(row).is_some() {
+                    self.combo_jump.set(false);
+                }
+            }
             start
         } else {
             self.combo_hi.min(n - 1)
@@ -275,12 +284,13 @@ impl Editor {
                 div()
                     .relative()
                     .w_full()
-                    .h(px(42.))
+                    .h(px(40.))
                     .px_3()
                     .flex()
                     .items_center()
                     .child(self.track_bounds("input:combo"))
-                    .child(Input::new(&self.combo_input).appearance(false).text_size(px(14.)).w_full().aria_label("Search")),
+                    // Same type as the select buttons: 13 px, medium.
+                    .child(Input::new(&self.combo_input).appearance(false).text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).px_0().w_full().aria_label("Search")),
             )
             .child(div().w_full().h(px(1.)).flex_none().bg(hairline()))
             .child(list);

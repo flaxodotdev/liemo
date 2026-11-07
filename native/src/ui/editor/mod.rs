@@ -117,6 +117,8 @@ pub struct Editor {
     pub combo_input: Entity<InputState>,
     pub combo_hi: usize,
     pub combo_scroll: gpui::ScrollHandle,
+    /// Scroll to the current choice on the next draw only (set when a list opens).
+    pub combo_jump: std::cell::Cell<bool>,
     text_bound: Option<String>,
     text_focused: bool,
     _subs: Vec<Subscription>,
@@ -290,6 +292,7 @@ impl Editor {
             combo_input,
             combo_hi: usize::MAX,
             combo_scroll: gpui::ScrollHandle::new(),
+            combo_jump: std::cell::Cell::new(true),
             text_bound: None,
             text_focused: false,
             _subs: subs,
