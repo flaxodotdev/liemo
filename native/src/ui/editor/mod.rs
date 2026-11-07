@@ -111,6 +111,12 @@ pub struct Editor {
     search_input: Entity<InputState>,
     text_input: Entity<TextareaState>,
     export_name: Entity<InputState>,
+    /// The open searchable select (long lists: fonts, effects, transitions), its search field,
+    /// highlighted row and list scroll.
+    pub combo: Option<SharedString>,
+    pub combo_input: Entity<InputState>,
+    pub combo_hi: usize,
+    pub combo_scroll: gpui::ScrollHandle,
     text_bound: Option<String>,
     text_focused: bool,
     _subs: Vec<Subscription>,
@@ -188,11 +194,21 @@ impl Editor {
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search library").default_value(query0.clone()));
         let text_input = cx.new(|cx| TextareaState::new(window, cx).rows(2));
         let export_name = cx.new(|cx| InputState::new(window, cx));
+        // Test hooks: RAYNA_COMBO=<select id> opens that searchable select, RAYNA_COMBO_QUERY fills its search.
+        let combo_q = std::env::var("RAYNA_COMBO_QUERY").unwrap_or_default();
+        let combo_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search").default_value(combo_q));
         let mut subs = vec![];
         subs.push(cx.subscribe_in(&name_input, window, |this: &mut Editor, input, ev: &InputEvent, _w, cx| {
             if let InputEvent::Change = ev {
                 this.store.name = input.read(cx).value().to_string();
                 this.store.changed();
+                cx.notify();
+            }
+        }));
+        subs.push(cx.subscribe_in(&combo_input, window, |this: &mut Editor, _, ev: &InputEvent, _w, cx| {
+            if let InputEvent::Change = ev {
+                this.combo_hi = 0;
+                this.combo_scroll.scroll_to_item(0);
                 cx.notify();
             }
         }));
@@ -270,6 +286,10 @@ impl Editor {
             search_input,
             text_input,
             export_name,
+            combo: std::env::var("RAYNA_COMBO").ok().map(SharedString::from),
+            combo_input,
+            combo_hi: 0,
+            combo_scroll: gpui::ScrollHandle::new(),
             text_bound: None,
             text_focused: false,
             _subs: subs,
@@ -460,6 +480,7 @@ impl Editor {
             || self.search_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.text_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.export_name.read(cx).focus_handle(cx).contains_focused(window, cx)
+            || self.combo_input.read(cx).focus_handle(cx).contains_focused(window, cx)
     }
 
     fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {

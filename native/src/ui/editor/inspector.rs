@@ -9,10 +9,10 @@ use crate::model::time::tc;
 use crate::model::types::*;
 use crate::ui::theme::*;
 use gpui::prelude::*;
-use gpui::{div, px, relative, AnyElement, Context, Div, Entity, SharedString, Window};
+use gpui::{anchored, deferred, div, px, relative, AnyElement, Context, Div, Entity, SharedString, Window};
 use gpui_component::button::Button;
 use gpui_component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
-use gpui_component::input::Textarea;
+use gpui_component::input::{Input, Textarea};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::{Colorize, Sizable};
 use std::rc::Rc;
@@ -58,12 +58,16 @@ impl Editor {
         field_row(label_text, self.slider(key, value, min, max, step, true, apply, cx), Some(fmt(value)))
     }
 
-    /// A select: a pill showing the current choice that opens a menu.
-    pub fn select(&self, id: impl Into<SharedString>, current: impl Into<SharedString>, entries: Vec<MenuEntry>, cx: &mut Context<Self>) -> impl IntoElement {
-        let ed: Entity<Editor> = cx.entity();
+    /// A select: a pill showing the current choice. Short lists open a menu; long ones (fonts,
+    /// effects, transitions…) open a searchable list.
+    pub fn select(&self, id: impl Into<SharedString>, current: impl Into<SharedString>, entries: Vec<MenuEntry>, cx: &mut Context<Self>) -> AnyElement {
+        let id: SharedString = id.into();
         let entries = Rc::new(entries);
-        let long = entries.len() > 12;
-        Button::new(id.into())
+        if entries.iter().filter(|e| matches!(e, MenuEntry::Item { .. })).count() > 12 {
+            return self.combobox(id, current.into(), entries, cx);
+        }
+        let ed: Entity<Editor> = cx.entity();
+        Button::new(id)
             .label(current.into())
             .outline()
             .dropdown_caret(true)
@@ -77,9 +81,6 @@ impl Editor {
             .text_size(px(13.))
             .dropdown_menu(move |menu, _, _| {
                 let mut menu = menu.min_w(px(200.));
-                if long {
-                    menu = menu.scrollable(true).max_h(px(360.));
-                }
                 for e in entries.iter() {
                     menu = match e {
                         MenuEntry::Label(l) => menu.label(l.clone()),
@@ -98,6 +99,183 @@ impl Editor {
                 }
                 menu
             })
+            .into_any_element()
+    }
+
+    /// A select with a search field: type to filter, arrows to move, Enter to pick, Escape or a
+    /// click outside to close. Group labels stay above their matching items.
+    fn combobox(&self, id: SharedString, current: SharedString, entries: Rc<Vec<MenuEntry>>, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.combo.as_ref() == Some(&id);
+        let tid = id.clone();
+        let trigger = div()
+            .id(id.clone())
+            .flex()
+            .items_center()
+            .gap_2()
+            .w_full()
+            .h(px(32.))
+            .px_3()
+            .rounded(px(10.))
+            .bg(alpha(hairline(), 0.3))
+            .border_1()
+            .border_color(if open { ink_muted() } else { hairline() })
+            .text_size(px(13.))
+            .cursor_pointer()
+            .hover(|s| s.bg(alpha(hairline(), 0.5)))
+            .child(div().flex_1().min_w_0().truncate().child(current))
+            .child(icon("search", 13., ink_muted()))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                if this.combo.as_ref() == Some(&tid) {
+                    this.combo = None;
+                } else {
+                    this.combo = Some(tid.clone());
+                    // usize::MAX: start on the current choice (resolved when the list is built).
+                    this.combo_hi = usize::MAX;
+                    this.combo_input.update(cx, |s, cx| {
+                        s.set_value("", window, cx);
+                        s.focus(window, cx);
+                    });
+                }
+                cx.notify();
+            }));
+        let mut wrap = div().relative().w_full().child(trigger);
+        if !open {
+            return wrap.into_any_element();
+        }
+
+        // Filter: items whose label contains the query; a label shows while an item under it does.
+        let q = self.combo_input.read(cx).value().trim().to_lowercase();
+        enum Row {
+            Label(String),
+            Sep,
+            Item(String, bool, usize),
+        }
+        let mut rows: Vec<Row> = vec![];
+        let mut acts: Vec<Rc<dyn Fn(&mut Editor)>> = vec![];
+        let mut pending: Option<String> = None;
+        let mut checked_at = None;
+        for e in entries.iter() {
+            match e {
+                MenuEntry::Label(l) => pending = Some(l.clone()),
+                MenuEntry::Separator => {
+                    if q.is_empty() && !rows.is_empty() {
+                        rows.push(Row::Sep);
+                    }
+                }
+                MenuEntry::Item { label, checked, act } => {
+                    if !q.is_empty() && !label.to_lowercase().contains(&q) {
+                        continue;
+                    }
+                    if let Some(l) = pending.take() {
+                        rows.push(Row::Label(l));
+                    }
+                    if *checked && checked_at.is_none() {
+                        checked_at = Some(acts.len());
+                    }
+                    rows.push(Row::Item(label.clone(), *checked, acts.len()));
+                    acts.push(act.clone());
+                }
+            }
+        }
+        let n = acts.len();
+        // Which list row each item is, for keeping the highlight in view.
+        let row_of: Rc<Vec<usize>> = Rc::new(rows.iter().enumerate().filter_map(|(r, row)| if let Row::Item(_, _, i) = row { Some((*i, r)) } else { None }).map(|(_, r)| r).collect());
+        let start = checked_at.unwrap_or(0);
+        let hi = if n == 0 {
+            0
+        } else if self.combo_hi == usize::MAX {
+            // Just opened: show the current choice a few rows down from the top.
+            self.combo_scroll.scroll_to_item(row_of[start].saturating_sub(3));
+            start
+        } else {
+            self.combo_hi.min(n - 1)
+        };
+        let acts = Rc::new(acts);
+        let keys = {
+            let (acts, row_of) = (acts.clone(), row_of.clone());
+            cx.listener(move |this: &mut Editor, ev: &gpui::KeyDownEvent, _, cx| {
+                let n = acts.len();
+                if this.combo_hi == usize::MAX {
+                    this.combo_hi = start;
+                }
+                match ev.keystroke.key.as_str() {
+                    "down" if n > 0 => {
+                        this.combo_hi = (this.combo_hi.min(n - 1) + 1) % n;
+                        this.combo_scroll.scroll_to_item(row_of[this.combo_hi]);
+                    }
+                    "up" if n > 0 => {
+                        this.combo_hi = (this.combo_hi.min(n - 1) + n - 1) % n;
+                        this.combo_scroll.scroll_to_item(row_of[this.combo_hi]);
+                    }
+                    "enter" if n > 0 => {
+                        let act = acts[this.combo_hi.min(n - 1)].clone();
+                        this.combo = None;
+                        act(this);
+                    }
+                    "escape" => this.combo = None,
+                    _ => return,
+                }
+                cx.stop_propagation();
+                cx.notify();
+            })
+        };
+        let list = div()
+            .id("combo-list")
+            .flex()
+            .flex_col()
+            .max_h(px(340.))
+            .overflow_y_scroll()
+            .track_scroll(&self.combo_scroll)
+            .children(rows.into_iter().map(|row| match row {
+                Row::Label(l) => div().px_2().pt_2().pb_1().child(label(l)).into_any_element(),
+                Row::Sep => div().my_1().h(px(1.)).bg(hairline_soft()).into_any_element(),
+                Row::Item(text, checked, i) => {
+                    let act = acts[i].clone();
+                    div()
+                        .id(("combo-item", i))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py(px(5.))
+                        .rounded(px(7.))
+                        .text_size(px(13.))
+                        .cursor_pointer()
+                        .when(i == hi, |d| d.bg(surface3()))
+                        .hover(|s| s.bg(surface2()))
+                        .child(div().flex_1().min_w_0().truncate().child(text))
+                        .when(checked, |d| d.child(icon("check", 13., ink())))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.combo = None;
+                            act(this);
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }
+            }))
+            .when(n == 0, |d| d.child(div().px_2().py_3().child(micro("No matches"))));
+        let panel = div()
+            .id("combo-panel")
+            .occlude()
+            .w(px(300.))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .p_1()
+            .rounded(px(12.))
+            .bg(surface1())
+            .border_1()
+            .border_color(hairline())
+            .shadow_lg()
+            .capture_key_down(keys)
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.combo = None;
+                cx.notify();
+            }))
+            .child(div().relative().p_1().child(self.track_bounds("input:combo")).child(Input::new(&self.combo_input).small().prefix(icon("search", 14., ink_muted())).aria_label("Search")))
+            .child(list);
+        wrap = wrap.child(div().absolute().top(px(36.)).left_0().child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(panel)).with_priority(2)));
+        wrap.into_any_element()
     }
 
     pub(super) fn render_inspector(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
