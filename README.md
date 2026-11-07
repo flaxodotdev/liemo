@@ -3,8 +3,8 @@
 An open-source video editor for macOS, with an AI-editing MCP server built in.
 
 - **The app**, native and GPU-accelerated, lives in [`native/`](native/): Rust + GPUI, FFmpeg, Metal.
-  Download it from [Releases](https://github.com/flaxodotdev/liemo/releases/latest); it keeps itself
-  up to date. Building, credits and the MCP server: [native/README.md](native/README.md);
+  Download the DMG for your Mac (Apple silicon or Intel) from
+  [Releases](https://github.com/flaxodotdev/liemo/releases/latest); it keeps itself up to date. Building, credits and the MCP server: [native/README.md](native/README.md);
   releases: [native/RELEASING.md](native/RELEASING.md).
 - **The browser version**, the original prototype, is this Next.js app (below).
 

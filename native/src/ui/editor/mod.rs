@@ -1,7 +1,7 @@
 // The editor window: owns the edit (Store), playback, the preview renderer, autosave, imports and
 // every pointer drag. Panels are split across the files in this module.
 
-mod agent_ui;
+pub(crate) mod agent_ui;
 mod export_ui;
 pub mod geometry;
 mod inspector;

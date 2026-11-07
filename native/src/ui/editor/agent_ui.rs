@@ -130,7 +130,7 @@ fn code_block(lines: Vec<&str>) -> gpui::Div {
 }
 
 /// Paragraphs, headings, lists and fenced code blocks.
-fn markdown(src: &str) -> AnyElement {
+pub(crate) fn markdown(src: &str) -> AnyElement {
     let mut col = div().flex().flex_col().gap_2().text_size(px(13.)).line_height(px(20.));
     let mut para: Vec<String> = vec![];
     let mut code: Option<Vec<&str>> = None;

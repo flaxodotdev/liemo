@@ -22,7 +22,7 @@ app=$dist/Liemo.app
 zip=$dist/Liemo-$version-macos-$arch.zip
 
 [ -n "${SKIP_BUILD:-}" ] || cargo build --release
-rm -rf "$app" "$zip" "$zip.sig"
+rm -rf "$app" "$zip" "$zip.sig" "$dist"/*.dmg
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp target/release/rayna "$app/Contents/MacOS/Liemo"
 cp assets/app/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
@@ -112,6 +112,9 @@ if [ -n "${APPLE_ID:-}" ] && [ "$identity" != "-" ]; then
   xcrun stapler staple "$app"
   rm "$dist/notarize.zip"
 fi
+
+# ---- Disk image for downloads (the updater uses the zip) ----
+scripts/dmg.sh "$app" "$dist/Liemo-$version-macos-$arch.dmg"
 
 # ---- Release zip and update signature ----
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"

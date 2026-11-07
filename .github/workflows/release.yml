@@ -82,6 +82,7 @@ jobs:
           path: |
             native/dist/*.zip
             native/dist/*.zip.sig
+            native/dist/*.dmg
           if-no-files-found: error
 
   publish:

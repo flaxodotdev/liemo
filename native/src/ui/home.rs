@@ -929,7 +929,7 @@ impl Home {
                         .border_1()
                         .border_color(hairline())
                         .p_3()
-                        .child(type_caption(div()).font_weight(FontWeight::NORMAL).text_color(ink_muted()).child(n)),
+                        .child(div().text_color(ink_muted()).child(crate::ui::editor::agent_ui::markdown(&n))),
                 )
             })
             .when_some(progress, |d, (f, text)| {
