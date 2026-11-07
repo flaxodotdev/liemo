@@ -75,16 +75,19 @@ impl Editor {
             .px_4()
             .py(px(10.))
             .child(
+                // Left and right take equal shares, so the play controls sit at the true centre.
                 div()
                     .flex()
-                    .flex_none()
+                    .flex_1()
+                    .flex_basis(px(0.))
+                    .min_w_0()
                     .child(timecode(tc(now), if compact { 13. } else { 15. }).text_color(ink()))
                     .when(!compact, |d| d.child(timecode(" / ", 15.).text_color(ink_muted())).child(timecode(tc(end), 15.).text_color(ink_muted()))),
             )
             .child(
                 div()
                     .flex()
-                    .flex_1()
+                    .flex_none()
                     .items_center()
                     .justify_center()
                     .gap(px(6.))
@@ -123,14 +126,14 @@ impl Editor {
                         cx.notify();
                     }))),
             )
-            .child(icon_button("loop", "repeat", "Loop playback", Some("L"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
+            .child(div().flex().flex_1().flex_basis(px(0.)).min_w_0().justify_end().gap_2().child(icon_button("loop", "repeat", "Loop playback", Some("L"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
                 this.store.looping = !this.store.looping;
                 cx.notify();
             })).when(looping, |d| d.bg(surface3()).text_color(ink())))
             .child(icon_button("guides", "scan", "Safe-area guides", Some("G"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
                 this.store.guides = !this.store.guides;
                 cx.notify();
-            })).when(guides, |d| d.bg(surface3())));
+            })).when(guides, |d| d.bg(surface3()))));
 
         panel()
             .flex_1()
