@@ -107,23 +107,19 @@ impl Editor {
     fn combobox(&self, id: SharedString, current: SharedString, entries: Rc<Vec<MenuEntry>>, cx: &mut Context<Self>) -> AnyElement {
         let open = self.combo.as_ref() == Some(&id);
         let tid = id.clone();
-        let trigger = div()
-            .id(id.clone())
-            .flex()
-            .items_center()
-            .gap_2()
+        // The same pill as a normal select; only what opens differs.
+        let trigger = Button::new(id.clone())
+            .label(current)
+            .outline()
+            .dropdown_caret(true)
             .w_full()
             .h(px(32.))
             .px_3()
             .rounded(px(10.))
             .bg(alpha(hairline(), 0.3))
             .border_1()
-            .border_color(if open { ink_muted() } else { hairline() })
+            .border_color(hairline())
             .text_size(px(13.))
-            .cursor_pointer()
-            .hover(|s| s.bg(alpha(hairline(), 0.5)))
-            .child(div().flex_1().min_w_0().truncate().child(current))
-            .child(icon("search", 13., ink_muted()))
             .on_click(cx.listener(move |this, _, window, cx| {
                 if this.combo.as_ref() == Some(&tid) {
                     this.combo = None;
@@ -138,7 +134,8 @@ impl Editor {
                 }
                 cx.notify();
             }));
-        let mut wrap = div().relative().w_full().child(trigger);
+        let geo_key = format!("combo:{id}");
+        let mut wrap = div().relative().w_full().child(self.track_bounds(geo_key.clone())).child(trigger);
         if !open {
             return wrap.into_any_element();
         }
@@ -223,6 +220,7 @@ impl Editor {
             .id("combo-list")
             .flex()
             .flex_col()
+            .p_1()
             .max_h(px(340.))
             .overflow_y_scroll()
             .track_scroll(&self.combo_scroll)
@@ -254,14 +252,15 @@ impl Editor {
                 }
             }))
             .when(n == 0, |d| d.child(div().px_2().py_3().child(micro("No matches"))));
+        // Exactly as wide as the select it opened from (measured last frame).
+        let width = self.geo.borrow().get(&geo_key).map(|b| f32::from(b.size.width)).unwrap_or(240.);
         let panel = div()
             .id("combo-panel")
             .occlude()
-            .w(px(300.))
+            .w(px(width))
             .flex()
             .flex_col()
-            .gap_1()
-            .p_1()
+            .overflow_hidden()
             .rounded(px(12.))
             .bg(surface1())
             .border_1()
@@ -272,7 +271,18 @@ impl Editor {
                 this.combo = None;
                 cx.notify();
             }))
-            .child(div().relative().p_1().child(self.track_bounds("input:combo")).child(Input::new(&self.combo_input).small().prefix(icon("search", 14., ink_muted())).aria_label("Search")))
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .h(px(42.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .child(self.track_bounds("input:combo"))
+                    .child(Input::new(&self.combo_input).appearance(false).text_size(px(14.)).w_full().aria_label("Search")),
+            )
+            .child(div().w_full().h(px(1.)).flex_none().bg(hairline()))
             .child(list);
         wrap = wrap.child(div().absolute().top(px(36.)).left_0().child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(panel)).with_priority(2)));
         wrap.into_any_element()

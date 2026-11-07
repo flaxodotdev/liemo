@@ -288,7 +288,7 @@ impl Editor {
             export_name,
             combo: std::env::var("RAYNA_COMBO").ok().map(SharedString::from),
             combo_input,
-            combo_hi: 0,
+            combo_hi: usize::MAX,
             combo_scroll: gpui::ScrollHandle::new(),
             text_bound: None,
             text_focused: false,
