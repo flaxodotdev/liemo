@@ -155,7 +155,11 @@ pub fn check(asked: bool) {
     }
     set(State::Checking);
     std::thread::spawn(|| {
-        set(match fetch_latest() {
+        let result = fetch_latest();
+        if result.is_ok() {
+            crate::ui::prefs::set("update_checked", serde_json::Value::String(now().to_string()));
+        }
+        set(match result {
             Ok(Some(r)) => {
                 // Test hook: install straight away (scripts/update-test.sh).
                 if std::env::var("LIEMO_UPDATE_AUTOINSTALL").is_ok() {
@@ -169,17 +173,29 @@ pub fn check(asked: bool) {
     });
 }
 
-/// Check once a day at launch (installed copies only).
+/// Check at launch and every few hours after, in installed copies. Checks are at most an hour
+/// apart (across all running copies), and only a check that reached GitHub counts toward that,
+/// so a failed one is retried next launch.
 pub fn check_on_launch() {
     if !supported() || std::env::var("LIEMO_NO_UPDATE_CHECK").is_ok() {
         return;
     }
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    check_if_due();
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(4 * 3600));
+        check_if_due();
+    });
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn check_if_due() {
     let last = crate::ui::prefs::get_str("update_checked").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-    if now.saturating_sub(last) < 20 * 3600 && std::env::var("LIEMO_UPDATE_FEED").is_err() {
+    if now().saturating_sub(last) < 3600 && std::env::var("LIEMO_UPDATE_FEED").is_err() {
         return;
     }
-    crate::ui::prefs::set("update_checked", serde_json::Value::String(now.to_string()));
     check(false);
 }
 
