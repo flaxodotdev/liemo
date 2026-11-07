@@ -832,12 +832,17 @@ impl Editor {
     pub fn bounds(&self, key: &str) -> Option<Bounds<Pixels>> {
         self.geo.borrow().get(key).copied()
     }
-    /// An invisible element that records its bounds under `key` each frame.
+    /// An invisible element that records its bounds under `key` each frame. Layout that's sized
+    /// from these (the stage) is a frame behind, so a change asks for one more frame straight away
+    /// rather than waiting for the next mouse move.
     pub fn track_bounds(&self, key: impl Into<String>) -> impl IntoElement {
         let geo = self.geo.clone();
         let key = key.into();
-        canvas(move |b, _, _| {
-            geo.borrow_mut().insert(key, b);
+        canvas(move |b, window, _| {
+            let old = geo.borrow_mut().insert(key, b);
+            if old.is_some_and(|o| o != b) {
+                window.refresh();
+            }
         }, |_, _, _, _| {})
         .absolute()
         .top_0()
