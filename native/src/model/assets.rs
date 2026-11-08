@@ -350,7 +350,14 @@ pub fn font_def(family: &str) -> &'static FontDef {
 }
 
 fn tp(content: &str, font: &str, size: f64, weight: f64, color: &str, align: TextAlign, anim: TextAnim, boxed: bool, y: f64) -> TextProps {
-    TextProps { content: content.into(), font: font.into(), size, weight, color: color.into(), align, anim, boxed, y }
+    TextProps { blend: TextBlend::Normal, ..tp_full(content, font, size, weight, color, align, anim, boxed, y) }
+}
+/// Same, with the blend style set (Invert reads on any footage).
+fn tp_inv(content: &str, font: &str, size: f64, weight: f64, color: &str, align: TextAlign, anim: TextAnim, boxed: bool, y: f64) -> TextProps {
+    TextProps { blend: TextBlend::Invert, ..tp_full(content, font, size, weight, color, align, anim, boxed, y) }
+}
+fn tp_full(content: &str, font: &str, size: f64, weight: f64, color: &str, align: TextAlign, anim: TextAnim, boxed: bool, y: f64) -> TextProps {
+    TextProps { content: content.into(), font: font.into(), size, weight, color: color.into(), align, anim, boxed, y, blend: TextBlend::Normal }
 }
 pub fn text_presets() -> Vec<Asset> {
     use TextAlign::*;
@@ -358,6 +365,7 @@ pub fn text_presets() -> Vec<Asset> {
     let t = |id: &str, name: &str, sub: &str, dur: f64, text: TextProps| Asset { text: Some(text), ..Asset::base(id, AssetType::Text, name, sub, dur) };
     vec![
         t("tx-title", "Title", "Centered display", 4.0, tp("Summer, slowly", "Mona Sans", 120.0, 700.0, "#ffffff", Center, Rise, false, 0.0)),
+        t("tx-invert", "Invert", "Readable on anything", 4.0, tp_inv("STAY BRIGHT", "Bebas Neue", 150.0, 400.0, "#ffffff", Center, Fade, false, 0.0)),
         t("tx-lower", "Lower third", "Name + role", 4.0, tp("Marta Silva\nDirector of photography", "Inter", 44.0, 600.0, "#ffffff", Left, Slide, true, 200.0)),
         t("tx-caption", "Caption", "Subtitle line", 3.0, tp("The light changes every ten minutes here.", "Inter", 36.0, 500.0, "#ffffff", Center, Fade, true, 260.0)),
         t("tx-quote", "Serif quote", "Editorial", 4.0, tp("“We came for the sea,\nwe stayed for the light.”", "Instrument Serif", 76.0, 400.0, "#ffffff", Center, Fade, false, 0.0)),

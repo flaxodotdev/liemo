@@ -2,8 +2,12 @@
 // so spacing, type and states stay identical. Dark only; hierarchy comes from surface lift.
 
 use gpui::prelude::*;
-use gpui::{div, px, rgb, rgba, svg, App, ClickEvent, Div, ElementId, FontWeight, Hsla, SharedString, Stateful, Window};
+use gpui::{div, px, rgb, rgba, svg, AnyElement, App, ClickEvent, Context, Div, ElementId, Entity, FontWeight, Hsla, SharedString, Stateful, Window};
+use gpui_component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_component::tooltip::Tooltip;
+use gpui_component::{Colorize, Sizable};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 pub fn canvas_bg() -> Hsla {
     rgb(0x090909).into()
@@ -255,26 +259,107 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
     }))
 }
 
-/// Round colour swatches with a selected ring.
-pub fn swatches(id: &str, colors: &[&str], value: &str, size: f32, on_pick: impl Fn(String, &mut Window, &mut App) + 'static) -> Div {
-    let on_pick = std::rc::Rc::new(on_pick);
-    div().flex().flex_wrap().items_center().gap(px(6.)).children(colors.iter().enumerate().map(|(i, c)| {
-        let sel = c.eq_ignore_ascii_case(value);
-        let cb = on_pick.clone();
-        let col = c.to_string();
-        div()
-            .id(SharedString::from(format!("{id}-{i}")))
-            .size(px(size + 6.))
-            .rounded_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .border_2()
-            .border_color(if sel { signal() } else { alpha(ink(), 0.0) })
-            .cursor_pointer()
-            .child(div().size(px(size)).rounded_full().bg(hex(c)).border_1().border_color(white_a(0.15)))
-            .on_click(move |_, w, cx| cb(col.clone(), w, cx))
-    }))
+/// `true` when `s` looks like a `#rrggbb` hex colour.
+fn looks_hex(s: &str) -> bool {
+    s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Settings key: colours chosen with the custom picker, offered in every colour row.
+const RECENT_KEY: &str = "custom_colors";
+
+/// The colours the user picked with the custom picker (newest first), like the browser
+/// version's recently used colours. Losing them is harmless, as with all prefs.
+pub fn recent_colors() -> Vec<String> {
+    crate::ui::prefs::get(RECENT_KEY)
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect()
+}
+
+/// Remember a custom colour so it shows up as a swatch in every colour row.
+pub fn push_recent_color(c: &str) {
+    let c = c.to_ascii_lowercase();
+    if !looks_hex(&c) {
+        return;
+    }
+    let mut all: Vec<String> = recent_colors().into_iter().filter(|x| *x != c).collect();
+    all.insert(0, c);
+    all.truncate(6);
+    crate::ui::prefs::set(RECENT_KEY, serde_json::Value::Array(all.into_iter().map(serde_json::Value::String).collect()));
+}
+
+/// Round colour swatches with a selected ring: the presets, then recently picked custom colours,
+/// then `custom` — a pick-anything element, when the caller has one.
+pub fn swatches(id: &str, colors: &[&str], value: &str, size: f32, custom: Option<AnyElement>, on_pick: impl Fn(String, &mut Window, &mut App) + 'static) -> Div {
+    let on_pick = Rc::new(on_pick);
+    // The colour in use is always drawn (so its ring shows), followed by remembered custom colours.
+    let matched = colors.iter().any(|c| c.eq_ignore_ascii_case(value));
+    let mut extra: Vec<String> = if !matched && looks_hex(value) { vec![value.to_string()] } else { vec![] };
+    for c in recent_colors() {
+        if extra.len() >= 6 {
+            break;
+        }
+        if extra.iter().any(|x| x.eq_ignore_ascii_case(&c)) || colors.iter().any(|p| p.eq_ignore_ascii_case(&c)) {
+            continue;
+        }
+        extra.push(c);
+    }
+    let all = colors.iter().map(|c| c.to_string()).chain(extra).collect::<Vec<_>>();
+    div().flex().flex_wrap().items_center().gap(px(6.))
+        .children(all.iter().enumerate().map(|(i, c)| {
+            let sel = c.eq_ignore_ascii_case(value);
+            let cb = on_pick.clone();
+            let col = c.to_string();
+            div()
+                .id(SharedString::from(format!("{id}-{i}")))
+                .size(px(size + 6.))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .border_2()
+                .border_color(if sel { signal() } else { alpha(ink(), 0.0) })
+                .cursor_pointer()
+                .child(div().size(px(size)).rounded_full().bg(hex(c)).border_1().border_color(white_a(0.15)))
+                .on_click(move |_, w, cx| cb(col.clone(), w, cx))
+        }))
+        .when_some(custom, |d, c| d.child(c))
+}
+
+/// A custom-colour button (palette, HSL sliders and a hex field) that hands its colour to
+/// `on_set`, remembers it as a recent, and stays in sync when the row's colour changes from
+/// somewhere else (undo, a swatch, the AI agent). `pickers` caches a picker per row key.
+pub fn color_picker<V: 'static>(
+    pickers: &mut HashMap<String, (Entity<ColorPickerState>, gpui::Subscription)>,
+    key: &str,
+    cur: &str,
+    on_set: Rc<dyn Fn(&mut V, String)>,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) -> AnyElement {
+    if !pickers.contains_key(key) {
+        let st = cx.new(|cx| ColorPickerState::new(window, cx).default_value(hex(cur)));
+        let sub = cx.subscribe_in(&st, window, move |this: &mut V, _, ev: &ColorPickerEvent, _, _cx| {
+            if let ColorPickerEvent::Change(Some(c)) = ev {
+                let col = c.to_hex().to_ascii_lowercase();
+                push_recent_color(&col);
+                (on_set)(this, col);
+            }
+        });
+        pickers.insert(key.to_string(), (st, sub));
+    }
+    let (st, _) = pickers.get(key).unwrap();
+    // Follow external changes to the row's colour (but never while it shows the same colour,
+    // so an open picker isn't reset mid-edit).
+    let same = st.read(cx).value().map(|v| v.to_hex().to_ascii_lowercase()) == Some(cur.to_ascii_lowercase());
+    if !same {
+        let target = hex(cur);
+        let st = st.clone();
+        st.update(cx, |st, cx| st.set_value(target, window, cx));
+    }
+    ColorPicker::new(&pickers[key].0).small().into_any_element()
 }
 
 /// Key–value table (e.g. Start / End / Duration).

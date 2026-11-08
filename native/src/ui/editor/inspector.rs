@@ -11,10 +11,8 @@ use crate::ui::theme::*;
 use gpui::prelude::*;
 use gpui::{anchored, deferred, div, px, relative, AnyElement, Context, Div, Entity, SharedString, Window};
 use gpui_component::button::Button;
-use gpui_component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_component::input::{Input, Textarea};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{Colorize, Sizable};
 use std::rc::Rc;
 
 pub enum MenuEntry {
@@ -392,7 +390,7 @@ impl Editor {
             .into_any_element()];
 
         if let Some(t) = &c.text {
-            out.extend(self.text_groups(c, t, cx));
+            out.extend(self.text_groups(c, t, window, cx));
         }
         let id = c.id.clone();
         let num = |this: &Editor, label: &str, field: fn(&mut Clip) -> &mut f64, value: f64, min: f64, max: f64, step: f64, fmt: fn(f64) -> String, cx: &mut Context<Editor>| {
@@ -453,7 +451,7 @@ impl Editor {
         out
     }
 
-    fn text_groups(&self, c: &Clip, t: &TextProps, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn text_groups(&mut self, c: &Clip, t: &TextProps, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let id = c.id.clone();
         let set = |f: Box<dyn Fn(&mut TextProps)>| {
             let id = id.clone();
@@ -505,6 +503,16 @@ impl Editor {
         let s_box = seg_set.clone();
         let s_anim = seg_set.clone();
         let s_col = seg_set.clone();
+        let s_blend = seg_set.clone();
+        // A custom-colour button next to the palette; picks are remembered for every row.
+        let tcol_apply: Rc<dyn Fn(&mut Editor, String)> = Rc::new({
+            let tid3 = c.id.clone();
+            move |e: &mut Editor, col: String| {
+                e.store.commit();
+                e.store.update_text(&tid3, move |t| t.color = col);
+            }
+        });
+        let tcol_picker = color_picker(&mut self.pickers, &format!("tcol-{}", c.id), &t.color, tcol_apply, window, cx);
         vec![
             group(Some("Text"), None, false)
                 .child(div().relative().child(self.track_bounds("input:text")).child(Textarea::new(&self.text_input).h(px(64.)).aria_label("Text")))
@@ -512,7 +520,18 @@ impl Editor {
                 .child(field_row("Weight", self.select("f-weight", weight_label, weight_entries, cx), None))
                 .child(self.slider_field("Size", "f-tsize", t.size, 16.0, 240.0, 1.0, |v| format!("{v}px"), Rc::new(move |e: &mut Editor, v| e.store.update_text(&tid, |t| t.size = v)), cx))
                 .child(self.slider_field("Height", "f-ty", t.y, -320.0, 320.0, 1.0, |v| format!("{}", v.round()), Rc::new(move |e: &mut Editor, v| e.store.update_text(&tid2, |t| t.y = v)), cx))
-                .child(swatches("tcol", &TEXT_COLORS, &t.color, 18., move |col, w, cx| (s_col(Box::new(move |t: &mut TextProps| t.color = col.clone())))(w, cx)))
+                .child(swatches("tcol", &TEXT_COLORS, &t.color, 18., Some(tcol_picker), move |col, w, cx| (s_col(Box::new(move |t: &mut TextProps| t.color = col.clone())))(w, cx)))
+                .child(field_row(
+                    "Style",
+                    segmented(
+                        "tblend",
+                        &[(TextBlend::Normal, "Normal"), (TextBlend::Invert, "Invert"), (TextBlend::Exclusion, "Soft invert")],
+                        &t.blend,
+                        |_| false,
+                        move |v, w, cx| (s_blend(Box::new(move |t: &mut TextProps| t.blend = v)))(w, cx),
+                    ),
+                    None,
+                ))
                 .into_any_element(),
             group(Some("Layout & motion"), None, false)
                 .child(field_row(
@@ -722,7 +741,14 @@ impl Editor {
                     };
                     let ed = cx.entity();
                     let s = setter.clone();
-                    let picker = self.color_picker(&c.id, &fx.uid, key, &cur, window, cx);
+                    let (cid2, uid2, pkey2) = (c.id.clone(), fx.uid.to_string(), key.to_string());
+                    let apply: Rc<dyn Fn(&mut Editor, String)> = Rc::new(move |e: &mut Editor, col: String| {
+                        e.store.commit();
+                        e.store.update_effect(&cid2, &uid2, |x| {
+                            x.params.insert(pkey2.clone(), ParamValue::Str(col.clone()));
+                        });
+                    });
+                    let picker = color_picker(&mut self.pickers, &format!("fx-{}-{key}", fx.uid), &cur, apply, window, cx);
                     field_row(
                         p.label,
                         div()
@@ -730,15 +756,14 @@ impl Editor {
                             .flex_wrap()
                             .items_center()
                             .gap(px(4.))
-                            .child(swatches(&format!("fxs-{}-{key}", fx.uid), &SWATCHES, &cur, 16., move |col, _, cx| {
+                            .child(swatches(&format!("fxs-{}-{key}", fx.uid), &SWATCHES, &cur, 16., Some(picker), move |col, _, cx| {
                                 let s = s.clone();
                                 ed.update(cx, |e, cx| {
                                     e.store.commit();
                                     s(ParamValue::Str(col))(e);
                                     cx.notify();
                                 })
-                            }))
-                            .child(picker),
+                            })),
                         None,
                     )
                     .into_any_element()
@@ -749,25 +774,5 @@ impl Editor {
         card.into_any_element()
     }
 
-    /// A custom-colour button for an effect colour (state kept per effect parameter).
-    fn color_picker(&mut self, cid: &str, uid: &str, pkey: &'static str, cur: &str, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let k = format!("{uid}-{pkey}");
-        if !self.pickers.contains_key(&k) {
-            let st = cx.new(|cx| ColorPickerState::new(window, cx).default_value(hex(cur)));
-            let (cid, uid) = (cid.to_string(), uid.to_string());
-            let sub = cx.subscribe_in(&st, window, move |this: &mut Editor, _, ev: &ColorPickerEvent, _, cx| {
-                if let ColorPickerEvent::Change(Some(c)) = ev {
-                    let col = c.to_hex();
-                    this.store.commit();
-                    this.store.update_effect(&cid, &uid, |x| {
-                        x.params.insert(pkey.to_string(), ParamValue::Str(col.clone()));
-                    });
-                    cx.notify();
-                }
-            });
-            self.pickers.insert(k.clone(), (st, sub));
-        }
-        ColorPicker::new(&self.pickers[&k].0).small().into_any_element()
-    }
 }
 

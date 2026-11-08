@@ -5,17 +5,19 @@ use super::images::{cached, put, to_image};
 use super::prefs;
 use super::theme::*;
 use crate::model::assets::asset;
-use crate::model::store::{default_tracks, project_end, sample_clips};
 use crate::model::time::tc;
-use crate::storage::{self, ProjectRecord, ProjectSummary};
+use crate::storage::{self, ProjectSummary};
 use gpui::prelude::*;
 use gpui::Focusable;
 use gpui::{div, img, px, AnyElement, Context, Entity, FontWeight, MouseButton, ObjectFit, RenderImage, SharedString, Subscription, WeakEntity, Window};
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::color_picker::ColorPickerState;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::{Sizable, WindowExt};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -49,66 +51,16 @@ pub struct Home {
     update_asked: u64,
     new_fps: u32,
     new_res: u32,
-    new_bg: &'static str,
+    new_bg: String,
     custom_w: Entity<InputState>,
     custom_h: Entity<InputState>,
+    /// Custom-colour pickers (per colour row), cached across renders.
+    pickers: HashMap<String, (Entity<ColorPickerState>, Subscription)>,
     _subs: Vec<Subscription>,
 }
 
 /// Create a project from a template and save it.
-/// Everything the New project dialog sets.
-#[derive(Clone)]
-pub struct NewProject {
-    pub format: String,
-    pub size: Option<[u32; 2]>,
-    pub fps: u32,
-    pub resolution: u32,
-    pub background: String,
-}
-impl NewProject {
-    pub fn of(format: &str) -> Self {
-        NewProject { format: format.into(), size: None, fps: 30, resolution: 1080, background: "#000000".into() }
-    }
-}
-
-pub fn create_project(sample: bool, name: Option<String>, np: &NewProject) -> anyhow::Result<String> {
-    let mut p = ProjectRecord {
-        id: storage::new_id(),
-        name: String::new(),
-        created_at: 0,
-        updated_at: 0,
-        duration: 0.0,
-        clip_count: 0,
-        clips: vec![],
-        tracks: default_tracks(),
-        pool: vec![],
-        format: np.format.clone(),
-        size: if np.format == "custom" { np.size } else { None },
-        fps: np.fps,
-        resolution: np.resolution,
-        background: np.background.clone(),
-    };
-    // The sample's titles are laid out for the project's canvas and frame rate.
-    let env = p.env();
-    let clips = if sample {
-        let old = crate::model::time::env();
-        crate::model::time::set_env(env);
-        let c = sample_clips();
-        crate::model::time::set_env(old);
-        c
-    } else {
-        vec![]
-    };
-    let now = storage::now_ms();
-    p.name = name.unwrap_or_else(|| if sample { "Nature reel".into() } else { "Untitled project".into() });
-    p.created_at = now;
-    p.updated_at = now;
-    p.duration = project_end(&clips);
-    p.clip_count = clips.len();
-    p.clips = clips;
-    storage::put_project(&p)?;
-    Ok(p.id)
-}
+pub use crate::storage::{create_project, NewProject};
 
 impl Home {
     pub fn new(app: WeakEntity<RaynaApp>, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -137,7 +89,7 @@ impl Home {
         let custom_w = cx.new(|cx| InputState::new(window, cx).default_value("1080"));
         let custom_h = cx.new(|cx| InputState::new(window, cx).default_value("1920"));
         let format = if prefs::get_str("format").as_deref() == Some("custom") { "custom" } else { format };
-        let mut h = Home { format, new_dialog: None, new_cat: None, new_name, connect_ai: std::env::var("RAYNA_AI").is_ok(), update_open: false, update_asked: crate::update::asked(), new_fps: 30, new_res: 1080, new_bg: "#000000", custom_w, custom_h, app, projects: None, failed: false, search, query: String::new(), sort, busy: None, renaming: None, rename_input, deleting: None, _subs: subs };
+        let mut h = Home { format, new_dialog: None, new_cat: None, new_name, connect_ai: std::env::var("RAYNA_AI").is_ok(), update_open: false, update_asked: crate::update::asked(), new_fps: 30, new_res: 1080, new_bg: "#000000".into(), custom_w, custom_h, pickers: HashMap::new(), app, projects: None, failed: false, search, query: String::new(), sort, busy: None, renaming: None, rename_input, deleting: None, _subs: subs };
         h.refresh();
         // Follow the updater: redraw when its state moves, and open the dialog when the user
         // asked from the menu (they see the answer even if there's nothing new).
@@ -386,7 +338,7 @@ impl Home {
             size: if self.format == "custom" { self.custom_size(cx) } else { None },
             fps: self.new_fps,
             resolution: self.new_res,
-            background: self.new_bg.into(),
+            background: self.new_bg.clone().into(),
         }
     }
 
@@ -449,7 +401,7 @@ impl Home {
     }
 
     /// Frame rate, export resolution and background: what most editors ask when you start.
-    fn settings_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn settings_section(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let me = cx.entity();
         let me2 = me.clone();
         let fps = segmented("np-fps", &[(24u32, "24"), (25, "25"), (30, "30"), (50, "50"), (60, "60")], &self.new_fps, |_| false, move |v, _, cx| {
@@ -465,18 +417,12 @@ impl Home {
             })
         });
         let me3 = cx.entity();
-        let bg = swatches("np-bg", &["#000000", "#ffffff", "#141414", "#1b0f2e", "#0b1220", "#ffd9a0", "#22c55e", "#0099ff"], self.new_bg, 16., move |c, _, cx| {
+        // A custom-colour button next to the palette; picks are remembered for every row.
+        let bg_apply: Rc<dyn Fn(&mut Home, String)> = Rc::new(|this: &mut Home, col: String| this.new_bg = col);
+        let bg_picker = color_picker(&mut self.pickers, "np-bg", &self.new_bg, bg_apply, window, cx);
+        let bg = swatches("np-bg", &["#000000", "#ffffff", "#141414", "#1b0f2e", "#0b1220", "#ffd9a0", "#22c55e", "#0099ff"], &self.new_bg, 16., Some(bg_picker), move |c, _, cx| {
             me3.update(cx, |this, cx| {
-                this.new_bg = match c.as_str() {
-                    "#ffffff" => "#ffffff",
-                    "#141414" => "#141414",
-                    "#1b0f2e" => "#1b0f2e",
-                    "#0b1220" => "#0b1220",
-                    "#ffd9a0" => "#ffd9a0",
-                    "#22c55e" => "#22c55e",
-                    "#0099ff" => "#0099ff",
-                    _ => "#000000",
-                };
+                this.new_bg = c;
                 cx.notify();
             })
         });
@@ -551,7 +497,7 @@ impl Home {
 
     /// The New project dialog: formats by category on the left, the chosen one, a name and what
     /// to start with on the right.
-    fn new_project_dialog(&self, start: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
+    fn new_project_dialog(&mut self, start: &'static str, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use crate::model::format::{CATEGORIES, FORMATS};
         let f = crate::model::format::format(self.format);
         let custom = self.format == "custom";
@@ -701,7 +647,7 @@ impl Home {
                     .child(label("Name"))
                     .child(div().h(px(36.)).flex().items_center().px_3().rounded(px(10.)).bg(canvas_bg()).border_1().border_color(hairline()).child(div().flex_1().child(Input::new(&self.new_name).appearance(false).aria_label("Project name")))),
             )
-            .child(self.settings_section(cx));
+            .child(self.settings_section(window, cx));
         let summary = div()
             .w(px(300.))
             .flex_none()
@@ -1169,6 +1115,12 @@ impl Render for Home {
                     ),
             );
 
+        // The New project dialog needs to build first: it may reach into Home (its own
+        // custom-colour picker), and a builder chain can't borrow self twice.
+        let np_dialog = self.new_dialog.clone().map(|start| {
+            self.new_project_dialog(start, window, cx)
+        });
+
         div()
             .size_full()
             .relative()
@@ -1207,7 +1159,7 @@ impl Render for Home {
             })
             .when(self.connect_ai, |d| d.child(self.modal_w("connect-ai", 600.0, self.connect_ai_dialog(cx), cx)))
             .when(self.update_open, |d| d.child(self.modal_w("update", 480.0, self.update_dialog(cx), cx)))
-            .when_some(self.new_dialog, |d, start| d.child(self.modal_w("new-project", 1040.0, self.new_project_dialog(start, cx), cx)))
+            .when_some(np_dialog, |d, dlg| d.child(self.modal_w("new-project", 1040.0, dlg, cx)))
             .when_some(self.deleting.clone(), |d, p| {
                 d.child(self.modal(
                     "delete",

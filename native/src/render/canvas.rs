@@ -47,6 +47,8 @@ pub fn blend_named(name: &str) -> BlendMode {
         "overlay" => BlendMode::Overlay,
         "multiply" => BlendMode::Multiply,
         "lighter" => BlendMode::Plus,
+        "difference" => BlendMode::Difference,
+        "exclusion" => BlendMode::Exclusion,
         "destination-in" => BlendMode::DestinationIn,
         "destination-over" => BlendMode::DestinationOver,
         "copy" => BlendMode::Source,

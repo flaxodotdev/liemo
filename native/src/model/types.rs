@@ -59,6 +59,18 @@ pub enum TextAnim {
     Type,
 }
 
+/// How text blends into what's under it. Invert (difference) flips every channel to the opposite
+/// of the footage underneath, so the text is complete contrast wherever it lands — always readable
+/// and the colour follows the picture; Exclusion does the same but softer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TextBlend {
+    #[default]
+    Normal,
+    Invert,
+    Exclusion,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextProps {
     pub content: String,
@@ -66,6 +78,8 @@ pub struct TextProps {
     pub size: f64,
     pub weight: f64,
     pub color: String,
+    #[serde(default)]
+    pub blend: TextBlend,
     pub align: TextAlign,
     pub anim: TextAnim,
     #[serde(rename = "box")]

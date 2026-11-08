@@ -93,14 +93,27 @@ pub fn draw_clip(c: &mut Canvas, clip: &Clip, t: f64, frames: &mut dyn Frames) {
     let alpha = (clip.opacity * clip_fade(clip, t)) as f32;
     let (cw, ch) = (c.width(), c.height());
     let s = cw as f32 / W();
-    let blend = a.blend.map(super::canvas::blend_named).unwrap_or(tiny_skia::BlendMode::SourceOver);
+    // The asset's blend, with the text style's own blend winning for text clips.
+    let text = clip.text.as_ref().filter(|_| a.kind == AssetType::Text);
+    let blend = match text {
+        Some(tx) => super::textclip::text_blend(tx.blend),
+        None => a.blend.map(super::canvas::blend_named).unwrap_or(tiny_skia::BlendMode::SourceOver),
+    };
+    // A layer whenever effects run: the clip renders alone first, takes its effect stack, then
+    // composites like any other clip. Blended text goes the same way even without effects, so the
+    // blend applies to the composite (the picture on the canvas) rather than a transparent layer.
+    let layered = clip.effects.iter().any(|e| e.enabled) || text.is_some() && blend != tiny_skia::BlendMode::SourceOver;
 
-    if clip.effects.iter().any(|e| e.enabled) {
+    if layered {
         // Render the clip alone, run its effect stack, then composite the result like any other clip.
         let mut layer = Canvas::from_pixmap(pixmap(cw, ch));
         layer.set_transform(Transform::from_scale(s, s));
         draw_content(&mut layer, clip, &a, t, 1.0, frames);
-        let out = run_effects(&layer.into_pixmap(), &clip.effects, (t - clip.start) as f32, clip.dur as f32, effects_on_object(clip));
+        let out = if clip.effects.iter().any(|e| e.enabled) {
+            run_effects(&layer.into_pixmap(), &clip.effects, (t - clip.start) as f32, clip.dur as f32, effects_on_object(clip))
+        } else {
+            layer.into_pixmap()
+        };
         c.save();
         c.reset_transform();
         c.composite(&out, alpha, blend);

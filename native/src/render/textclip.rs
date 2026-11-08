@@ -5,7 +5,7 @@ use super::canvas::{hex, rgba, Canvas};
 use super::text::{fill_text, measure, Align, Baseline, TextStyle};
 use crate::model::assets::font_def;
 use crate::model::time::{H, W};
-use crate::model::types::{TextAlign, TextAnim, TextProps};
+use crate::model::types::{TextAlign, TextAnim, TextBlend, TextProps};
 
 fn ease(p: f32) -> f32 {
     1.0 - (1.0 - p).powi(3)
@@ -43,6 +43,15 @@ fn align(a: TextAlign) -> Align {
         TextAlign::Left => Align::Left,
         TextAlign::Center => Align::Center,
         TextAlign::Right => Align::Right,
+    }
+}
+
+/// The blend a glyph layer needs for a text blend style, or source-over for normal text.
+pub fn text_blend(b: TextBlend) -> tiny_skia::BlendMode {
+    match b {
+        TextBlend::Normal => tiny_skia::BlendMode::SourceOver,
+        TextBlend::Invert => tiny_skia::BlendMode::Difference,
+        TextBlend::Exclusion => tiny_skia::BlendMode::Exclusion,
     }
 }
 
@@ -98,7 +107,14 @@ pub fn draw_text(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
     }
     for (i, l) in lay.lines.iter().enumerate() {
         c.set_alpha((if i > 0 { 0.75 } else { 1.0 }) * a * alpha);
+        // Blend styles need the glyph fill to invert against everything already on this canvas.
+        let saved = c.blend();
+        let blend = text_blend(t.blend);
+        if blend != tiny_skia::BlendMode::SourceOver {
+            c.set_blend(blend);
+        }
         fill_text(c, l, lay.base_x + ox, y + lay.lh[i] / 2.0, &style(t, i, lay.sizes[i]), align(t.align), Baseline::Middle, color);
+        c.set_blend(saved);
         y += lay.lh[i];
     }
 }
