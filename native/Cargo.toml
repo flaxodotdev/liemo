@@ -45,3 +45,10 @@ debug = false
 # with that one call spelled out keeps the crate building on Rust 1.96.
 [patch.crates-io]
 gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
+
+[lints.rust]
+# Set by the iOS engine crate (native/mobile) for the code both apps share.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(liemo_mobile)"] }
+
+[workspace]
+members = [".", "mobile"]

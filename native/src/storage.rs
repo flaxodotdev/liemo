@@ -1,6 +1,7 @@
 // Projects live in ~/Library/Application Support/Liemo: one JSON file per project plus a card
 // thumbnail, and one record per imported media file (pointing at the file where it is).
 
+use crate::model::store::{default_tracks, project_end, sample_clips};
 use crate::model::types::{AssetType, Clip, Track};
 use crate::render::canvas::to_straight;
 use anyhow::Result;
@@ -304,3 +305,59 @@ fn civil(z: i64) -> (i64, i64, i64) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
+
+// ---------- New projects ----------
+/// Everything the New project dialog sets.
+#[derive(Clone)]
+pub struct NewProject {
+    pub format: String,
+    pub size: Option<[u32; 2]>,
+    pub fps: u32,
+    pub resolution: u32,
+    pub background: String,
+}
+impl NewProject {
+    pub fn of(format: &str) -> Self {
+        NewProject { format: format.into(), size: None, fps: 30, resolution: 1080, background: "#000000".into() }
+    }
+}
+
+pub fn create_project(sample: bool, name: Option<String>, np: &NewProject) -> anyhow::Result<String> {
+    let mut p = ProjectRecord {
+        id: new_id(),
+        name: String::new(),
+        created_at: 0,
+        updated_at: 0,
+        duration: 0.0,
+        clip_count: 0,
+        clips: vec![],
+        tracks: default_tracks(),
+        pool: vec![],
+        format: np.format.clone(),
+        size: if np.format == "custom" { np.size } else { None },
+        fps: np.fps,
+        resolution: np.resolution,
+        background: np.background.clone(),
+    };
+    // The sample's titles are laid out for the project's canvas and frame rate.
+    let env = p.env();
+    let clips = if sample {
+        let old = crate::model::time::env();
+        crate::model::time::set_env(env);
+        let c = sample_clips();
+        crate::model::time::set_env(old);
+        c
+    } else {
+        vec![]
+    };
+    let now = now_ms();
+    p.name = name.unwrap_or_else(|| if sample { "Nature reel".into() } else { "Untitled project".into() });
+    p.created_at = now;
+    p.updated_at = now;
+    p.duration = project_end(&clips);
+    p.clip_count = clips.len();
+    p.clips = clips;
+    put_project(&p)?;
+    Ok(p.id)
+}
+

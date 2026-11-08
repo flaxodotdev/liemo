@@ -197,12 +197,23 @@ fn clip_prop() -> Value {
 }
 
 pub fn definitions() -> Vec<Value> {
+    // On iOS the app exports through AVFoundation itself, so there's no export tool.
+    let all = all_definitions();
+    if cfg!(liemo_mobile) {
+        all.into_iter().filter(|t| t["name"] != "export").collect()
+    } else {
+        all
+    }
+}
+
+fn all_definitions() -> Vec<Value> {
     let text_props = json!({
         "content": { "type": "string", "description": "The words; use \\n for a second line" },
         "font": { "type": "string", "description": format!("A bundled font ({}) or any font installed on this Mac (list_library kind \"font\")", FONTS.iter().map(|f| f.family).collect::<Vec<_>>().join(", ")) },
         "size": { "type": "number", "description": "Font size in canvas units" },
         "weight": { "type": "number", "enum": [400, 500, 600, 700, 800] },
         "color": { "type": "string", "description": "#rrggbb" },
+        "blend": { "type": "string", "enum": ["normal", "invert", "exclusion"], "description": "Invert flips each colour channel to the opposite of what's underneath, so the text stays readable on any footage; exclusion is the softer version of the same idea" },
         "align": { "type": "string", "enum": ["left", "center", "right"] },
         "y": { "type": "number", "description": "Vertical offset from the centre, in canvas units (negative is up)" },
         "animation": { "type": "string", "enum": ["none", "fade", "rise", "slide", "type"] },
@@ -278,6 +289,7 @@ pub fn definitions() -> Vec<Value> {
                 "duration": { "type": "number" },
                 "font": text_props["font"], "size": text_props["size"], "weight": text_props["weight"], "color": text_props["color"],
                 "align": text_props["align"], "y": text_props["y"], "animation": text_props["animation"], "box": text_props["box"],
+                "blend": text_props["blend"],
             }), &["project", "content"]),
         tool("update_clip", "Update a clip", "Change any of a clip's timing, track, transform, opacity, volume, fades, name or text. Only the fields given change.", clip_fields, &["project", "clip"]),
         tool("remove_clip", "Remove a clip", "Delete a clip from the timeline.", json!({ "project": project_prop(), "clip": clip_prop() }), &["project", "clip"]),
@@ -343,7 +355,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
         "create_project" => {
             let format = s(a, "format").unwrap_or("youtube");
             let custom = format == "custom" || (a.get("width").is_some() && a.get("height").is_some());
-            let mut np = crate::ui::home::NewProject::of(if custom { "custom" } else { format });
+            let mut np = crate::storage::NewProject::of(if custom { "custom" } else { format });
             if custom {
                 let (w, h) = (f(a, "width").ok_or("Custom needs width")? as u32, f(a, "height").ok_or("Custom needs height")? as u32);
                 if !(64..=8192).contains(&w) || !(64..=8192).contains(&h) || w.max(h) as f32 / w.min(h) as f32 > 4.0 {
@@ -363,7 +375,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 np.background = v.into();
             }
             let sample = s(a, "template") == Some("sample");
-            let id = crate::ui::home::create_project(sample, s(a, "name").map(String::from), &np).map_err(|e| e.to_string())?;
+            let id = crate::storage::create_project(sample, s(a, "name").map(String::from), &np).map_err(|e| e.to_string())?;
             ws.projects_changed();
             let opened = if b(a, "open").unwrap_or(true) && ws.live() { ws.open(&id).is_ok() } else { false };
             let rec = ws.record(&id)?;
@@ -646,7 +658,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 });
                 if let Some(t) = args.get("text") {
                     apply_text(st, &cid, t)?;
-                } else if ["content", "font", "size", "weight", "color", "align", "animation", "box"].iter().any(|k| args.get(*k).is_some()) {
+                } else if ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box"].iter().any(|k| args.get(*k).is_some()) {
                     // Text fields given flat, as add_text takes them (y stays the clip's offset).
                     let mut t = args.clone();
                     if let Some(o) = t.as_object_mut() {
@@ -831,6 +843,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
             let png = render_png(&rec, t, long)?;
             Ok(ToolOut { text: serde_json::to_string(&json!({ "project": rec.id, "time": t, "duration": project_end(&rec.clips) })).unwrap(), png: Some(png) })
         }
+        #[cfg(not(liemo_mobile))]
         "export" => {
             let id = resolve(a)?;
             let rec = ws.record(&id)?;
@@ -898,6 +911,13 @@ fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
                 _ => TextAnim::None,
             };
         }
+        if let Some(v) = s(&a, "blend") {
+            t.blend = match v {
+                "invert" => TextBlend::Invert,
+                "exclusion" => TextBlend::Exclusion,
+                _ => TextBlend::Normal,
+            };
+        }
         if let Some(v) = b(&a, "box") {
             t.boxed = v;
         }
@@ -926,6 +946,7 @@ pub fn render_png(rec: &ProjectRecord, t: f64, long: u32) -> R<Vec<u8>> {
     Ok(bytes)
 }
 
+#[cfg(not(liemo_mobile))]
 fn run_export(rec: &ProjectRecord, a: &Value) -> R<Value> {
     use crate::export::*;
     let mut st = Settings { aspect: rec.aspect_key(), resolution: rec.resolution, fps: rec.fps, ..Default::default() };

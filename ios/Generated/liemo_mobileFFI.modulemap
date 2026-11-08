@@ -1,0 +1,7 @@
+module liemo_mobileFFI {
+    header "liemo_mobileFFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}

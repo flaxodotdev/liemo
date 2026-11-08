@@ -1,0 +1,32 @@
+[package]
+name = "liemo-mobile"
+version = "0.2.0"
+edition = "2021"
+description = "Liemo's editing engine for iOS: the desktop app's renderer, effects, text and project tools, behind a Swift API"
+license = "MIT"
+
+[lib]
+name = "liemo_mobile"
+# staticlib for the iOS app; cdylib so uniffi-bindgen can read the Swift interface on the Mac.
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+uniffi = { version = "0.32", features = ["cli"] }
+tiny-skia = "0.12"
+rustybuzz = "0.20.1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+parking_lot = "0.12"
+dirs = "6"
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "wgsl", "glsl"] }
+pollster = "0.4"
+fontdb = "0.23"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(liemo_mobile)"] }
