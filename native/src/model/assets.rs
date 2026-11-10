@@ -357,7 +357,7 @@ fn tp_inv(content: &str, font: &str, size: f64, weight: f64, color: &str, align:
     TextProps { blend: TextBlend::Invert, ..tp_full(content, font, size, weight, color, align, anim, boxed, y) }
 }
 fn tp_full(content: &str, font: &str, size: f64, weight: f64, color: &str, align: TextAlign, anim: TextAnim, boxed: bool, y: f64) -> TextProps {
-    TextProps { content: content.into(), font: font.into(), size, weight, color: color.into(), align, anim, boxed, y, blend: TextBlend::Normal }
+    TextProps { content: content.into(), font: font.into(), size, weight, color: color.into(), align, anim, boxed, y, blend: TextBlend::Normal, outline: None, outline_width: 6.0, shadow: None, glow: None, highlight: None }
 }
 pub fn text_presets() -> Vec<Asset> {
     use TextAlign::*;
@@ -374,8 +374,8 @@ pub fn text_presets() -> Vec<Asset> {
     ]
 }
 pub const TEXT_COLORS: [&str; 9] = ["#ffffff", "#000000", "#ffd9a0", "#ff7a3d", "#ff5577", "#d44df0", "#6a4cf5", "#0099ff", "#22c55e"];
-pub const TEXT_ANIMS: [(TextAnim, &str); 5] =
-    [(TextAnim::None, "None"), (TextAnim::Fade, "Fade"), (TextAnim::Rise, "Rise"), (TextAnim::Slide, "Slide"), (TextAnim::Type, "Type")];
+pub const TEXT_ANIMS: [(TextAnim, &str); 12] =
+    [(TextAnim::None, "None"), (TextAnim::Fade, "Fade"), (TextAnim::Rise, "Rise"), (TextAnim::Slide, "Slide"), (TextAnim::Type, "Type"), (TextAnim::Pop, "Pop"), (TextAnim::Bounce, "Bounce"), (TextAnim::Zoom, "Zoom"), (TextAnim::Blur, "Blur"), (TextAnim::Wave, "Wave"), (TextAnim::Glitch, "Glitch"), (TextAnim::Flicker, "Flicker")];
 
 /// Fades listed with the transitions.
 pub const FADES: [(&str, &str, &str); 3] =

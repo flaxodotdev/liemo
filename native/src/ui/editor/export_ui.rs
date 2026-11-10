@@ -431,7 +431,7 @@ impl Editor {
                         cx.notify();
                     })))
                     .child(button("ex-reveal", Variant::Secondary, 36.).child(icon("search", 14., ink())).child("Show in Finder").on_click(move |_, _, _| {
-                        let _ = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+                        crate::platform::reveal(&path);
                     }))
                     .child(button("ex-done", Variant::Primary, 36.).child("Done").on_click(cx.listener(|this, _, _, cx| {
                         this.export = None;

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Hardened runtime with no exceptions: Liemo needs no JIT, unsigned memory or foreign libraries
-     (every bundled library is signed with the same team). -->
+     (every bundled library is signed with the same team). Audio input is for recording takes. -->
 <plist version="1.0">
-<dict/>
+<dict>
+  <key>com.apple.security.device.audio-input</key><true/>
+</dict>
 </plist>

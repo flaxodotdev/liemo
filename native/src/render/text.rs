@@ -96,6 +96,10 @@ fn system_db() -> &'static fontdb::Database {
     D.get_or_init(|| {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
+        // fontdb only knows the Mac's font folders; on iPhone and iPad they all live under here.
+        if cfg!(target_os = "ios") {
+            db.load_fonts_dir("/System/Library/Fonts");
+        }
         db
     })
 }
@@ -356,11 +360,8 @@ fn emoji_image(ch: char, px: u16) -> Option<Arc<Pixmap>> {
 }
 
 /// fillText. `x, y` are in the canvas's user space; the current transform, alpha, blend and clip apply.
-pub fn fill_text(c: &mut Canvas, text: &str, x: f32, y: f32, st: &TextStyle, align: Align, baseline: Baseline, color: Color) {
-    if text.is_empty() {
-        return;
-    }
-    let shaped = shape(text, st);
+/// Where a run of text starts: its left edge and baseline for `align` and `baseline`.
+fn placed(shaped: &Shaped, x: f32, y: f32, st: &TextStyle, align: Align, baseline: Baseline) -> (f32, f32) {
     let x0 = match align {
         Align::Left => x,
         Align::Center => x - shaped.width / 2.0,
@@ -371,22 +372,15 @@ pub fn fill_text(c: &mut Canvas, text: &str, x: f32, y: f32, st: &TextStyle, ali
         Baseline::Alphabetic => y,
         Baseline::Middle => y + (asc - desc) / 2.0,
     };
-    let primary = face_index(st.family, st.weight);
-    // Bundled static faces get a faux bold; installed families bring their own bold faces.
-    let faux_bold = primary < SYSTEM_BASE && !font(primary).map(|f| f.variable).unwrap_or(false) && st.weight >= 600.0;
-    let ts = c.transform();
+    (x0, base)
+}
+
+/// The outlines of a run's glyphs (not its emoji), in device space.
+fn glyphs_path(ts: Transform, shaped: &Shaped, x0: f32, base: f32, st: &TextStyle) -> Option<tiny_skia::Path> {
     let mut pb = PathBuilder::new();
     let mut any = false;
     for g in &shaped.glyphs {
-        if let Some(ch) = g.emoji {
-            let px = (st.size * ts.sx.abs().max(ts.sy.abs())).clamp(8.0, 160.0) as u16;
-            if let Some(img) = emoji_image(ch, px) {
-                let h = st.size * 1.17;
-                let w = h * img.width() as f32 / img.height() as f32;
-                let saved = c.transform();
-                c.draw_image_scaled(&img, x0 + g.x, base - st.size * 0.95, w, h);
-                c.set_transform(saved);
-            }
+        if g.emoji.is_some() {
             continue;
         }
         let Some(path) = glyph_path(g.face, g.gid, st.weight, st.size) else { continue };
@@ -398,10 +392,31 @@ pub fn fill_text(c: &mut Canvas, text: &str, x: f32, y: f32, st: &TextStyle, ali
             any = true;
         }
     }
-    if !any {
+    if any { pb.finish() } else { None }
+}
+
+pub fn fill_text(c: &mut Canvas, text: &str, x: f32, y: f32, st: &TextStyle, align: Align, baseline: Baseline, color: Color) {
+    if text.is_empty() {
         return;
     }
-    let Some(path) = pb.finish() else { return };
+    let shaped = shape(text, st);
+    let (x0, base) = placed(&shaped, x, y, st, align, baseline);
+    let primary = face_index(st.family, st.weight);
+    // Bundled static faces get a faux bold; installed families bring their own bold faces.
+    let faux_bold = primary < SYSTEM_BASE && !font(primary).map(|f| f.variable).unwrap_or(false) && st.weight >= 600.0;
+    let ts = c.transform();
+    for g in &shaped.glyphs {
+        let Some(ch) = g.emoji else { continue };
+        let px = (st.size * ts.sx.abs().max(ts.sy.abs())).clamp(8.0, 160.0) as u16;
+        if let Some(img) = emoji_image(ch, px) {
+            let h = st.size * 1.17;
+            let w = h * img.width() as f32 / img.height() as f32;
+            let saved = c.transform();
+            c.draw_image_scaled(&img, x0 + g.x, base - st.size * 0.95, w, h);
+            c.set_transform(saved);
+        }
+    }
+    let Some(path) = glyphs_path(ts, &shaped, x0, base, st) else { return };
     let fill = super::canvas::Fill::Solid(color);
     c.fill_path_with(&path, &fill);
     if faux_bold {
@@ -413,6 +428,24 @@ pub fn fill_text(c: &mut Canvas, text: &str, x: f32, y: f32, st: &TextStyle, ali
         c.pm.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
     let _ = FillRule::Winding;
+}
+
+/// Trace the outline of a run of text, `width` canvas units thick (centred on the glyph edge,
+/// so fill the text over it to get an outside outline).
+pub fn stroke_text(c: &mut Canvas, text: &str, x: f32, y: f32, st: &TextStyle, align: Align, baseline: Baseline, color: Color, width: f32) {
+    if text.is_empty() {
+        return;
+    }
+    let shaped = shape(text, st);
+    let (x0, base) = placed(&shaped, x, y, st, align, baseline);
+    let ts = c.transform();
+    let Some(path) = glyphs_path(ts, &shaped, x0, base, st) else { return };
+    let mut color = color;
+    color.apply_opacity(c.alpha());
+    let paint = Paint { shader: tiny_skia::Shader::SolidColor(color), blend_mode: c.blend(), anti_alias: true, ..Default::default() };
+    let k = (ts.sx * ts.sy - ts.kx * ts.ky).abs().sqrt();
+    let stroke = Stroke { width: width * k, line_join: LineJoin::Round, ..Default::default() };
+    c.pm.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
 }
 
 /// Render a single glyph, centred, into a square tile (used by the ASCII atlas).

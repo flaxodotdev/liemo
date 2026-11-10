@@ -108,6 +108,17 @@ impl Provider {
 pub fn shell_path() -> &'static String {
     static P: OnceLock<String> = OnceLock::new();
     P.get_or_init(|| {
+        if cfg!(windows) {
+            // Windows apps get the full PATH; add where npm, bun and friends put their tools.
+            let mut parts: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+            let home = dirs::home_dir().unwrap_or_default();
+            for extra in [dirs::data_dir().map(|d| d.join("npm")), Some(home.join(".local").join("bin")), Some(home.join(".bun").join("bin"))].into_iter().flatten() {
+                if !parts.contains(&extra) {
+                    parts.push(extra);
+                }
+            }
+            return std::env::join_paths(parts).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+        }
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         let from_shell = Command::new(&shell)
             .args(["-lc", "printf %s \"$PATH\""])
@@ -139,7 +150,9 @@ pub fn shell_path() -> &'static String {
 }
 
 fn find(bin: &str) -> Option<PathBuf> {
-    shell_path().split(':').map(|d| PathBuf::from(d).join(bin)).find(|p| p.is_file())
+    // On Windows, npm installs tools as .cmd shims.
+    let names: Vec<String> = if cfg!(windows) { ["exe", "cmd", "bat"].iter().map(|e| format!("{bin}.{e}")).collect() } else { vec![bin.to_string()] };
+    std::env::split_paths(shell_path()).flat_map(|d| names.iter().map(move |n| d.join(n))).find(|p| p.is_file())
 }
 
 /// The tools installed on this Mac, found once (in the background at launch, which also asks
@@ -235,8 +248,8 @@ fn context(t: &Turn) -> String {
         "You are the editing assistant inside Liemo, a video editor. The user has the project \"{}\" (id {}) open, \
          and your Liemo tool calls change it live in their editor; they can undo anything. Work on that project unless \
          they ask otherwise. Use only the liemo tools. Check results with render_frame when the look matters. Keep \
-         replies short: say what you changed.",
-        t.project_name, t.project_id
+         replies short: say what you changed.\n\nWhat Liemo can do:\n{}",
+        t.project_name, t.project_id, crate::mcp::INSTRUCTIONS
     )
 }
 

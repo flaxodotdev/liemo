@@ -1,7 +1,9 @@
 // Live audio output. The audio callback renders the timeline mix block by block and is also the
 // playback clock: the editor reads the playhead from here while playing, so picture follows sound.
 
+pub mod fx;
 pub mod mix;
+pub mod record;
 
 use crate::model::assets::Asset;
 use crate::model::types::{Clip, Track};

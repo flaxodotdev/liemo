@@ -205,4 +205,25 @@ impl Workspace for Live<'_, '_> {
     fn live(&self) -> bool {
         true
     }
+    fn record_audio(&mut self, project: &str, action: &str, args: &Value) -> R<Value> {
+        let e = match &self.editor {
+            Some(e) if e.read(self.cx).project.id == project => e.clone(),
+            _ => return Err("Recording needs the project open in Liemo's editor. Open it with open_project first.".into()),
+        };
+        let at = args.get("at").and_then(|v| v.as_f64());
+        let along = args.get("playAlong").and_then(|v| v.as_bool());
+        e.update(self.cx, |ed, cx| match action {
+            "start" => ed.start_recording(at, along, cx).map(|device| {
+                serde_json::json!({ "recording": true, "device": device, "at": ed.store.time, "note": "Recording. Call record_audio with action stop when the user is done; the take lands on A2 at \"at\"." })
+            }),
+            "stop" => ed.stop_recording(cx).map(|(path, at, secs)| {
+                serde_json::json!({ "recording": false, "file": path, "seconds": secs, "at": at, "track": "A2", "note": "The clip appears on A2 in a moment; read it with get_project, then shape it with update_clip (sound, volume, fades)." })
+            }),
+            "status" => Ok(match ed.recording_status() {
+                Some((secs, device, at)) => serde_json::json!({ "recording": true, "seconds": secs, "device": device, "at": at }),
+                None => serde_json::json!({ "recording": false, "device": crate::audio::record::input_name() }),
+            }),
+            other => Err(format!("Unknown action {other}: use start, stop or status")),
+        })
+    }
 }

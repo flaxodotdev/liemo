@@ -8,6 +8,7 @@ mod inspector;
 pub mod layout;
 mod library;
 mod preview;
+mod record_ui;
 mod timeline;
 mod top_bar;
 
@@ -168,6 +169,8 @@ pub struct Editor {
     pickers: HashMap<String, (Entity<gpui_component::color_picker::ColorPickerState>, Subscription)>,
     scheduled_rev: u64,
     stage_size: (f32, f32),
+    /// A take being recorded from the microphone.
+    recording: Option<record_ui::Recording>,
     _wake: Task<()>,
     _ticker: Task<()>,
 }
@@ -327,6 +330,7 @@ impl Editor {
             arc_rev: u64::MAX,
             media_rev: 0,
             seen_media_rev: 0,
+            recording: None,
             tab: library::saved_tab(),
             query: query0,
             scroll_x: 0.0,
@@ -1043,11 +1047,11 @@ impl Editor {
                     ns = ns.max(prev_end);
                 }
                 if media {
-                    ns = ns.max(o_start - o_in);
+                    ns = ns.max(o_start - o_in / cur.speed());
                 }
                 start = snap_frame(ns);
                 dur = end - start;
-                in_ = (o_in + (start - o_start)).max(0.0);
+                in_ = (o_in + (start - o_start) * cur.speed()).max(0.0);
             }
             ClipMode::Right => {
                 let sn = snap_to(o_start + o_dur + dx);
@@ -1055,7 +1059,7 @@ impl Editor {
                 let mut d = (sn.0 - cur.start).max(min_clip());
                 if media {
                     if let Some(a) = &a {
-                        d = d.min(a.dur - cur.in_);
+                        d = d.min((a.dur - cur.in_) / cur.speed());
                     }
                 }
                 dur = snap_frame(d);

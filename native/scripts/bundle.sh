@@ -43,6 +43,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>$(sw_vers -productVersion | cut -d. -f1).0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Liemo records voice-overs and sounds from your microphone into your project.</string>
   <key>NSHumanReadableCopyright</key><string>Liemo is open source.</string>
 </dict>
 </plist>

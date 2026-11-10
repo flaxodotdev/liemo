@@ -615,6 +615,11 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func assetThumb(id: String)  -> MediaFrame?
     
     /**
+     * A clip's loudness for drawing its waveform: `buckets` peak levels (0–1) across the clip.
+     */
+    func audioPeaks(clipId: String, buckets: UInt32)  -> [Float]
+    
+    /**
      * Run a Liemo tool (the MCP tools: list_projects, create_project, add_clip, update_clip,
      * apply_effect, set_transition, render_frame, undo…). `args_json` is a JSON object.
      */
@@ -628,6 +633,13 @@ public protocol EngineProtocol: AnyObject, Sendable {
      * Save, refresh the project's thumbnail and close it.
      */
     func closeProject() 
+    
+    func deleteProject(id: String)  -> Bool
+    
+    /**
+     * The copy's id.
+     */
+    func duplicateProject(id: String)  -> String?
     
     func effectThumb(id: String)  -> MediaFrame
     
@@ -657,9 +669,27 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func renderAudio(start: Double, frames: UInt32)  -> [Float]
     
     /**
+     * The open project's whole mix from `start` to `stop` seconds (48 kHz interleaved stereo),
+     * for export.
+     */
+    func renderAudioRange(start: Double, stop: Double)  -> [Float]
+    
+    /**
+     * One clip of the open project alone at `time` (its effects and motion, nothing else), on
+     * a transparent frame: freeze frames.
+     */
+    func renderClip(clipId: String, time: Double, max: UInt32)  -> MediaFrame?
+    
+    /**
      * The open project's frame at `time`, its long side at most `max` px.
      */
     func renderFrame(time: Double, max: UInt32)  -> MediaFrame?
+    
+    /**
+     * A text style drawn on a dark card (`props_json`: the text fields as get_project shows
+     * them), for the style gallery.
+     */
+    func textPreview(propsJson: String, width: UInt32, height: UInt32)  -> MediaFrame?
     
     /**
      * The tools, as MCP tool definitions (name, description, inputSchema), for Liemo AI.
@@ -751,6 +781,20 @@ open func assetThumb(id: String) -> MediaFrame?  {
 }
     
     /**
+     * A clip's loudness for drawing its waveform: `buckets` peak levels (0–1) across the clip.
+     */
+open func audioPeaks(clipId: String, buckets: UInt32) -> [Float]  {
+    return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_audio_peaks(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(clipId),
+        FfiConverterUInt32.lower(buckets),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Run a Liemo tool (the MCP tools: list_projects, create_project, add_clip, update_clip,
      * apply_effect, set_transition, render_frame, undo…). `args_json` is a JSON object.
      */
@@ -792,6 +836,29 @@ open func closeProject()  {try! rustCall() {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
+}
+    
+open func deleteProject(id: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_delete_project(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * The copy's id.
+     */
+open func duplicateProject(id: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_duplicate_project(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+})
 }
     
 open func effectThumb(id: String) -> MediaFrame  {
@@ -869,6 +936,37 @@ open func renderAudio(start: Double, frames: UInt32) -> [Float]  {
 }
     
     /**
+     * The open project's whole mix from `start` to `stop` seconds (48 kHz interleaved stereo),
+     * for export.
+     */
+open func renderAudioRange(start: Double, stop: Double) -> [Float]  {
+    return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_render_audio_range(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(start),
+        FfiConverterDouble.lower(stop),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * One clip of the open project alone at `time` (its effects and motion, nothing else), on
+     * a transparent frame: freeze frames.
+     */
+open func renderClip(clipId: String, time: Double, max: UInt32) -> MediaFrame?  {
+    return try!  FfiConverterOptionTypeMediaFrame.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_render_clip(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(clipId),
+        FfiConverterDouble.lower(time),
+        FfiConverterUInt32.lower(max),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * The open project's frame at `time`, its long side at most `max` px.
      */
 open func renderFrame(time: Double, max: UInt32) -> MediaFrame?  {
@@ -878,6 +976,22 @@ open func renderFrame(time: Double, max: UInt32) -> MediaFrame?  {
             self.uniffiCloneHandle(),
         FfiConverterDouble.lower(time),
         FfiConverterUInt32.lower(max),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * A text style drawn on a dark card (`props_json`: the text fields as get_project shows
+     * them), for the style gallery.
+     */
+open func textPreview(propsJson: String, width: UInt32, height: UInt32) -> MediaFrame?  {
+    return try!  FfiConverterOptionTypeMediaFrame.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_text_preview(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(propsJson),
+        FfiConverterUInt32.lower(width),
+        FfiConverterUInt32.lower(height),uniffiCallStatus
     )
 })
 }
@@ -1509,6 +1623,30 @@ public func FfiConverterTypeToolResult_lower(_ value: ToolResult) -> RustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
     typealias SwiftType = Data?
 
@@ -1670,6 +1808,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_liemo_mobile_checksum_method_engine_asset_thumb() != 38928) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_liemo_mobile_checksum_method_engine_audio_peaks() != 34529) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_liemo_mobile_checksum_method_engine_call() != 44990) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1680,6 +1821,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_close_project() != 17825) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_delete_project() != 17125) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_duplicate_project() != 37993) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_effect_thumb() != 27374) {
@@ -1700,7 +1847,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_liemo_mobile_checksum_method_engine_render_audio() != 25875) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_liemo_mobile_checksum_method_engine_render_audio_range() != 3288) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_render_clip() != 29595) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_liemo_mobile_checksum_method_engine_render_frame() != 54305) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_text_preview() != 38441) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_tool_definitions() != 60736) {

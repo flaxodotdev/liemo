@@ -19,9 +19,15 @@ impl MediaHost for NoMedia {
     }
 }
 
+/// The first clip of a type in the project.
+fn clip_of(e: &Engine, project: &str, kind: &str) -> String {
+    let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{project}"}}"#)).text).unwrap();
+    doc["clips"].as_array().unwrap().iter().find(|c| c["type"] == kind).expect(kind)["id"].as_str().unwrap().to_string()
+}
+
 #[test]
 fn edit_undo_render() {
-    let dir = std::env::temp_dir().join(format!("liemo-mobile-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-tests-{}", std::process::id()));
     let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
     let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
     assert!(made.ok, "{}", made.text);
@@ -29,7 +35,8 @@ fn edit_undo_render() {
 
     assert!(e.open_project(id.clone()).ok);
     assert!(!e.can_undo());
-    let r = e.call("update_clip".into(), format!(r#"{{"project":"{id}","clip":"c7","text":{{"content":"Hello iPhone"}}}}"#));
+    let title = clip_of(&e, &id, "text");
+    let r = e.call("update_clip".into(), format!(r#"{{"project":"{id}","clip":"{title}","text":{{"content":"Hello iPhone"}}}}"#));
     assert!(r.ok, "{}", r.text);
     assert!(e.can_undo());
     let shown = |e: &Engine| e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text;
@@ -49,5 +56,111 @@ fn edit_undo_render() {
 
     e.close_project();
     assert!(std::path::Path::new(&e.project_thumb_path(id)).exists());
-    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn waveform_peaks() {
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-tests-{}", std::process::id()));
+    let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
+    let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
+    let id = serde_json::from_str::<serde_json::Value>(&made.text).unwrap()["id"].as_str().unwrap().to_string();
+    e.open_project(id.clone());
+    let p = e.audio_peaks(clip_of(&e, &id, "music"), 64);
+    assert_eq!(p.len(), 64);
+    assert!(p.iter().filter(|v| **v > 0.1).count() > 32, "{p:?}");
+}
+
+#[test]
+fn new_styles_and_motion_render() {
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-tests-{}", std::process::id()));
+    let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
+    let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
+    let id = serde_json::from_str::<serde_json::Value>(&made.text).unwrap()["id"].as_str().unwrap().to_string();
+    e.open_project(id.clone());
+    let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap();
+    let title = doc["clips"].as_array().unwrap().iter().find(|c| c["type"] == "text").unwrap().clone();
+    let (tid, t0) = (title["id"].as_str().unwrap().to_string(), title["start"].as_f64().unwrap() + 1.0);
+    let main = doc["clips"].as_array().unwrap().iter().find(|c| c["track"] == "V1").unwrap().clone();
+    let mid = main["id"].as_str().unwrap().to_string();
+    let frame = |e: &Engine, t: f64| e.render_frame(t, 320).unwrap().rgba;
+    let call = |e: &Engine, tool: &str, args: String| {
+        let r = e.call(tool.into(), args);
+        assert!(r.ok, "{tool}: {}", r.text);
+        r
+    };
+
+    let plain = frame(&e, t0);
+    for (k, v) in [("outline", "\"#ff0000\""), ("shadow", "\"#000000\""), ("glow", "\"#00ffcc\""), ("highlight", "\"#ffd400\"")] {
+        call(&e, "update_clip", format!(r#"{{"project":"{id}","clip":"{tid}","text":{{"{k}":{v}}}}}"#));
+    }
+    assert_ne!(plain, frame(&e, t0), "text styles changed nothing");
+    for anim in ["bounce", "zoom", "blur", "pop"] {
+        call(&e, "update_clip", format!(r#"{{"project":"{id}","clip":"{tid}","text":{{"animation":"{anim}"}}}}"#));
+        let start = title["start"].as_f64().unwrap();
+        let _ = frame(&e, start + 0.1);
+    }
+
+    let before = frame(&e, main["start"].as_f64().unwrap() + 0.2);
+    let dur = main["dur"].as_f64().unwrap();
+    call(&e, "update_clip", format!(r#"{{"project":"{id}","clip":"{mid}","speed":2,"reverse":true,"flipH":true,"animIn":"zoom-in","animOut":"slide-left"}}"#));
+    let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap();
+    let m = doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == mid.as_str()).unwrap().clone();
+    assert!((m["dur"].as_f64().unwrap() - dur / 2.0).abs() < 0.05, "speed 2 should halve the length: {m}");
+    assert_eq!(m["motion"]["reverse"], true);
+    assert_ne!(before, frame(&e, m["start"].as_f64().unwrap() + 0.2), "motion changed nothing");
+
+    let r = call(&e, "apply_effect", format!(r#"{{"project":"{id}","clip":"{mid}","effect":"adjust","params":{{"brightness":40,"vignette":60,"grain":30,"sharpen":50,"warmth":30}}}}"#));
+    assert!(r.text.contains("uid"));
+    let _ = frame(&e, m["start"].as_f64().unwrap() + 0.3);
+}
+
+#[test]
+fn every_new_effect_and_animation_renders() {
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-tests-{}", std::process::id()));
+    let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
+    let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
+    let id = serde_json::from_str::<serde_json::Value>(&made.text).unwrap()["id"].as_str().unwrap().to_string();
+    e.open_project(id.clone());
+    let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap();
+    let main = doc["clips"].as_array().unwrap().iter().find(|c| c["track"] == "V1").unwrap().clone();
+    let (mid, at) = (main["id"].as_str().unwrap().to_string(), main["start"].as_f64().unwrap() + 0.7);
+    // Remove the sample's own effects so each new one is judged alone.
+    for fx in main["effects"].as_array().unwrap() {
+        e.call("remove_effect".into(), format!(r#"{{"project":"{id}","clip":"{mid}","uid":"{}"}}"#, fx["uid"].as_str().unwrap()));
+    }
+    let plain = e.render_frame(at, 320).unwrap().rgba;
+    let ids = [
+        "flash", "strobe", "invert-flash", "zoom-pulse", "push-in", "handheld", "speed-lines", "light-leak", "lens-flare", "bokeh", "film-burn",
+        "film-8mm", "rainfall", "snow", "hearts", "confetti", "embers", "sparkles", "split-2", "split-3", "split-4", "border", "blur-fill", "color-pop", "fisheye",
+    ];
+    let mut same = vec![];
+    for fx in ids {
+        let r = e.call("apply_effect".into(), format!(r#"{{"project":"{id}","clip":"{mid}","effect":"{fx}"}}"#));
+        assert!(r.ok, "{fx}: {}", r.text);
+        let uid = serde_json::from_str::<serde_json::Value>(&r.text).unwrap()["uid"].as_str().unwrap().to_string();
+        // Some pulse effects are idle at one instant; try a few.
+        let changed = [0.0, 0.13, 0.31].iter().any(|d| e.render_frame(at + d, 320).unwrap().rgba != plain);
+        if !changed {
+            same.push(fx);
+        }
+        e.call("remove_effect".into(), format!(r#"{{"project":"{id}","clip":"{mid}","uid":"{uid}"}}"#));
+    }
+    assert!(same.is_empty(), "no visible change from {same:?}");
+    for anim in ["whip-left", "drop", "rise", "swing", "flip", "stretch", "shake"] {
+        assert!(e.call("update_clip".into(), format!(r#"{{"project":"{id}","clip":"{mid}","animIn":"{anim}"}}"#)).ok);
+        let _ = e.render_frame(main["start"].as_f64().unwrap() + 0.1, 200);
+    }
+    for anim in ["breathe", "float", "wiggle", "pulse", "spin", "shake", "sway"] {
+        assert!(e.call("update_clip".into(), format!(r#"{{"project":"{id}","clip":"{mid}","animLoop":"{anim}"}}"#)).ok);
+        let _ = e.render_frame(at, 200);
+    }
+    let title = clip_of(&e, &id, "text");
+    let start = serde_json::from_str::<serde_json::Value>(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap()["clips"]
+        .as_array().unwrap().iter().find(|c| c["id"] == title.as_str()).unwrap()["start"].as_f64().unwrap();
+    for anim in ["wave", "glitch", "flicker"] {
+        assert!(e.call("update_clip".into(), format!(r##"{{"project":"{id}","clip":"{title}","text":{{"animation":"{anim}","outline":"#000000"}}}}"##)).ok);
+        for d in [0.05, 0.2, 0.9] {
+            let _ = e.render_frame(start + d, 200);
+        }
+    }
 }

@@ -106,11 +106,11 @@ pub fn resolve_overlaps(clips: &[Clip], id: &str) -> Vec<Clip> {
         if cs < s && ce > e {
             // covered in the middle: keep both ends
             out.push(fit_fades(Clip { dur: s - cs, fade_out: 0.0, ..c.clone() }));
-            out.push(fit_fades(Clip { id: next_id(), start: e, in_: c.in_ + (e - cs), dur: ce - e, fade_in: 0.0, ..c.clone() }));
+            out.push(fit_fades(Clip { id: next_id(), start: e, in_: c.in_ + (e - cs) * c.speed(), dur: ce - e, fade_in: 0.0, ..c.clone() }));
         } else if cs < s {
             out.push(fit_fades(Clip { dur: s - cs, ..c.clone() }));
         } else {
-            out.push(fit_fades(Clip { start: e, in_: c.in_ + (e - cs), dur: ce - e, ..c.clone() }));
+            out.push(fit_fades(Clip { start: e, in_: c.in_ + (e - cs) * c.speed(), dur: ce - e, ..c.clone() }));
         }
     }
     out
@@ -205,6 +205,8 @@ pub fn make_clip(tracks: &[Track], time: f64, asset_id: &str, track_id: Option<&
         fade_out: 0.0,
         volume: if a.kind == AssetType::Music { 0.7 } else { 1.0 },
         text: a.text.clone().map(fit_text),
+        sound: None,
+        motion: None,
     })
 }
 
@@ -406,6 +408,27 @@ impl Store {
             self.rev += 1;
         }
     }
+    /// Change an audio clip's sound effects. A new speed stretches or shrinks the clip so it
+    /// still covers the same stretch of the source (within what the file has).
+    pub fn set_sound(&mut self, id: &str, f: impl FnOnce(&mut AudioFx)) {
+        self.update_clip(id, |c| {
+            let old = c.speed();
+            let mut fx = c.sound.clone().unwrap_or_default();
+            f(&mut fx);
+            fx.speed = fx.speed.clamp(0.25, 4.0);
+            let new = fx.speed;
+            c.sound = (!fx.is_identity() || fx.keep_pitch).then_some(fx);
+            if (new - old).abs() > 1e-9 {
+                let mut d = c.dur * old / new;
+                if let Some(a) = asset(&c.asset) {
+                    d = d.min((a.dur - c.in_) / new);
+                }
+                c.dur = snap_frame(d.max(min_clip()));
+                c.fade_in = c.fade_in.min(c.dur / 2.0);
+                c.fade_out = c.fade_out.min(c.dur / 2.0);
+            }
+        });
+    }
     pub fn update_text(&mut self, id: &str, f: impl FnOnce(&mut TextProps)) {
         if let Some(t) = self.clips.iter_mut().find(|c| c.id == id).and_then(|c| c.text.as_mut()) {
             f(t);
@@ -429,7 +452,7 @@ impl Store {
             return;
         }
         let cut = t - c.start;
-        let mut b = Clip { id: next_id(), start: t, in_: c.in_ + cut, dur: c.dur - cut, fade_in: 0.0, transition: None, ..c.clone() };
+        let mut b = Clip { id: next_id(), start: t, in_: c.in_ + cut * c.speed(), dur: c.dur - cut, fade_in: 0.0, transition: None, ..c.clone() };
         if let Some(tx) = b.text.as_mut() {
             tx.anim = TextAnim::None;
         }

@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 const TABS: [(Tab, &str, &str); 7] = [
     (Tab::Media, "Media", "film"),
-    (Tab::Music, "Music", "music-2"),
+    (Tab::Music, "Audio", "music-2"),
     (Tab::Images, "Images", "image"),
     (Tab::Overlays, "Overlays", "layers"),
     (Tab::Text, "Text", "type"),
@@ -224,6 +224,7 @@ impl Editor {
             Tab::Music => {
                 let imported: Vec<&Arc<Asset>> = mine.iter().filter(|a| a.kind == AssetType::Audio).collect();
                 vec![
+                    section("Record", None, self.record_panel(cx)),
                     section("Music library", None, rows(music().iter().filter(|a| matches(&a.name, &a.sub)).map(|a| self.music_row(a, false, cx)))),
                     section(
                         "Imported audio",

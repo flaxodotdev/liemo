@@ -9,15 +9,39 @@ pub mod tools;
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use local::{bind, connect};
 use std::path::PathBuf;
 use tools::{call, definitions, FileWorkspace, ToolOut};
 
 const PROTOCOLS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-const INSTRUCTIONS: &str = "Liemo is a video editor. Projects have five tracks: T1 titles, V2 overlays and picture-in-picture, \
-V1 main video, A1 music, A2 voice and effects. Times are in seconds. Start with list_projects or create_project, read the \
-timeline with get_project, add material with add_clip / add_text / import_media, shape it with update_clip, apply_effect and \
-set_transition, check your work with render_frame, and finish with export. When Liemo is open, edits show up live in its editor.";
+/// What every AI using Liemo is told up front: the whole feature map, so nothing gets missed.
+pub const INSTRUCTIONS: &str = "Liemo is a video editor. Times are in seconds. Projects have five tracks: T1 titles, V2 overlays \
+and picture-in-picture, V1 main video, A1 music, A2 voice and sound effects.
+
+Workflow: list_projects or create_project (list_formats for sizes) -> get_project to read the timeline -> add material -> shape \
+it -> render_frame to look at the result -> export. When Liemo is open, edits show up live in its editor and undo/redo work.
+
+Material: list_library has sample footage (scenes), shader backgrounds, stills, overlays (light leaks, grain...), built-in music \
+and text styles; add any of them with add_clip. import_media brings in the user's own video, audio and image files (absolute \
+paths). add_text puts titles on T1; text can use bundled fonts or any font installed on the Mac (list_library kind font), and \
+blend invert keeps text readable on any footage.
+
+Look (visual clips): apply_effect stacks effects; list_effects shows every one with its parameters. Groups: Instagram filters; \
+colour scale (scale-red, scale-blue, scale-violet... turns the picture into one colour from black through the colour to its \
+highlights; its color param takes any #rrggbb, so any colour works); shader filters; stylize (ASCII, halftone, duotone, \
+glow...); retro (VHS, CRT, glitch, dither); distort and camera; colour looks. amount mixes an effect with the clip underneath. \
+update_clip effectsOn chooses whether effects stay on the clip's shape or fill the frame. set_transition adds transitions \
+and fades.
+
+Sound: update_clip volume, fadeIn and fadeOut work on any clip with sound. Audio clips (imported audio and recordings, type \
+audio) can also be reworked with update_clip sound: presets slowed-reverb, sped-up, nightcore, daycore, hall, lofi, \
+underwater, 8d, or fine control of speed (0.5-2; pitch follows speed like a record unless keepPitch), reverb, room, bass, \
+muffle (low-pass) and pan8d (sound circling the listener). Changing speed changes the clip's length on the timeline, so \
+read get_project afterwards. These sound effects don't apply to the sound of video clips or to built-in music. \
+record_audio records from the microphone into A2 while Liemo has the project open.
+
+Checking: render_frame shows the picture only; you can't hear audio, so describe sound changes in words. export makes \
+video, gif, a still or an audio file (kind audio).";
 
 pub fn socket_path() -> PathBuf {
     let p = crate::storage::root().join("mcp.sock");
@@ -48,7 +72,7 @@ pub fn to_mcp(r: Result<ToolOut, String>) -> Value {
 
 /// Ask a running Liemo to run the tool. None when the app isn't running.
 fn via_app(name: &str, args: &Value) -> Option<Value> {
-    let stream = UnixStream::connect(socket_path()).ok()?;
+    let stream = connect(&socket_path()).ok()?;
     let mut w = stream.try_clone().ok()?;
     let line = serde_json::to_string(&json!({ "tool": name, "args": args })).ok()?;
     w.write_all(line.as_bytes()).ok()?;
@@ -130,10 +154,10 @@ pub fn listen(run: impl Fn(String, Value) -> Value + Send + Sync + 'static) {
     let path = socket_path();
     let _ = std::fs::create_dir_all(path.parent().unwrap());
     // A previous run may have left the socket behind; if nothing answers on it, take it over.
-    if UnixStream::connect(&path).is_err() {
+    if connect(&path).is_err() {
         let _ = std::fs::remove_file(&path);
     }
-    let Ok(listener) = UnixListener::bind(&path) else {
+    let Ok(listener) = bind(&path) else {
         eprintln!("Liemo: another Liemo is already taking AI edits; this window won't.");
         return;
     };
@@ -162,6 +186,34 @@ pub fn listen(run: impl Fn(String, Value) -> Value + Send + Sync + 'static) {
             });
         }
     });
+}
+
+/// How `liemo mcp` reaches the running app: a Unix socket at `socket_path()`, or on Windows a
+/// localhost port whose number is written there.
+#[cfg(unix)]
+mod local {
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::path::Path;
+    pub fn connect(p: &Path) -> std::io::Result<UnixStream> {
+        UnixStream::connect(p)
+    }
+    pub fn bind(p: &Path) -> std::io::Result<UnixListener> {
+        UnixListener::bind(p)
+    }
+}
+#[cfg(windows)]
+mod local {
+    use std::net::{TcpListener, TcpStream};
+    use std::path::Path;
+    pub fn connect(p: &Path) -> std::io::Result<TcpStream> {
+        let port: u16 = std::fs::read_to_string(p)?.trim().parse().map_err(|_| std::io::Error::other("bad port file"))?;
+        TcpStream::connect(("127.0.0.1", port))
+    }
+    pub fn bind(p: &Path) -> std::io::Result<TcpListener> {
+        let l = TcpListener::bind("127.0.0.1:0")?;
+        std::fs::write(p, l.local_addr()?.port().to_string())?;
+        Ok(l)
+    }
 }
 
 pub fn unlisten() {

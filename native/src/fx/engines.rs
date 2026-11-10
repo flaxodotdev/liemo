@@ -343,6 +343,84 @@ fn dither(src: &Pixmap, dst: &mut Pixmap, p: &Params) {
 }
 
 // ---------- RGB split ----------
+/// The photo-editor sliders in one pass: light, colour, vignette, grain, and sharpening
+/// (unsharp mask). Every slider is −100…100 (vignette, grain, sharpen 0…100); 0 changes nothing.
+fn adjust(src: &Pixmap, dst: &mut Pixmap, p: &Params, t: f32) {
+    let g = |k: &str| (num(p, k, 0.0) / 100.0) as f32;
+    let (br, ct, sat, warm, tint) = (g("brightness"), g("contrast"), g("saturation"), g("warmth"), g("tint"));
+    let (hi, sh, vig, grain, sharp) = (g("highlights"), g("shadows"), g("vignette"), g("grain"), g("sharpen"));
+    let (w, h) = (dst.width() as i32, dst.height() as i32);
+    let soft = if sharp > 0.0 { Some(blur_of(src, 1.6)) } else { None };
+    let s = src.data();
+    let sb = soft.as_ref().map(|b| b.data());
+    let d = dst.data_mut();
+    let frame = (t * 24.0) as u32;
+    let smooth = |a: f32, b: f32, x: f32| {
+        let k = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        k * k * (3.0 - 2.0 * k)
+    };
+    for y in 0..h {
+        for x in 0..w {
+            let o = ((y * w + x) * 4) as usize;
+            let a = s[o + 3] as f32 / 255.0;
+            if a <= 0.0 {
+                d[o..o + 4].copy_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+            let un = |i: usize, buf: &[u8]| buf[i] as f32 / 255.0 / a;
+            let (mut r, mut gg, mut b) = (un(o, s), un(o + 1, s), un(o + 2, s));
+            if let Some(sb) = sb {
+                r += sharp * 1.5 * (r - un(o, sb));
+                gg += sharp * 1.5 * (gg - un(o + 1, sb));
+                b += sharp * 1.5 * (b - un(o + 2, sb));
+            }
+            r += br * 0.35;
+            gg += br * 0.35;
+            b += br * 0.35;
+            let c = 1.0 + ct;
+            r = (r - 0.5) * c + 0.5;
+            gg = (gg - 0.5) * c + 0.5;
+            b = (b - 0.5) * c + 0.5;
+            let l = 0.2126 * r + 0.7152 * gg + 0.0722 * b;
+            let lift = hi * 0.35 * smooth(0.45, 1.0, l) + sh * 0.35 * (1.0 - smooth(0.0, 0.55, l));
+            r += lift;
+            gg += lift;
+            b += lift;
+            let l = 0.2126 * r + 0.7152 * gg + 0.0722 * b;
+            let k = 1.0 + sat;
+            r = l + (r - l) * k;
+            gg = l + (gg - l) * k;
+            b = l + (b - l) * k;
+            r += warm * 0.12;
+            b -= warm * 0.12;
+            gg -= tint * 0.1;
+            r += tint * 0.04;
+            b += tint * 0.04;
+            if vig > 0.0 {
+                let dx = (x as f32 / w as f32 - 0.5) * 2.0;
+                let dy = (y as f32 / h as f32 - 0.5) * 2.0;
+                let v = 1.0 - vig * 0.85 * smooth(0.45, 1.45, (dx * dx + dy * dy).sqrt());
+                r *= v;
+                gg *= v;
+                b *= v;
+            }
+            if grain > 0.0 {
+                let mut n = (x as u32).wrapping_mul(374761393) ^ (y as u32).wrapping_mul(668265263) ^ frame.wrapping_mul(2246822519);
+                n = (n ^ (n >> 13)).wrapping_mul(1274126177);
+                let v = ((n >> 8) & 0xffff) as f32 / 65535.0 - 0.5;
+                r += v * grain * 0.22;
+                gg += v * grain * 0.22;
+                b += v * grain * 0.22;
+            }
+            let q = |v: f32| (v.clamp(0.0, 1.0) * a * 255.0).round() as u8;
+            d[o] = q(r);
+            d[o + 1] = q(gg);
+            d[o + 2] = q(b);
+            d[o + 3] = s[o + 3];
+        }
+    }
+}
+
 fn rgbsplit(src: &Pixmap, dst: &mut Pixmap, p: &Params, t: f32) {
     let (w, h) = (dst.width() as i32, dst.height() as i32);
     let k = unit_of(dst);
@@ -415,6 +493,26 @@ fn duotone(src: &Pixmap, dst: &mut Pixmap, p: &Params) {
         let l = clamp01((lum(v[0], v[1], v[2]) - 0.5) * c + 0.5);
         for i in 0..3 {
             v[i] = d0[i] + (d1[i] - d0[i]) * l;
+        }
+    });
+}
+/// One-colour scale: luminance runs black → the colour (at `PIVOT`) → toward white by `highlights`.
+/// `keep` lets the original colours show back through.
+fn color_scale(src: &Pixmap, dst: &mut Pixmap, p: &Params) {
+    const PIVOT: f32 = 0.62;
+    *dst = src.clone();
+    let col = hex_rgb(text(p, "color", "#ff2a1a"));
+    let c = num(p, "contrast", 1.15) as f32;
+    let hi = num(p, "highlights", 0.35) as f32;
+    let keep = num(p, "keep", 0.0) as f32;
+    map_pixels(dst, |_, v| {
+        let l = clamp01((lum(v[0], v[1], v[2]) - 0.5) * c + 0.5);
+        let mut out = [0.0; 3];
+        for i in 0..3 {
+            out[i] = if l <= PIVOT { col[i] * (l / PIVOT) } else { col[i] + (255.0 - col[i]) * hi * ((l - PIVOT) / (1.0 - PIVOT)) };
+        }
+        for i in 0..3 {
+            v[i] = out[i] + (v[i] - out[i]) * keep;
         }
     });
 }
@@ -1100,6 +1198,8 @@ pub fn run_effects(src: &Pixmap, stack: &[ClipEffect], t: f32, dur: f32, object:
             Engine::Pixelate => pixelate(&cur, &mut out, p),
             Engine::Dither => dither(&cur, &mut out, p),
             Engine::RgbSplit => rgbsplit(&cur, &mut out, p, t),
+            Engine::Adjust => adjust(&cur, &mut out, p, t),
+            Engine::Extra => super::extra::run(def.id, &cur, &mut out, p, t, dur),
             Engine::Glitch => glitch(&cur, &mut out, p, t),
             Engine::Posterize => posterize(&cur, &mut out, p),
             Engine::Duotone => duotone(&cur, &mut out, p),
@@ -1117,6 +1217,7 @@ pub fn run_effects(src: &Pixmap, stack: &[ClipEffect], t: f32, dur: f32, object:
             Engine::Glow => glow(&cur, &mut out, p),
             Engine::Threshold => threshold(&cur, &mut out, p),
             Engine::Solarize => solarize(&cur, &mut out, p),
+            Engine::ColorScale => color_scale(&cur, &mut out, p),
             Engine::Css => {}
             Engine::Shader => out = super::remocn::apply(&cur, &fx.id, p, t, dur),
             Engine::Look => {

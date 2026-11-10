@@ -43,6 +43,10 @@ pub trait Workspace {
     fn live(&self) -> bool {
         false
     }
+    /// Record from the microphone into the open editor: "start", "stop" or "status".
+    fn record_audio(&mut self, _project: &str, _action: &str, _args: &Value) -> R<Value> {
+        Err("Recording needs Liemo running with the project open in the editor (the microphone is the app's). Open it with open_project first.".into())
+    }
 }
 
 /// Edits project files directly (Liemo not running, or the project isn't open).
@@ -181,6 +185,28 @@ fn project_json(rec: &ProjectRecord) -> Value {
 }
 
 // ---------- Tool definitions ----------
+/// What each sound preset sets, so an AI can pick one or tweak from it.
+fn sound_presets_doc() -> String {
+    let list: Vec<String> = crate::audio::fx::PRESETS
+        .iter()
+        .map(|(k, l, f)| {
+            if f.is_identity() {
+                return format!("{k} ({l}: resets everything)");
+            }
+            let mut parts = vec![format!("speed {}", f.speed)];
+            for (n, v) in [("reverb", f.reverb), ("bass", f.bass), ("muffle", f.muffle), ("pan8d", f.pan8d)] {
+                if v > 0.0 {
+                    parts.push(format!("{n} {v}"));
+                }
+            }
+            if f.reverb > 0.0 {
+                parts.push(format!("room {}", f.room));
+            }
+            format!("{k} ({l}: {})", parts.join(", "))
+        })
+        .collect();
+    format!("Start from a preset; the other fields given then adjust it. {}", list.join("; "))
+}
 fn tool(name: &str, title: &str, desc: &str, props: Value, required: &[&str]) -> Value {
     json!({
         "name": name,
@@ -216,11 +242,16 @@ fn all_definitions() -> Vec<Value> {
         "blend": { "type": "string", "enum": ["normal", "invert", "exclusion"], "description": "Invert flips each colour channel to the opposite of what's underneath, so the text stays readable on any footage; exclusion is the softer version of the same idea" },
         "align": { "type": "string", "enum": ["left", "center", "right"] },
         "y": { "type": "number", "description": "Vertical offset from the centre, in canvas units (negative is up)" },
-        "animation": { "type": "string", "enum": ["none", "fade", "rise", "slide", "type"] },
+        "animation": { "type": "string", "enum": ["none", "fade", "rise", "slide", "type", "pop", "bounce", "zoom", "blur", "wave", "glitch", "flicker"] },
         "box": { "type": "boolean", "description": "Dark rounded backing behind the text" },
+        "outline": { "type": "string", "description": "Outline colour #rrggbb, or \"none\"" },
+        "outlineWidth": { "type": "number", "description": "Outline thickness, 1–24 (default 6)" },
+        "shadow": { "type": "string", "description": "Soft drop-shadow colour #rrggbb, or \"none\"" },
+        "glow": { "type": "string", "description": "Neon glow colour #rrggbb, or \"none\"" },
+        "highlight": { "type": "string", "description": "Rounded highlight behind each line, colour #rrggbb, or \"none\"" },
     });
     let mut text_update = text_props.clone();
-    let clip_fields = json!({
+    let mut clip_fields = json!({
         "project": project_prop(),
         "clip": clip_prop(),
         "start": { "type": "number", "description": "Seconds on the timeline" },
@@ -238,7 +269,38 @@ fn all_definitions() -> Vec<Value> {
         "fadeOut": { "type": "number", "description": "Seconds" },
         "effectsOn": { "type": "string", "enum": ["clip", "frame"], "description": "Effects stay on the clip's own shape, or fill the whole frame" },
         "text": { "type": "object", "properties": text_update.take(), "description": "Text clips only" },
+        "sound": {
+            "type": "object",
+            "description": "Audio clips only: rework the sound. Only the fields given change. A new speed stretches or shrinks the clip to cover the same part of the file.",
+            "properties": {
+                "preset": { "type": "string", "enum": crate::audio::fx::PRESETS.iter().map(|(k, _, _)| *k).collect::<Vec<_>>(), "description": sound_presets_doc() },
+                "speed": { "type": "number", "minimum": 0.5, "maximum": 2.0, "description": "0.8 is slowed, 1.25 sped up" },
+                "keepPitch": { "type": "boolean", "description": "Change speed without changing pitch. Default false: pitch follows speed, like a record" },
+                "reverb": { "type": "number", "minimum": 0, "maximum": 1, "description": "Reverb level" },
+                "room": { "type": "number", "minimum": 0, "maximum": 1, "description": "Reverb room size" },
+                "bass": { "type": "number", "minimum": 0, "maximum": 1, "description": "Bass boost, up to +12 dB" },
+                "muffle": { "type": "number", "minimum": 0, "maximum": 1, "description": "Low-pass: 1 sounds underwater" },
+                "pan8d": { "type": "number", "minimum": 0, "maximum": 1, "description": "8D audio: sound circling the listener" },
+            },
+        },
     });
+    // Motion (picture clips), kept apart to stay inside json!'s recursion limit.
+    let anims = json!(["none", "fade", "zoom-in", "zoom-out", "slide-left", "slide-right", "slide-up", "slide-down", "whip-left", "whip-right", "spin", "pop", "drop", "rise", "swing", "flip", "stretch", "shake"]);
+    let motion = json!({
+        "speed": { "type": "number", "minimum": 0.25, "maximum": 4, "description": "Playback speed of a picture clip (its sound follows); the clip's length changes to keep the same footage" },
+        "reverse": { "type": "boolean", "description": "Play the clip backwards" },
+        "flipH": { "type": "boolean", "description": "Mirror left–right" },
+        "flipV": { "type": "boolean", "description": "Flip upside down" },
+        "animIn": { "type": "string", "enum": anims, "description": "How the clip enters" },
+        "animInDur": { "type": "number", "description": "Seconds, default 0.5" },
+        "animOut": { "type": "string", "enum": anims, "description": "How the clip leaves" },
+        "animOutDur": { "type": "number", "description": "Seconds, default 0.5" },
+        "animLoop": { "type": "string", "enum": ["none", "breathe", "float", "wiggle", "pulse", "spin", "shake", "sway"], "description": "Movement for the whole clip" },
+        "animLoopSpeed": { "type": "number", "description": "0.25–4, default 1" },
+    });
+    if let (Some(m), Some(c)) = (motion.as_object(), clip_fields.as_object_mut()) {
+        c.extend(m.clone());
+    }
     vec![
         tool("list_projects", "List projects", "Every Liemo project: id, name, format, length, clip count and when it was edited.", json!({}), &[]),
         tool("create_project", "Create a project", "Make a new project. Pick a format (see list_formats) or give width/height for a custom size. template \"sample\" starts from the nature reel sample.",
@@ -253,14 +315,14 @@ fn all_definitions() -> Vec<Value> {
                 "template": { "type": "string", "enum": ["blank", "sample"] },
                 "open": { "type": "boolean", "description": "Open it in the editor (when Liemo is running). Default true." },
             }), &[]),
-        tool("get_project", "Get a project", "Everything about a project: settings, canvas size, tracks, every clip (timing, transform, text, effects, transition) and imported media.", json!({ "project": project_prop() }), &["project"]),
+        tool("get_project", "Get a project", "Everything about a project: settings, canvas size, tracks, every clip (timing, transform, text, effects, transition, sound) and imported media.", json!({ "project": project_prop() }), &["project"]),
         tool("open_project", "Open in the editor", "Show a project in Liemo's editor so the user can watch edits happen. Needs Liemo running.", json!({ "project": project_prop() }), &["project"]),
         tool("set_project", "Change project settings", "Rename a project or change its background colour.",
             json!({ "project": project_prop(), "name": { "type": "string" }, "background": { "type": "string", "description": "#rrggbb" } }), &["project"]),
         tool("list_library", "List the library", "Built-in footage (scenes), stills, overlays, music, text styles, fonts, and the project's imported media. Use the ids with add_clip.",
             json!({ "project": { "type": "string", "description": "Optional: include this project's imported media" }, "kind": { "type": "string", "enum": ["scene", "image", "overlay", "music", "text", "font", "imported"] } }), &[]),
-        tool("list_effects", "List effects", "Every effect with its group and parameters (Instagram filters, stylize, retro, distort, colour).",
-            json!({ "group": { "type": "string", "enum": ["filters", "stylize", "retro", "distort", "color"] } }), &[]),
+        tool("list_effects", "List effects", "Every effect with its group and parameters (Instagram filters, colour scale tints, shader filters, stylize, retro, distort, colour).",
+            json!({ "group": { "type": "string", "enum": ["filters", "scale", "shader", "stylize", "retro", "distort", "color"] } }), &[]),
         tool("list_transitions", "List transitions", "Transitions a clip can start with, plus the fade options.", json!({}), &[]),
         tool("list_formats", "List formats", "Project formats with canvas size, ratio and usual upload size.", json!({}), &[]),
         tool("import_media", "Import media", "Add video, audio or image files (absolute paths) to a project's media pool, and optionally onto the timeline one after another.",
@@ -289,9 +351,10 @@ fn all_definitions() -> Vec<Value> {
                 "duration": { "type": "number" },
                 "font": text_props["font"], "size": text_props["size"], "weight": text_props["weight"], "color": text_props["color"],
                 "align": text_props["align"], "y": text_props["y"], "animation": text_props["animation"], "box": text_props["box"],
+                "outline": text_props["outline"], "outlineWidth": text_props["outlineWidth"], "shadow": text_props["shadow"], "glow": text_props["glow"], "highlight": text_props["highlight"],
                 "blend": text_props["blend"],
             }), &["project", "content"]),
-        tool("update_clip", "Update a clip", "Change any of a clip's timing, track, transform, opacity, volume, fades, name or text. Only the fields given change.", clip_fields, &["project", "clip"]),
+        tool("update_clip", "Update a clip", "Change any of a clip's timing, track, transform, opacity, volume, fades, name, text or sound (speed, reverb, slowed + reverb and other presets). Only the fields given change.", clip_fields, &["project", "clip"]),
         tool("remove_clip", "Remove a clip", "Delete a clip from the timeline.", json!({ "project": project_prop(), "clip": clip_prop() }), &["project", "clip"]),
         tool("split_clip", "Split a clip", "Cut a clip in two at a time (seconds). Without a clip, splits the main-video clip under that time.",
             json!({ "project": project_prop(), "time": { "type": "number" }, "clip": clip_prop() }), &["project", "time"]),
@@ -310,6 +373,13 @@ fn all_definitions() -> Vec<Value> {
             json!({ "project": project_prop(), "clip": clip_prop(), "transition": { "type": "string", "description": "Id from list_transitions, or none" }, "duration": { "type": "number", "description": "Seconds" } }), &["project", "clip", "transition"]),
         tool("set_track", "Set a track", "Hide, mute or lock a track.",
             json!({ "project": project_prop(), "track": { "type": "string", "enum": ["T1", "V2", "V1", "A1", "A2"] }, "hidden": { "type": "boolean" }, "muted": { "type": "boolean" }, "locked": { "type": "boolean" } }), &["project", "track"]),
+        tool("record_audio", "Record audio", "Record a voice-over or any sound from the Mac's microphone. start begins a take (the user talks or plays; with playAlong the timeline plays meanwhile so they can speak over the picture), stop ends it and the take lands on A2 (Voice & SFX) at the time it started, status says whether a take is running and which microphone is used. Needs Liemo running with the project open (open_project). Tell the user when you start so they know to speak, and stop when they say they're done.",
+            json!({
+                "project": project_prop(),
+                "action": { "type": "string", "enum": ["start", "stop", "status"] },
+                "at": { "type": "number", "description": "start: timeline seconds the take starts at; default the playhead" },
+                "playAlong": { "type": "boolean", "description": "start: play the timeline during the take (headphones advised). Default: the user's setting" },
+            }), &["project", "action"]),
         tool("undo", "Undo", "Undo the last edit in the open editor (needs Liemo running with the project open).", json!({ "project": project_prop() }), &["project"]),
         tool("redo", "Redo", "Redo in the open editor.", json!({ "project": project_prop() }), &["project"]),
         tool("render_frame", "Look at a frame", "Render the edit at a time and return it as a PNG, so you can check what it looks like.",
@@ -653,12 +723,82 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                     if let Some(v) = s(&args, "effectsOn") {
                         k.fx_scope = Some(if v == "clip" { FxScope::Clip } else { FxScope::Frame });
                     }
+                    // Motion: speed, direction, flips, entrance and exit.
+                    let motion_keys = ["speed", "reverse", "flipH", "flipV", "animIn", "animInDur", "animOut", "animOutDur", "animLoop", "animLoopSpeed"];
+                    if k.kind != AssetType::Audio && motion_keys.iter().any(|key| args.get(*key).is_some()) {
+                        let mut m = k.motion.clone().unwrap_or_default();
+                        if let Some(v) = f(&args, "speed") {
+                            let v = v.clamp(0.25, 4.0);
+                            // The same stretch of source, played faster or slower, unless a length was given.
+                            if args.get("duration").is_none() {
+                                k.dur = crate::model::time::snap_frame((k.dur * m.speed / v).max(crate::model::store::min_clip()));
+                                moved = true;
+                            }
+                            m.speed = v;
+                        }
+                        if let Some(v) = b(&args, "reverse") {
+                            m.reverse = v;
+                        }
+                        if let Some(v) = b(&args, "flipH") {
+                            m.flip_h = v;
+                        }
+                        if let Some(v) = b(&args, "flipV") {
+                            m.flip_v = v;
+                        }
+                        if let Some(v) = s(&args, "animIn") {
+                            m.anim_in = if v == "none" { String::new() } else { v.into() };
+                        }
+                        if let Some(v) = f(&args, "animInDur") {
+                            m.anim_in_dur = v.clamp(0.1, 3.0);
+                        }
+                        if let Some(v) = s(&args, "animOut") {
+                            m.anim_out = if v == "none" { String::new() } else { v.into() };
+                        }
+                        if let Some(v) = f(&args, "animOutDur") {
+                            m.anim_out_dur = v.clamp(0.1, 3.0);
+                        }
+                        if let Some(v) = s(&args, "animLoop") {
+                            m.anim_loop = if v == "none" { String::new() } else { v.into() };
+                        }
+                        if let Some(v) = f(&args, "animLoopSpeed") {
+                            m.anim_loop_speed = v.clamp(0.25, 4.0);
+                        }
+                        k.motion = if m == crate::model::types::Motion::default() { None } else { Some(m) };
+                    }
                     k.fade_in = k.fade_in.min(k.dur / 2.0);
                     k.fade_out = k.fade_out.min(k.dur / 2.0);
                 });
+                if let Some(snd) = args.get("sound").filter(|v| v.is_object()) {
+                    if c.kind != AssetType::Audio {
+                        return Err("Sound effects work on audio clips (imported audio and recordings)".into());
+                    }
+                    let preset = match s(snd, "preset") {
+                        Some(p) => Some(crate::audio::fx::PRESETS.iter().find(|(k, _, _)| *k == p).map(|(_, _, f)| f.clone()).ok_or_else(|| format!("No sound preset {p}"))?),
+                        None => None,
+                    };
+                    let snd = snd.clone();
+                    st.set_sound(&cid, move |x| {
+                        if let Some(p) = preset {
+                            *x = p;
+                        }
+                        let g = |k: &str| snd.get(k).and_then(|v| v.as_f64());
+                        if let Some(v) = g("speed") {
+                            x.speed = v.clamp(0.5, 2.0);
+                        }
+                        if let Some(v) = snd.get("keepPitch").and_then(|v| v.as_bool()) {
+                            x.keep_pitch = v;
+                        }
+                        for (k, field) in [("reverb", &mut x.reverb), ("room", &mut x.room), ("bass", &mut x.bass), ("muffle", &mut x.muffle), ("pan8d", &mut x.pan8d)] {
+                            if let Some(v) = g(k) {
+                                *field = v.clamp(0.0, 1.0);
+                            }
+                        }
+                    });
+                    moved = true;
+                }
                 if let Some(t) = args.get("text") {
                     apply_text(st, &cid, t)?;
-                } else if ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box"].iter().any(|k| args.get(*k).is_some()) {
+                } else if ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "outline", "outlineWidth", "shadow", "glow", "highlight"].iter().any(|k| args.get(*k).is_some()) {
                     // Text fields given flat, as add_text takes them (y stays the clip's offset).
                     let mut t = args.clone();
                     if let Some(o) = t.as_object_mut() {
@@ -666,8 +806,21 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                     }
                     apply_text(st, &cid, &t)?;
                 }
+                let old_end = c.start + c.dur;
                 if moved {
                     st.settle(&cid, false);
+                    // A speed-up shortens the clip: pull what came after it back, so no gap opens
+                    // (a slow-down already pushes them along).
+                    if args.get("speed").is_some() && args.get("duration").is_none() {
+                        let end = st.clip(&cid).map(|k| k.start + k.dur).unwrap_or(old_end);
+                        let gap = old_end - end;
+                        if gap > 1e-6 {
+                            let after: Vec<String> = st.clips.iter().filter(|k| k.track == c.track && k.id != cid && k.start >= old_end - 1e-6).map(|k| k.id.clone()).collect();
+                            for k in after {
+                                st.update_clip(&k, |k| k.start = crate::model::time::snap_frame((k.start - gap).max(0.0)));
+                            }
+                        }
+                    }
                 }
                 Ok(json!({ "clip": clip_json(st.clip(&cid).unwrap()) }))
             })?)
@@ -820,6 +973,11 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 Ok(json!({ "track": st.tracks.iter().find(|t| t.id == tid) }))
             })?)
         }
+        "record_audio" => {
+            let id = resolve(a)?;
+            let action = req(a, "action")?.to_string();
+            out(ws.record_audio(&id, &action, a)?)
+        }
         "undo" | "redo" => {
             let id = resolve(a)?;
             if !ws.live() {
@@ -908,6 +1066,13 @@ fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
                 "rise" => TextAnim::Rise,
                 "slide" => TextAnim::Slide,
                 "type" => TextAnim::Type,
+                "pop" => TextAnim::Pop,
+                "bounce" => TextAnim::Bounce,
+                "zoom" => TextAnim::Zoom,
+                "blur" => TextAnim::Blur,
+                "wave" => TextAnim::Wave,
+                "glitch" => TextAnim::Glitch,
+                "flicker" => TextAnim::Flicker,
                 _ => TextAnim::None,
             };
         }
@@ -920,6 +1085,23 @@ fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
         }
         if let Some(v) = b(&a, "box") {
             t.boxed = v;
+        }
+        // Colours for the extra styles; "" or "none" takes the style off.
+        let colour = |k: &str| s(&a, k).map(|v| if v.is_empty() || v == "none" { None } else { Some(v.to_string()) });
+        if let Some(v) = colour("outline") {
+            t.outline = v;
+        }
+        if let Some(v) = f(&a, "outlineWidth") {
+            t.outline_width = v.clamp(1.0, 24.0);
+        }
+        if let Some(v) = colour("shadow") {
+            t.shadow = v;
+        }
+        if let Some(v) = colour("glow") {
+            t.glow = v;
+        }
+        if let Some(v) = colour("highlight") {
+            t.highlight = v;
         }
     });
     Ok(())

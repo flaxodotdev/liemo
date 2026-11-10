@@ -62,10 +62,16 @@ pub fn gpu() -> Option<&'static Gpu> {
     static G: OnceLock<Option<Gpu>> = OnceLock::new();
     G.get_or_init(|| {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-        desc.backends = wgpu::Backends::METAL;
+        // Metal on Apple; Vulkan on Linux, DirectX 12 or Vulkan on Windows.
+        desc.backends = if cfg!(any(target_os = "macos", target_os = "ios")) { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN | wgpu::Backends::DX12 };
         let instance = wgpu::Instance::new(desc);
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() })).ok()?;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("rayna-fx"), ..Default::default() })).ok()?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("rayna-fx"),
+            // What this GPU offers: the iOS simulator falls short of the WebGPU defaults.
+            required_limits: adapter.limits(),
+            ..Default::default()
+        })).ok()?;
         let vertex = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("quad"), source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(VERTEX)) });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,

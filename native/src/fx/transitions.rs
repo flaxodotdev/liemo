@@ -286,7 +286,7 @@ shader_transition!(particles, "remocn-particles");
 shader_transition!(particle_drift, "remocn-particles-up");
 shader_transition!(shatter, "remocn-shatter");
 
-pub const TRANSITIONS: [TransitionDef; 48] = {
+pub const TRANSITIONS: [TransitionDef; 49] = {
     use TransitionGroup::*;
     [
         TransitionDef { id: "dissolve", name: "Dissolve", group: Dissolve, draw: dissolve },
@@ -308,6 +308,9 @@ pub const TRANSITIONS: [TransitionDef; 48] = {
         TransitionDef { id: "iris", name: "Iris", group: Shape, draw: iris },
         TransitionDef { id: "pixelate", name: "Pixelate", group: Stylized, draw: pixelate },
         TransitionDef { id: "glitch", name: "Glitch", group: Stylized, draw: glitch },
+        // Drawn by the compositor through the title over the cut (see compositor::text_window);
+        // with no title there it's a plain zoom.
+        TransitionDef { id: "text-zoom", name: "Text zoom", group: Stylized, draw: zoom },
         TransitionDef { id: "remocn-displacement", name: "Displacement", group: Shader, draw: displacement },
         TransitionDef { id: "remocn-ember-burn", name: "Ember burn", group: Shader, draw: ember_burn },
         TransitionDef { id: "remocn-glitch-cut", name: "Glitch cut", group: Shader, draw: glitch_cut },

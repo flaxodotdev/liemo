@@ -303,6 +303,11 @@ uint64_t uniffi_liemo_mobile_fn_constructor_engine_new(RustBuffer data_dir, uint
 RustBuffer uniffi_liemo_mobile_fn_method_engine_asset_thumb(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_AUDIO_PEAKS
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_AUDIO_PEAKS
+RustBuffer uniffi_liemo_mobile_fn_method_engine_audio_peaks(uint64_t ptr, RustBuffer clip_id, uint32_t buckets, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CALL
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CALL
 RustBuffer uniffi_liemo_mobile_fn_method_engine_call(uint64_t ptr, RustBuffer tool, RustBuffer args_json, RustCallStatus *_Nonnull out_status
@@ -321,6 +326,16 @@ int8_t uniffi_liemo_mobile_fn_method_engine_can_undo(uint64_t ptr, RustCallStatu
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CLOSE_PROJECT
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CLOSE_PROJECT
 void uniffi_liemo_mobile_fn_method_engine_close_project(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_DELETE_PROJECT
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_DELETE_PROJECT
+int8_t uniffi_liemo_mobile_fn_method_engine_delete_project(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_DUPLICATE_PROJECT
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_DUPLICATE_PROJECT
+RustBuffer uniffi_liemo_mobile_fn_method_engine_duplicate_project(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_EFFECT_THUMB
@@ -353,9 +368,24 @@ RustBuffer uniffi_liemo_mobile_fn_method_engine_project_thumb_path(uint64_t ptr,
 RustBuffer uniffi_liemo_mobile_fn_method_engine_render_audio(uint64_t ptr, double start, uint32_t frames, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_AUDIO_RANGE
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_AUDIO_RANGE
+RustBuffer uniffi_liemo_mobile_fn_method_engine_render_audio_range(uint64_t ptr, double start, double stop, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_CLIP
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_CLIP
+RustBuffer uniffi_liemo_mobile_fn_method_engine_render_clip(uint64_t ptr, RustBuffer clip_id, double time, uint32_t max, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_FRAME
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_FRAME
 RustBuffer uniffi_liemo_mobile_fn_method_engine_render_frame(uint64_t ptr, double time, uint32_t max, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_TEXT_PREVIEW
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_TEXT_PREVIEW
+RustBuffer uniffi_liemo_mobile_fn_method_engine_text_preview(uint64_t ptr, RustBuffer props_json, uint32_t width, uint32_t height, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_TOOL_DEFINITIONS
@@ -674,6 +704,12 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_asset_thumb(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_AUDIO_PEAKS
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_AUDIO_PEAKS
+uint16_t uniffi_liemo_mobile_checksum_method_engine_audio_peaks(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CALL
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CALL
 uint16_t uniffi_liemo_mobile_checksum_method_engine_call(void
@@ -695,6 +731,18 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_can_undo(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CLOSE_PROJECT
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CLOSE_PROJECT
 uint16_t uniffi_liemo_mobile_checksum_method_engine_close_project(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_DELETE_PROJECT
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_DELETE_PROJECT
+uint16_t uniffi_liemo_mobile_checksum_method_engine_delete_project(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_DUPLICATE_PROJECT
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_DUPLICATE_PROJECT
+uint16_t uniffi_liemo_mobile_checksum_method_engine_duplicate_project(void
     
 );
 #endif
@@ -734,9 +782,27 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_render_audio(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_AUDIO_RANGE
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_AUDIO_RANGE
+uint16_t uniffi_liemo_mobile_checksum_method_engine_render_audio_range(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_CLIP
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_CLIP
+uint16_t uniffi_liemo_mobile_checksum_method_engine_render_clip(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_FRAME
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_FRAME
 uint16_t uniffi_liemo_mobile_checksum_method_engine_render_frame(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_TEXT_PREVIEW
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_TEXT_PREVIEW
+uint16_t uniffi_liemo_mobile_checksum_method_engine_text_preview(void
     
 );
 #endif

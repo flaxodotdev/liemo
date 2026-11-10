@@ -9,6 +9,7 @@ use crate::fx::transitions::{transition_def, TransitionDef};
 use crate::model::assets::{asset, bitmap_of, Asset};
 use crate::model::time::{H, W};
 use crate::model::types::*;
+use std::f32::consts::PI;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Transform};
 
@@ -46,10 +47,16 @@ pub fn draw_cover(c: &mut Canvas, src: &Pixmap, w: f32, h: f32) {
 /// Draw a clip's content with its transform, in 1280×720 units.
 fn draw_content(c: &mut Canvas, clip: &Clip, a: &Asset, t: f64, alpha: f32, frames: &mut dyn Frames) {
     let lt = t - clip.start;
-    let st = lt + clip.in_;
-    c.translate(W() / 2.0 + clip.x as f32, H() / 2.0 + clip.y as f32);
-    c.rotate((clip.rot as f32).to_radians());
-    c.scale(clip.scale as f32, clip.scale as f32);
+    let st = clip.in_ + clip.src_offset(lt);
+    let m = motion_at(clip, lt);
+    c.translate(W() / 2.0 + clip.x as f32 + m.dx, H() / 2.0 + clip.y as f32 + m.dy);
+    c.rotate((clip.rot as f32 + m.rot).to_radians());
+    let (fx, fy) = match &clip.motion {
+        Some(mo) if a.kind != AssetType::Text => (if mo.flip_h { -1.0 } else { 1.0 }, if mo.flip_v { -1.0 } else { 1.0 }),
+        _ => (1.0, 1.0),
+    };
+    let k = clip.scale as f32 * m.scale;
+    c.scale(k * fx * m.sx, k * fy * m.sy);
     c.translate(-W() / 2.0, -H() / 2.0);
     match a.kind {
         AssetType::Scene if a.shader.is_some() => {
@@ -70,7 +77,15 @@ fn draw_content(c: &mut Canvas, clip: &Clip, a: &Asset, t: f64, alpha: f32, fram
         }
         AssetType::Photo => {
             if let Some(b) = &a.bitmap {
-                draw_cover(c, b, W(), H());
+                // The main track fills the frame; on other tracks (stickers, picture-in-picture)
+                // the whole picture shows.
+                if clip.track == "V1" {
+                    draw_cover(c, b, W(), H());
+                } else {
+                    let (sw, sh) = (b.width() as f32, b.height() as f32);
+                    let k = (W() / sw).min(H() / sh);
+                    c.draw_image_scaled(b, (W() - sw * k) / 2.0, (H() - sh * k) / 2.0, sw * k, sh * k);
+                }
             }
         }
         AssetType::Video => {
@@ -87,10 +102,135 @@ fn draw_content(c: &mut Canvas, clip: &Clip, a: &Asset, t: f64, alpha: f32, fram
     }
 }
 
+fn bounce_out(x: f32) -> f32 {
+    let (n1, d1) = (7.5625f32, 2.75f32);
+    if x < 1.0 / d1 {
+        n1 * x * x
+    } else if x < 2.0 / d1 {
+        let x = x - 1.5 / d1;
+        n1 * x * x + 0.75
+    } else if x < 2.5 / d1 {
+        let x = x - 2.25 / d1;
+        n1 * x * x + 0.9375
+    } else {
+        let x = x - 2.625 / d1;
+        n1 * x * x + 0.984375
+    }
+}
+
+/// Where a clip's entrance or exit animation has it at `lt` seconds in.
+pub struct MotionNow {
+    pub dx: f32,
+    pub dy: f32,
+    pub scale: f32,
+    pub rot: f32,
+    pub alpha: f32,
+    /// Squash and stretch on top of `scale`.
+    pub sx: f32,
+    pub sy: f32,
+}
+
+pub fn motion_at(clip: &Clip, lt: f64) -> MotionNow {
+    let mut n = MotionNow { dx: 0.0, dy: 0.0, scale: 1.0, rot: 0.0, alpha: 1.0, sx: 1.0, sy: 1.0 };
+    let Some(m) = &clip.motion else { return n };
+    // `p` runs 0→1 over the animation: in from the start, out toward the end (reversed).
+    let mut apply = |kind: &str, p: f32| {
+        if kind.is_empty() || p >= 1.0 {
+            return;
+        }
+        let p = p.clamp(0.0, 1.0);
+        let e = 1.0 - (1.0 - p).powi(3);
+        match kind {
+            "fade" => n.alpha *= e,
+            "zoom-in" => {
+                n.scale *= 0.6 + 0.4 * e;
+                n.alpha *= e;
+            }
+            "zoom-out" => {
+                n.scale *= 1.5 - 0.5 * e;
+                n.alpha *= e;
+            }
+            "slide-left" => n.dx += (1.0 - e) * W(),
+            "slide-right" => n.dx -= (1.0 - e) * W(),
+            "slide-up" => n.dy += (1.0 - e) * H(),
+            "slide-down" => n.dy -= (1.0 - e) * H(),
+            "spin" => {
+                n.rot -= (1.0 - e) * 180.0;
+                n.scale *= 0.4 + 0.6 * e;
+                n.alpha *= e;
+            }
+            "pop" => {
+                let (c1, c3) = (2.4f32, 3.4f32);
+                n.scale *= 0.3 + 0.7 * (1.0 + c3 * (p - 1.0).powi(3) + c1 * (p - 1.0).powi(2));
+                n.alpha *= (p * 4.0).min(1.0);
+            }
+            "whip-left" | "whip-right" => {
+                // Much faster than a slide: most of the travel happens in the first instant.
+                let e = 1.0 - (1.0 - p).powi(6);
+                n.dx += (1.0 - e) * W() * if kind == "whip-left" { 1.2 } else { -1.2 };
+            }
+            "drop" => {
+                n.dy -= (1.0 - bounce_out(p)) * H();
+                n.alpha *= (p * 6.0).min(1.0);
+            }
+            "rise" => {
+                n.dy += (1.0 - e) * H() * 0.25;
+                n.alpha *= e;
+            }
+            "swing" => {
+                n.rot += (1.0 - p) * 24.0 * (p * 14.0).cos();
+                n.alpha *= (p * 5.0).min(1.0);
+            }
+            "flip" => {
+                n.sx *= (e * PI / 2.0).sin().max(0.02);
+            }
+            "stretch" => {
+                let (c1, c3) = (1.8f32, 2.8f32);
+                let back = 1.0 + c3 * (p - 1.0).powi(3) + c1 * (p - 1.0).powi(2);
+                n.sx *= 1.6 - 0.6 * back;
+                n.sy *= 0.4 + 0.6 * back;
+                n.alpha *= (p * 4.0).min(1.0);
+            }
+            "shake" => {
+                let a = (1.0 - p) * 40.0;
+                n.dx += a * (p * 70.0).sin();
+                n.dy += a * 0.5 * (p * 53.0).cos();
+            }
+            _ => {}
+        }
+    };
+    if m.anim_in_dur > 0.0 {
+        apply(&m.anim_in, (lt / m.anim_in_dur) as f32);
+    }
+    if m.anim_out_dur > 0.0 {
+        apply(&m.anim_out, ((clip.dur - lt) / m.anim_out_dur) as f32);
+    }
+    // All the time, for the length of the clip.
+    let sp = m.anim_loop_speed.clamp(0.25, 4.0) as f32;
+    let l = lt as f32 * sp;
+    match m.anim_loop.as_str() {
+        "breathe" => n.scale *= 1.0 + 0.045 * (l * PI).sin(),
+        "float" => n.dy += 16.0 * (l * 1.7).sin(),
+        "wiggle" => n.rot += 4.0 * (l * 7.0).sin(),
+        "pulse" => n.scale *= 1.0 + 0.09 * (-(l * 2.0).fract() * 6.0).exp(),
+        "spin" => n.rot += l * 90.0,
+        "shake" => {
+            n.dx += 7.0 * ((l * 47.0).sin() + (l * 31.0).cos()) / 2.0;
+            n.dy += 7.0 * ((l * 41.0).cos() + (l * 29.0).sin()) / 2.0;
+        }
+        "sway" => {
+            n.rot += 5.0 * (l * 1.5).sin();
+            n.dx += 12.0 * (l * 1.5).sin();
+        }
+        _ => {}
+    }
+    n
+}
+
 /// Draw one clip onto `c` (any 16:9 size).
 pub fn draw_clip(c: &mut Canvas, clip: &Clip, t: f64, frames: &mut dyn Frames) {
     let Some(a) = asset(&clip.asset) else { return };
-    let alpha = (clip.opacity * clip_fade(clip, t)) as f32;
+    let alpha = (clip.opacity * clip_fade(clip, t)) as f32 * motion_at(clip, t - clip.start).alpha;
     let (cw, ch) = (c.width(), c.height());
     let s = cw as f32 / W();
     // The asset's blend, with the text style's own blend winning for text clips.
@@ -160,6 +300,107 @@ fn clip_frame(clip: &Clip, t: f64, w: u32, h: u32, frames: &mut dyn Frames) -> P
     g.into_pixmap()
 }
 
+// ---------- Text zoom: the next clip seen through the title's letters, which then grow ----------
+
+/// The title a Text zoom cut opens through: the text clip on screen as the first clip ends.
+fn zoom_title<'a>(clips: &'a [Clip], w: &TransitionWindow) -> Option<&'a Clip> {
+    if w.def.id != "text-zoom" {
+        return None;
+    }
+    clips
+        .iter()
+        .filter(|k| k.track == "T1" && k.text.is_some() && k.start <= w.from + 1e-3 && k.start + k.dur > w.from - 0.5)
+        .max_by(|a, b| a.start.total_cmp(&b.start))
+}
+
+/// The title's words alone, white and plain, as a mask.
+fn mask_props(title: &Clip) -> TextProps {
+    let mut p = title.text.clone().unwrap_or_else(|| crate::model::assets::text_presets()[0].text.clone().unwrap());
+    p.color = "#ffffff".into();
+    p.outline = None;
+    p.shadow = None;
+    p.glow = None;
+    p.highlight = None;
+    p.boxed = false;
+    p.blend = TextBlend::Normal;
+    p
+}
+
+/// The title clip's own placement (offset and scale), in design units.
+fn title_place(c: &mut Canvas, title: &Clip) {
+    c.translate(W() / 2.0 + title.x as f32, H() / 2.0 + title.y as f32);
+    c.scale(title.scale as f32, title.scale as f32);
+    c.translate(-W() / 2.0, -H() / 2.0);
+}
+
+/// A point inside a letter, nearest the middle of the words: zooming in there fills the frame
+/// with the inside of the letter rather than the gap between two.
+fn zoom_pivot(title: &Clip, props: &TextProps, lt: f32) -> (f32, f32) {
+    let gw = 320u32;
+    let gh = ((gw as f32 * H() / W()).round() as u32).max(16);
+    let k = gw as f32 / W();
+    let mut m = Canvas::from_pixmap(pixmap(gw, gh));
+    m.set_transform(Transform::from_scale(k, k));
+    title_place(&mut m, title);
+    draw_text(&mut m, props, lt, 1.0);
+    let pm = m.into_pixmap();
+    let (cx, cy) = ((W() / 2.0 + title.x as f32) * k, (H() / 2.0 + title.y as f32 + props.y as f32 * title.scale as f32) * k);
+    let d = pm.data();
+    let mut best = (cx, cy, f32::MAX);
+    for y in 0..gh {
+        for x in 0..gw {
+            if d[((y * gw + x) * 4 + 3) as usize] > 230 {
+                let dist = (x as f32 - cx).powi(2) + (y as f32 - cy).powi(2);
+                if dist < best.2 {
+                    best = (x as f32 + 0.5, y as f32 + 0.5, dist);
+                }
+            }
+        }
+    }
+    (best.0 / k, best.1 / k)
+}
+
+/// `b` (at its time `tb`) showing only inside the title's letters, the letters grown `z` times
+/// around a point inside them; `lt` is the title's own time (its entrance animation).
+fn text_window(c: &mut Canvas, title: &Clip, b: &Clip, tb: f64, z: f32, lt: f32, alpha: f32, frames: &mut dyn Frames) {
+    let (cw, ch) = (c.width(), c.height());
+    let props = mask_props(title);
+    let (px, py) = zoom_pivot(title, &props, lt.max(0.0));
+    let mut m = Canvas::from_pixmap(pixmap(cw, ch));
+    m.set_transform(Transform::from_scale(cw as f32 / W(), cw as f32 / W()));
+    m.translate(px, py);
+    m.scale(z, z);
+    m.translate(-px, -py);
+    title_place(&mut m, title);
+    draw_text(&mut m, &props, lt, 1.0);
+    let mut layer = Canvas::from_pixmap(clip_frame(b, tb, cw, ch, frames));
+    layer.composite(&m.into_pixmap(), 1.0, tiny_skia::BlendMode::DestinationIn);
+    c.save();
+    c.reset_transform();
+    c.composite(&layer.into_pixmap(), alpha, tiny_skia::BlendMode::SourceOver);
+    c.restore();
+}
+
+/// The cut itself: the first clip, and over it the second through the letters as they swell
+/// until the second fills the frame.
+fn draw_text_zoom(c: &mut Canvas, w: &TransitionWindow, title: &Clip, p: f64, t: f64, frames: &mut dyn Frames) {
+    if let Some(a) = w.a {
+        draw_clip(c, a, t.min(a.start + a.dur - 1e-3), frames);
+    }
+    let p = p.clamp(0.0, 1.0) as f32;
+    // Slow at first, then rushing in: about 90× by the end.
+    let z = 90f32.powf(p.powf(1.7));
+    text_window(c, title, w.b, t, z, (t - title.start) as f32, 1.0, frames);
+    if p > 0.85 {
+        let (cw, ch) = (c.width(), c.height());
+        let b = clip_frame(w.b, t, cw, ch, frames);
+        c.save();
+        c.reset_transform();
+        c.composite(&b, (p - 0.85) / 0.15, tiny_skia::BlendMode::SourceOver);
+        c.restore();
+    }
+}
+
 fn draw_transition(c: &mut Canvas, w: &TransitionWindow, p: f64, t: f64, frames: &mut dyn Frames) {
     let (cw, ch) = (c.width(), c.height());
     let a = w.a.map(|a| clip_frame(a, t, cw, ch, frames));
@@ -175,6 +416,11 @@ pub fn render_frame(c: &mut Canvas, scene: &Scene, t: f64, frames: &mut dyn Fram
     c.reset_state();
     let [r, g, b] = crate::model::time::env().bg;
     c.fill_all(crate::render::canvas::rgb(r, g, b));
+    // Text zoom cuts on the main track, with the title each one opens through.
+    let mut main: Vec<&Clip> = scene.clips.iter().filter(|k| k.track == "V1").collect();
+    main.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let zooms: Vec<(TransitionWindow, &Clip)> =
+        if scene.hidden("V1") { vec![] } else { transition_windows(&main).into_iter().filter_map(|w| zoom_title(scene.clips, &w).map(|title| (w, title))).collect() };
     for tid in ["V1", "V2", "T1"] {
         if scene.hidden(tid) {
             continue;
@@ -182,11 +428,26 @@ pub fn render_frame(c: &mut Canvas, scene: &Scene, t: f64, frames: &mut dyn Fram
         let mut track: Vec<&Clip> = scene.clips.iter().filter(|k| k.track == tid).collect();
         track.sort_by(|a, b| a.start.total_cmp(&b.start));
         let mut handled: Vec<&str> = vec![];
+        if tid == "T1" {
+            // A title that a Text zoom opens through is a window onto the next clip until the cut,
+            // then the cut draws it.
+            for (w, title) in &zooms {
+                if t >= title.start && t < w.to {
+                    handled.push(&title.id);
+                    if t < w.from && t < title.start + title.dur {
+                        text_window(c, title, w.b, w.b.start, 1.0, (t - title.start) as f32, crate::model::types::clip_fade(title, t) as f32, frames);
+                    }
+                }
+            }
+        }
         for w in transition_windows(&track) {
             if t < w.from || t >= w.to {
                 continue;
             }
-            draw_transition(c, &w, (t - w.from) / (w.to - w.from), t, frames);
+            match zooms.iter().find(|(z, _)| tid == "V1" && z.b.id == w.b.id) {
+                Some((_, title)) => draw_text_zoom(c, &w, title, (t - w.from) / (w.to - w.from), t, frames),
+                None => draw_transition(c, &w, (t - w.from) / (w.to - w.from), t, frames),
+            }
             if let Some(a) = w.a {
                 handled.push(&a.id);
             }

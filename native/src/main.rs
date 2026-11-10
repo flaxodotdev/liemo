@@ -1,8 +1,11 @@
+// No console window behind the app on Windows (stdio still works for `liemo mcp`).
+#![cfg_attr(windows, windows_subsystem = "windows")]
 mod audio;
 mod export;
 mod fx;
 mod mcp;
 mod media;
+mod platform;
 mod storage;
 mod update;
 mod agent;

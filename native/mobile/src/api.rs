@@ -240,6 +240,68 @@ impl Engine {
         storage::duplicate_project(&id).ok().flatten()
     }
 
+    /// A clip's loudness for drawing its waveform: `buckets` peak levels (0–1) across the clip.
+    pub fn audio_peaks(&self, clip_id: String, buckets: u32) -> Vec<f32> {
+        let open = self.open.lock();
+        let Some(o) = open.as_ref() else { return vec![] };
+        let Some(c) = o.store.clips.iter().find(|c| c.id == clip_id) else { return vec![] };
+        let sr = 2000.0;
+        let frames = ((c.dur * sr) as usize).max(1);
+        let mut out = vec![0f32; frames * 2];
+        // The clip alone, on an unmuted track, at its place on the timeline.
+        let mut solo = c.clone();
+        solo.track = "solo".into();
+        crate::audio::mix::mix(&mut out, std::slice::from_ref(&solo), &[], c.start, sr, f64::NEG_INFINITY, f64::INFINITY, 1.0);
+        let n = buckets.max(1) as usize;
+        let per = (frames / n).max(1);
+        let peaks: Vec<f32> = (0..n)
+            .map(|b| {
+                let lo = (b * per).min(frames);
+                let hi = ((b + 1) * per).min(frames);
+                (lo..hi).map(|i| out[i * 2].abs().max(out[i * 2 + 1].abs())).fold(0.0, f32::max)
+            })
+            .collect();
+        let top = peaks.iter().cloned().fold(1e-4, f32::max);
+        peaks.into_iter().map(|p| (p / top).sqrt()).collect()
+    }
+
+    /// One clip of the open project alone at `time` (its effects and motion, nothing else), on
+    /// a transparent frame: freeze frames.
+    pub fn render_clip(&self, clip_id: String, time: f64, max: u32) -> Option<MediaFrame> {
+        let open = self.open.lock();
+        let o = open.as_ref()?;
+        let clip = o.store.clips.iter().find(|c| c.id == clip_id)?.clone();
+        let env = o.rec.env();
+        crate::model::time::set_env(env);
+        let k = max as f32 / env.w.max(env.h);
+        let (w, h) = (((env.w * k).round() as u32).max(2), ((env.h * k).round() as u32).max(2));
+        let mut c = Canvas::from_pixmap(crate::render::canvas::pixmap(w, h));
+        let mut pool = crate::render::frames::DecoderPool::new(w.max(1280), h.max(720));
+        crate::render::compositor::draw_clip(&mut c, &clip, time, &mut pool);
+        Some(frame_of(&c.into_pixmap()))
+    }
+
+    /// A text style drawn on a dark card (`props_json`: the text fields as get_project shows
+    /// them), for the style gallery.
+    pub fn text_preview(&self, props_json: String, width: u32, height: u32) -> Option<MediaFrame> {
+        let mut t: crate::model::types::TextProps = serde_json::from_str(&props_json).ok()?;
+        t.anim = crate::model::types::TextAnim::None;
+        t.y = 0.0;
+        let old = crate::model::time::env();
+        crate::model::time::set_env(crate::model::time::Env::default());
+        let (ww, hh) = (crate::model::time::W(), crate::model::time::H());
+        let mut c = Canvas::from_pixmap(crate::render::canvas::pixmap(width, height));
+        c.fill_rect_color(0.0, 0.0, width as f32, height as f32, crate::render::canvas::hex("#5b6170"));
+        // Fit the style's size to the card.
+        let k = (width as f32 / ww).min(height as f32 / hh) * 1.6;
+        c.translate(width as f32 / 2.0, height as f32 / 2.0);
+        c.scale(k, k);
+        c.translate(-ww / 2.0, -hh / 2.0);
+        crate::render::textclip::draw_text(&mut c, &t, 1.0, 1.0);
+        crate::model::time::set_env(old);
+        Some(frame_of(&c.into_pixmap()))
+    }
+
     /// A library card picture: footage, shader backgrounds, stills, overlays, text styles.
     pub fn asset_thumb(&self, id: String) -> Option<MediaFrame> {
         crate::render::thumbs::asset_thumb_id(&id).map(|p| frame_of(&p))

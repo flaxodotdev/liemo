@@ -42,6 +42,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("skip-back", include_bytes!("../../assets/icons/skip-back.svg")),
     ("skip-forward", include_bytes!("../../assets/icons/skip-forward.svg")),
     ("sparkles", include_bytes!("../../assets/icons/sparkles.svg")),
+    ("square", include_bytes!("../../assets/icons/square.svg")),
     ("trash-2", include_bytes!("../../assets/icons/trash-2.svg")),
     ("type", include_bytes!("../../assets/icons/type.svg")),
     ("undo-2", include_bytes!("../../assets/icons/undo-2.svg")),
@@ -56,6 +57,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("panel-bottom", include_bytes!("../../assets/icons/panel-bottom.svg")),
     ("arrow-up", include_bytes!("../../assets/icons/arrow-up.svg")),
     ("message-circle", include_bytes!("../../assets/icons/message-circle.svg")),
+    ("mic", include_bytes!("../../assets/icons/mic.svg")),
     ("liemo-mark", include_bytes!("../../assets/icons/liemo-mark.svg")),
     // Agent marks for the Connect AI button (Simple Icons, CC0; trademarks of their owners).
     ("brand-claude", include_bytes!("../../assets/icons/brand-claude.svg")),

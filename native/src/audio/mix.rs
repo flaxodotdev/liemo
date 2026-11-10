@@ -172,6 +172,21 @@ fn music_clip(out: &mut [f32], t0: f64, sr: f64, c: &Clip, a: &Asset, from: f64,
 /// Mix every audible clip into `out` (stereo interleaved, zeroed by the caller) for the block
 /// starting at timeline time `t0`. Beats starting before `from` or at/after `until` are skipped,
 /// which is how live playback avoids replaying beats that started before Play.
+/// The reworking a clip's sound gets: an audio clip's sound effects, or for a sped-up or slowed
+/// video clip, its new speed with the pitch kept (as phone editors do).
+fn sound_fx(c: &Clip) -> Option<crate::model::types::AudioFx> {
+    match c.kind {
+        AssetType::Audio => super::fx::active(c.sound.as_ref()).cloned(),
+        AssetType::Video => match &c.motion {
+            Some(m) if !m.reverse && (m.speed - 1.0).abs() > 1e-3 => {
+                Some(crate::model::types::AudioFx { speed: m.speed.clamp(0.25, 4.0), keep_pitch: true, ..Default::default() })
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 pub fn mix(out: &mut [f32], clips: &[Clip], tracks: &[Track], t0: f64, sr: f64, from: f64, until: f64, master: f32) {
     let n = out.len() / 2;
     let t1 = t0 + n as f64 / sr;
@@ -191,7 +206,21 @@ pub fn mix(out: &mut [f32], clips: &[Clip], tracks: &[Track], t0: f64, sr: f64, 
         if c.start >= t1 || c.start + c.dur <= t0 {
             continue;
         }
-        let Some(buf) = buffer(&c.asset) else { continue };
+        // Clips with sound effects play their reworked render, whose time runs at the clip's speed.
+        let fx = sound_fx(c);
+        let (buf, offset) = match fx.as_ref() {
+            Some(f) => match super::fx::processed(&c.asset, f) {
+                Some(p) => {
+                    let o = c.in_ / p.speed - c.start;
+                    (Src::Fx(p), o)
+                }
+                None => continue,
+            },
+            None => match buffer(&c.asset) {
+                Some(b) => (Src::Raw(b), c.in_ - c.start),
+                None => continue,
+            },
+        };
         let i0 = (((c.start - t0) * sr).ceil().max(0.0)) as usize;
         let i1 = (((c.start + c.dur - t0) * sr).ceil().max(0.0) as usize).min(n);
         for i in i0..i1 {
@@ -200,7 +229,9 @@ pub fn mix(out: &mut [f32], clips: &[Clip], tracks: &[Track], t0: f64, sr: f64, 
                 continue;
             }
             let g = (c.volume * clip_fade(c, t)).clamp(0.0, 1.0) as f32;
-            let (l, r) = buf.at(t - c.start + c.in_);
+            // Reversed picture clips play their sound backwards (resampled).
+            let pos = if c.kind == AssetType::Video && fx.is_none() { c.in_ + c.src_offset(t - c.start) } else { t + offset };
+            let (l, r) = buf.get().at(pos);
             out[i * 2] += l * g;
             out[i * 2 + 1] += r * g;
         }
@@ -208,6 +239,19 @@ pub fn mix(out: &mut [f32], clips: &[Clip], tracks: &[Track], t0: f64, sr: f64, 
     if master != 1.0 {
         for v in out.iter_mut() {
             *v *= master;
+        }
+    }
+}
+
+enum Src {
+    Raw(Arc<crate::media::audio::AudioBuf>),
+    Fx(Arc<super::fx::Processed>),
+}
+impl Src {
+    fn get(&self) -> &crate::media::audio::AudioBuf {
+        match self {
+            Src::Raw(b) => b,
+            Src::Fx(p) => &p.buf,
         }
     }
 }
@@ -245,6 +289,12 @@ pub fn render_range(clips: &[Clip], tracks: &[Track], start: f64, stop: f64, can
     });
     if !audible {
         return None;
+    }
+    // Render every clip's sound effects exactly before mixing (playback may use a stand-in).
+    for c in clips.iter().filter(|c| c.start < stop && c.start + c.dur > start) {
+        if let Some(f) = sound_fx(c) {
+            super::fx::processed_now(&c.asset, &f);
+        }
     }
     let sr = crate::media::audio::RATE as f64;
     let frames = ((stop - start) * sr).ceil().max(1.0) as usize;

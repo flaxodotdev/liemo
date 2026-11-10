@@ -1,0 +1,5 @@
+# Built by scripts/build-core.sh / xcodegen
+LiemoCore.xcframework/
+Generated/
+Liemo.xcodeproj/
+build/

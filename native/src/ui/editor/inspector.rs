@@ -417,6 +417,9 @@ impl Editor {
                 }
             }
             out.push(g.into_any_element());
+            if c.kind == AssetType::Audio {
+                out.push(self.sound_group(c, cx).into_any_element());
+            }
         }
         let max_fade = (c.dur / 2.0).min(3.0);
         let max_fade = (max_fade * 100.0).round() / 100.0;
@@ -449,6 +452,52 @@ impl Editor {
                 .into_any_element(),
         );
         out
+    }
+
+    /// Speed, reverb and the rest for an audio clip, with one-click presets on top.
+    fn sound_group(&self, c: &Clip, cx: &mut Context<Self>) -> Div {
+        use crate::audio::fx::PRESETS;
+        let fx = c.sound.clone().unwrap_or_default();
+        let id = c.id.clone();
+        let chips = div().flex().flex_wrap().gap(px(6.)).children(PRESETS.iter().map(|(key, label, p)| {
+            let active = fx == *p;
+            let (id, p) = (id.clone(), p.clone());
+            button(SharedString::from(format!("snd-{key}")), if active { Variant::Primary } else { Variant::Secondary }, 28.)
+                .text_size(px(12.))
+                .child(*label)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.store.commit();
+                    let p = p.clone();
+                    this.store.set_sound(&id, move |f| *f = p);
+                    cx.notify();
+                }))
+                .into_any_element()
+        }));
+        let sl = |this: &Editor, label: &str, value: f64, min: f64, max: f64, step: f64, fmt: fn(f64) -> String, set: fn(&mut AudioFx, f64), cx: &mut Context<Editor>| {
+            let id = id.clone();
+            this.slider_field(label, format!("snd-{label}"), value, min, max, step, fmt, Rc::new(move |e: &mut Editor, v| e.store.set_sound(&id, |f| set(f, v))), cx)
+        };
+        let pct = |v: f64| format!("{}%", (v * 100.0).round());
+        let ed = cx.entity();
+        let pid = id.clone();
+        let pitch = segmented(&format!("snd-pitch-{id}"), &[(false, "Follows speed"), (true, "Keep pitch")], &fx.keep_pitch, |_| false, move |v, _, cx| {
+            let pid = pid.clone();
+            ed.update(cx, |e, cx| {
+                e.store.commit();
+                e.store.set_sound(&pid, |f| f.keep_pitch = v);
+                cx.notify();
+            })
+        });
+        group(Some("Sound"), (!fx.is_identity()).then(|| "Reworked".to_string()), false)
+            .child(chips)
+            .child(sl(self, "Speed", fx.speed, 0.5, 2.0, 0.01, |v| format!("{v:.2}×"), |f, v| f.speed = v, cx))
+            .child(field_row("Pitch", pitch, None))
+            .child(sl(self, "Reverb", fx.reverb, 0.0, 1.0, 0.01, pct, |f, v| f.reverb = v, cx))
+            .child(sl(self, "Room size", fx.room, 0.0, 1.0, 0.01, pct, |f, v| f.room = v, cx))
+            .child(sl(self, "Bass boost", fx.bass, 0.0, 1.0, 0.01, pct, |f, v| f.bass = v, cx))
+            .child(sl(self, "Muffle", fx.muffle, 0.0, 1.0, 0.01, pct, |f, v| f.muffle = v, cx))
+            .child(sl(self, "8D", fx.pan8d, 0.0, 1.0, 0.01, pct, |f, v| f.pan8d = v, cx))
+            .child(micro("Slowing down makes the clip longer and speeding up makes it shorter. Reverb tails ring out to the clip's end."))
     }
 
     fn text_groups(&mut self, c: &Clip, t: &TextProps, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {

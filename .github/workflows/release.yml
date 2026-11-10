@@ -1,17 +1,22 @@
-# Push a tag like v0.2.0 (matching native/Cargo.toml) to build, sign, notarise and publish
-# Liemo for Apple silicon and Intel. The app's updater reads the resulting GitHub Release.
-# Secrets and setup: native/RELEASING.md.
+# Push a tag like v0.2.0 (matching native/Cargo.toml) to build and publish Liemo: signed and
+# notarised for Apple silicon and Intel Macs, plus Windows and Linux builds. The Mac app's updater
+# reads the resulting GitHub Release. Secrets and setup: native/RELEASING.md.
+#
+# Run it by hand (Actions → Release → Run workflow) for a dry run: Windows and Linux are built
+# and kept as artifacts, nothing is published.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   build:
+    if: startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: true
       matrix:
@@ -85,8 +90,81 @@ jobs:
             native/dist/*.dmg
           if-no-files-found: error
 
+  linux:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: native
+    steps:
+      - uses: actions/checkout@v4
+      - name: Libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config clang libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
+            libavdevice-dev libswscale-dev libswresample-dev libasound2-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev libssl-dev libzstd-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Build
+        run: cargo build --release --bin rayna
+      - name: Package
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          d=dist/Liemo-$v-linux-x86_64
+          mkdir -p "$d"
+          cp target/release/rayna "$d/liemo"
+          cp assets/app/AppIcon.png "$d/liemo.png"
+          printf '[Desktop Entry]\nType=Application\nName=Liemo\nComment=Video editor\nExec=liemo\nIcon=liemo\nCategories=AudioVideo;Video;\n' > "$d/liemo.desktop"
+          printf 'Liemo %s for Linux (x86_64)\n\nRun ./liemo. Needs FFmpeg 6 or newer (Ubuntu/Debian: sudo apt install ffmpeg)\nand a Vulkan driver for the GPU effects.\n' "$v" > "$d/README.txt"
+          tar -C dist -czf "$d.tar.gz" "$(basename "$d")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liemo-linux
+          path: native/dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: native
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: FFmpeg (LGPL, shared)
+        run: |
+          curl -sSLo ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-shared-7.1.zip
+          unzip -q ffmpeg.zip -d "$RUNNER_TEMP"
+          dir=$(ls -d "$RUNNER_TEMP"/ffmpeg-n7.1-*)
+          echo "FFMPEG_DIR=$(cygpath -w "$dir")" >> "$GITHUB_ENV"
+          echo "FFMPEG_BIN=$dir/bin" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Build
+        run: cargo build --release --bin rayna
+      - name: Package
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          d=dist/Liemo-$v-windows-x86_64
+          mkdir -p "$d"
+          cp target/release/rayna.exe "$d/Liemo.exe"
+          cp "$FFMPEG_BIN"/*.dll "$d/"
+          printf 'Liemo %s for Windows (x86_64)\r\n\r\nRun Liemo.exe. FFmpeg (LGPL) is included; see https://ffmpeg.org.\r\n' "$v" > "$d/README.txt"
+          (cd dist && 7z a -tzip "$(basename "$d").zip" "$(basename "$d")" >/dev/null)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liemo-windows
+          path: native/dist/*.zip
+          if-no-files-found: error
+
   publish:
-    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, linux, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

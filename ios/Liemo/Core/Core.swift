@@ -123,12 +123,39 @@ struct Clip: Decodable, Identifiable, Hashable {
     let transition: ClipTransition?
     let effects: [AppliedEffect]
     let text: TextSpec?
+    let motion: Motion?
+    let sound: SoundFx?
 
     var isVisual: Bool { !["music", "audio"].contains(type) }
     var hasSound: Bool { ["music", "audio", "video"].contains(type) }
 }
 
 struct ClipTransition: Decodable, Hashable { let id: String; let dur: Double }
+
+/// Speed, direction, flips, entrance and exit of a picture clip.
+struct Motion: Decodable, Hashable {
+    let speed: Double
+    let reverse: Bool
+    let flipH: Bool
+    let flipV: Bool
+    let animIn: String
+    let animInDur: Double
+    let animOut: String
+    let animOutDur: Double
+    let animLoop: String?
+    let animLoopSpeed: Double?
+}
+
+/// An audio clip's reworking (slowed, reverb, 8D…).
+struct SoundFx: Decodable, Hashable {
+    let speed: Double
+    let keepPitch: Bool
+    let reverb: Double
+    let room: Double
+    let bass: Double
+    let muffle: Double
+    let pan8d: Double
+}
 
 struct AppliedEffect: Decodable, Hashable, Identifiable {
     let uid: String
@@ -148,6 +175,13 @@ struct TextSpec: Decodable, Hashable {
     let anim: String
     let box: Bool
     let y: Double
+    let outline: String?
+    let outlineWidth: Double?
+    let shadow: String?
+    let glow: String?
+    let highlight: String?
+    /// normal, invert (reads on any footage) or exclusion (a softer invert).
+    let blend: String?
 }
 
 struct Library: Decodable {
@@ -184,7 +218,8 @@ struct EffectDef: Decodable, Identifiable, Hashable {
     let id: String
     let name: String
     let group: String
-    let params: [Param]
+    /// Effects with nothing to set have no params.
+    let params: [Param]?
 }
 
 struct TransitionList: Decodable { let transitions: [TransitionDef] }

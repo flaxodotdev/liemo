@@ -810,7 +810,7 @@ impl Home {
         let st = crate::update::state();
         let open_page = |url: String| {
             move |_: &gpui::ClickEvent, _: &mut Window, _: &mut gpui::App| {
-                let _ = std::process::Command::new("/usr/bin/open").arg(&url).spawn();
+                crate::platform::open_url(&url);
             }
         };
         let (title, body): (String, String) = match &st {
@@ -843,10 +843,15 @@ impl Home {
                 let r = r.clone();
                 actions = actions
                     .child(button("update-notes", Variant::Secondary, 34.).child("Release page").on_click(open_page(r.page.clone())))
-                    .child(button("update-install", Variant::Primary, 34.).child(icon("download", 14., black())).child("Install and restart").on_click(cx.listener(move |_, _, _, cx| {
-                        crate::update::install(r.clone());
-                        cx.notify();
-                    })));
+                    .child(if crate::update::can_install() {
+                        button("update-install", Variant::Primary, 34.).child(icon("download", 14., black())).child("Install and restart").on_click(cx.listener(move |_, _, _, cx| {
+                            crate::update::install(r.clone());
+                            cx.notify();
+                        }))
+                    } else {
+                        // Windows and Linux: the new version is downloaded from the release page.
+                        button("update-install", Variant::Primary, 34.).child(icon("download", 14., black())).child("Download").on_click(open_page(r.page.clone()))
+                    });
             }
             State::Failed(_, rel) => {
                 let page = rel.as_ref().map(|r| r.page.clone()).unwrap_or_else(|| format!("https://github.com/{}/releases/latest", crate::update::REPO));

@@ -22,20 +22,38 @@ pub struct ParamDef {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Engine {
     Css, Ascii, Dots, Pixelate, Dither, RgbSplit, Glitch, Posterize, Duotone, Vhs, Crt, Shake, Mirror, Edges, Emboss,
-    GradientMap, ZoomBlur, Wave, TiltShift, Glow, Threshold, Solarize, Look, Shader,
+    GradientMap, ZoomBlur, Wave, TiltShift, Glow, Threshold, Solarize, ColorScale, Look, Shader, Adjust,
+    /// The phone-editor set in `fx::extra`, dispatched by id.
+    Extra,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectGroup {
     Filters,
+    Scale,
     Shader,
     Stylize,
     Retro,
     Distort,
     Color,
+    Motion,
+    Light,
+    Particles,
+    Layout,
 }
-pub const EFFECT_GROUPS: [(EffectGroup, &str); 6] =
-    [(EffectGroup::Filters, "Instagram filters"), (EffectGroup::Shader, "Shader filters"), (EffectGroup::Stylize, "Stylize"), (EffectGroup::Retro, "Retro"), (EffectGroup::Distort, "Distort & camera"), (EffectGroup::Color, "Color & look")];
+pub const EFFECT_GROUPS: [(EffectGroup, &str); 11] = [
+    (EffectGroup::Motion, "Motion & beat"),
+    (EffectGroup::Light, "Light & film"),
+    (EffectGroup::Particles, "Particles"),
+    (EffectGroup::Layout, "Layout"),
+    (EffectGroup::Filters, "Instagram filters"),
+    (EffectGroup::Scale, "Colour scale"),
+    (EffectGroup::Shader, "Shader filters"),
+    (EffectGroup::Stylize, "Stylize"),
+    (EffectGroup::Retro, "Retro"),
+    (EffectGroup::Distort, "Distort & camera"),
+    (EffectGroup::Color, "Color & look"),
+];
 
 #[derive(Clone)]
 pub struct EffectDef {
@@ -104,6 +122,21 @@ pub const GRADIENT_MAPS: [(&str, Gradient); 5] = [
 pub fn gradient_map(id: &str) -> &'static Gradient {
     &GRADIENT_MAPS.iter().find(|(k, _)| *k == id).unwrap_or(&GRADIENT_MAPS[0]).1
 }
+
+pub const COLOR_SCALES: [(&str, &str, &str); 12] = [
+    ("scale-red", "Red", "#ff2a1a"),
+    ("scale-crimson", "Crimson", "#d0103a"),
+    ("scale-orange", "Orange", "#ff7a1a"),
+    ("scale-gold", "Gold", "#ffc21a"),
+    ("scale-green", "Green", "#22d35a"),
+    ("scale-teal", "Teal", "#14c8b0"),
+    ("scale-cyan", "Cyan", "#1ad0ff"),
+    ("scale-blue", "Blue", "#2a5bff"),
+    ("scale-violet", "Violet", "#8a3dff"),
+    ("scale-purple", "Purple", "#b026ff"),
+    ("scale-pink", "Pink", "#ff3d9a"),
+    ("scale-mono", "Mono", "#ffffff"),
+];
 
 pub const PALETTES: [(&str, &str, &[&str]); 5] = [
     ("1bit", "1-bit", &["#000000", "#ffffff"]),
@@ -240,6 +273,72 @@ pub fn effects() -> &'static Vec<EffectDef> {
             def("pixelate", "Pixelate", Stylize, En::Pixelate, &[("size", n(16.0))], vec![range("size", "Pixel size", 2.0, 80.0, 1.0, "px")]),
             def("dither", "Dither", Retro, En::Dither, &[("palette", s("1bit")), ("pixel", n(3.0)), ("spread", n(1.0))], dither_params.clone()),
             def("gameboy", "Game Boy", Retro, En::Dither, &[("palette", s("gameboy")), ("pixel", n(5.0)), ("spread", n(0.8))], dither_params),
+            // Motion & beat
+            def("flash", "Beat flash", Motion, En::Extra, &[("rate", n(2.0)), ("intensity", n(0.7)), ("color", s("#ffffff"))],
+                vec![range("rate", "Flashes a second", 0.5, 8.0, 0.25, ""), range("intensity", "Strength", 0.1, 1.0, 0.05, ""), color("color", "Colour")]),
+            def("strobe", "Strobe", Motion, En::Extra, &[("rate", n(8.0)), ("intensity", n(0.85))],
+                vec![range("rate", "Speed", 2.0, 20.0, 0.5, ""), range("intensity", "Darkness", 0.2, 1.0, 0.05, "")]),
+            def("invert-flash", "Invert flash", Motion, En::Extra, &[("rate", n(2.0)), ("intensity", n(0.5))],
+                vec![range("rate", "Flashes a second", 0.5, 8.0, 0.25, ""), range("intensity", "Length", 0.1, 1.0, 0.05, "")]),
+            def("zoom-pulse", "Zoom pulse", Motion, En::Extra, &[("rate", n(2.0)), ("amount", n(0.12))],
+                vec![range("rate", "Pulses a second", 0.5, 6.0, 0.25, ""), range("amount", "Punch", 0.02, 0.4, 0.01, "")]),
+            def("push-in", "Slow push-in", Motion, En::Extra, &[("amount", n(0.15))], vec![range("amount", "Zoom", 0.03, 0.6, 0.01, "")]),
+            def("handheld", "Handheld", Motion, En::Extra, &[("amount", n(10.0))], vec![range("amount", "Wobble", 1.0, 40.0, 1.0, "px")]),
+            def("speed-lines", "Speed lines", Motion, En::Extra, &[("density", n(60.0)), ("intensity", n(0.7))],
+                vec![range("density", "Lines", 10.0, 160.0, 5.0, ""), range("intensity", "Strength", 0.1, 1.0, 0.05, "")]),
+            // Light & film
+            def("light-leak", "Light leak", Light, En::Extra, &[("intensity", n(0.7)), ("speed", n(1.0)), ("color", s("#ff8a3d"))],
+                vec![range("intensity", "Strength", 0.1, 1.0, 0.05, ""), range("speed", "Drift", 0.2, 4.0, 0.1, ""), color("color", "Colour")]),
+            def("lens-flare", "Lens flare", Light, En::Extra, &[("intensity", n(0.8)), ("speed", n(1.0))],
+                vec![range("intensity", "Strength", 0.1, 1.0, 0.05, ""), range("speed", "Drift", 0.2, 4.0, 0.1, "")]),
+            def("bokeh", "Bokeh", Light, En::Extra, &[("amount", n(24.0)), ("size", n(1.0)), ("speed", n(1.0))],
+                vec![range("amount", "Lights", 4.0, 80.0, 1.0, ""), range("size", "Size", 0.4, 3.0, 0.1, ""), range("speed", "Drift", 0.2, 4.0, 0.1, "")]),
+            def("film-burn", "Film burn", Light, En::Extra, &[("intensity", n(0.8))], vec![range("intensity", "Strength", 0.1, 1.0, 0.05, "")]),
+            def("film-8mm", "8mm film", Light, En::Extra, &[("dirt", n(0.6)), ("weave", n(0.5))],
+                vec![range("dirt", "Dust & scratches", 0.0, 1.0, 0.05, ""), range("weave", "Gate weave", 0.0, 1.0, 0.05, "")]),
+            // Particles
+            def("rainfall", "Rain", Particles, En::Extra, &[("amount", n(120.0)), ("size", n(1.0)), ("speed", n(1.0))],
+                vec![range("amount", "Drops", 20.0, 400.0, 10.0, ""), range("size", "Length", 0.4, 3.0, 0.1, ""), range("speed", "Speed", 0.3, 3.0, 0.1, "")]),
+            def("snow", "Snow", Particles, En::Extra, &[("amount", n(90.0)), ("size", n(1.0)), ("speed", n(1.0))],
+                vec![range("amount", "Flakes", 10.0, 300.0, 10.0, ""), range("size", "Size", 0.4, 3.0, 0.1, ""), range("speed", "Speed", 0.3, 3.0, 0.1, "")]),
+            def("hearts", "Hearts", Particles, En::Extra, &[("amount", n(18.0)), ("size", n(1.0)), ("speed", n(1.0))],
+                vec![range("amount", "Hearts", 3.0, 60.0, 1.0, ""), range("size", "Size", 0.4, 3.0, 0.1, ""), range("speed", "Speed", 0.3, 3.0, 0.1, "")]),
+            def("confetti", "Confetti", Particles, En::Extra, &[("amount", n(70.0)), ("size", n(1.0)), ("speed", n(1.0))],
+                vec![range("amount", "Pieces", 10.0, 250.0, 5.0, ""), range("size", "Size", 0.4, 3.0, 0.1, ""), range("speed", "Speed", 0.3, 3.0, 0.1, "")]),
+            def("embers", "Embers", Particles, En::Extra, &[("amount", n(50.0)), ("size", n(1.0)), ("speed", n(1.0))],
+                vec![range("amount", "Sparks", 10.0, 200.0, 5.0, ""), range("size", "Size", 0.4, 3.0, 0.1, ""), range("speed", "Speed", 0.3, 3.0, 0.1, "")]),
+            def("sparkles", "Sparkles", Particles, En::Extra, &[("amount", n(26.0)), ("size", n(1.0))],
+                vec![range("amount", "Sparkles", 4.0, 100.0, 1.0, ""), range("size", "Size", 0.4, 3.0, 0.1, "")]),
+            // Layout
+            def("split-2", "Split ×2", Layout, En::Extra, &[], vec![]),
+            def("split-3", "Split ×3", Layout, En::Extra, &[], vec![]),
+            def("split-4", "Split ×4", Layout, En::Extra, &[], vec![]),
+            def("border", "Border", Layout, En::Extra, &[("width", n(28.0)), ("radius", n(18.0)), ("color", s("#ffffff"))],
+                vec![range("width", "Width", 0.0, 120.0, 1.0, "px"), range("radius", "Corners", 0.0, 80.0, 1.0, "px"), color("color", "Colour")]),
+            def("blur-fill", "Blurred fill", Layout, En::Extra, &[("scale", n(0.8)), ("radius", n(16.0))],
+                vec![range("scale", "Picture size", 0.4, 1.0, 0.01, ""), range("radius", "Corners", 0.0, 80.0, 1.0, "px")]),
+            def("color-pop", "Colour pop", Color, En::Extra, &[("hue", n(0.0)), ("range", n(30.0))],
+                vec![range("hue", "Keep colour", 0.0, 360.0, 1.0, "°"), range("range", "Range", 5.0, 90.0, 1.0, "°")]),
+            def("fisheye", "Fisheye", Distort, En::Extra, &[("amount", n(0.6))], vec![range("amount", "Bulge", 0.0, 1.0, 0.01, "")]),
+            def(
+                "adjust",
+                "Adjust",
+                Color,
+                En::Adjust,
+                &[("brightness", n(0.0)), ("contrast", n(0.0)), ("saturation", n(0.0)), ("warmth", n(0.0)), ("tint", n(0.0)), ("highlights", n(0.0)), ("shadows", n(0.0)), ("vignette", n(0.0)), ("grain", n(0.0)), ("sharpen", n(0.0))],
+                vec![
+                    range("brightness", "Brightness", -100.0, 100.0, 1.0, ""),
+                    range("contrast", "Contrast", -100.0, 100.0, 1.0, ""),
+                    range("saturation", "Saturation", -100.0, 100.0, 1.0, ""),
+                    range("warmth", "Warmth", -100.0, 100.0, 1.0, ""),
+                    range("tint", "Tint", -100.0, 100.0, 1.0, ""),
+                    range("highlights", "Highlights", -100.0, 100.0, 1.0, ""),
+                    range("shadows", "Shadows", -100.0, 100.0, 1.0, ""),
+                    range("vignette", "Vignette", 0.0, 100.0, 1.0, ""),
+                    range("grain", "Grain", 0.0, 100.0, 1.0, ""),
+                    range("sharpen", "Sharpen", 0.0, 100.0, 1.0, ""),
+                ],
+            ),
             def("rgbsplit", "RGB split", Retro, En::RgbSplit, &[("offset", n(10.0)), ("jitter", b(false))], vec![range("offset", "Offset", 0.0, 60.0, 1.0, "px"), toggle("jitter", "Jitter")]),
             def("glitch", "Glitch", Retro, En::Glitch, &[("intensity", n(0.5)), ("slices", n(14.0)), ("speed", n(12.0))],
                 vec![range("intensity", "Intensity", 0.0, 1.0, 0.01, ""), range("slices", "Slices", 2.0, 40.0, 1.0, ""), range("speed", "Speed", 1.0, 30.0, 1.0, "/s")]),
@@ -282,6 +381,19 @@ pub fn effects() -> &'static Vec<EffectDef> {
             def("tilt-shift", "Tilt-shift", Distort, En::TiltShift, &[("focus", n(0.55)), ("band", n(0.16)), ("blur", n(12.0)), ("saturate", b(true))],
                 vec![range("focus", "Focus line", 0.0, 1.0, 0.01, ""), range("band", "Sharp band", 0.02, 0.5, 0.01, ""), range("blur", "Blur", 2.0, 40.0, 1.0, "px"), toggle("saturate", "Miniature colour")]),
         ];
+        // Colour scale: the picture as one colour, from black through the colour to its highlights.
+        // Any colour works: each preset is just a starting point for the picker.
+        let scale_params = || {
+            vec![
+                color("color", "Colour"),
+                range("contrast", "Contrast", 0.5, 2.5, 0.05, "×"),
+                range("highlights", "Highlights", 0.0, 1.0, 0.01, ""),
+                range("keep", "Original colour", 0.0, 1.0, 0.01, ""),
+            ]
+        };
+        for (id, name, col) in COLOR_SCALES {
+            list.push(def(id, name, Scale, En::ColorScale, &[("color", s(col)), ("contrast", n(1.15)), ("highlights", n(0.35)), ("keep", n(0.0))], scale_params()));
+        }
         // Instagram-style filters: strength is the effect's amount, like the colour looks.
         list.extend(super::looks::LOOKS.iter().map(|l| EffectDef { id: l.id, name: l.name, group: Filters, engine: En::Look, css: None, defaults: Params::new(), params: vec![] }));
         list.extend(super::remocn::effect_defs());

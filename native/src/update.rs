@@ -25,6 +25,15 @@ const PUBLIC_KEY: &str = "0zu1tut/3NHkJWYvCMLPSpazsK6SyKnrH0HuzofuB5c=";
 pub fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
+pub fn os() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    }
+}
 pub fn arch() -> &'static str {
     if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" }
 }
@@ -78,9 +87,15 @@ pub fn bundle_path() -> Option<PathBuf> {
     exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")).map(Path::to_path_buf)
 }
 
-/// Whether this copy can update itself: it's an installed app, or a test feed is set.
+/// Whether to look for updates: an installed Mac app (or a test feed), and always on Windows and
+/// Linux, where a new version is offered as a download.
 pub fn supported() -> bool {
-    bundle_path().is_some() || std::env::var("LIEMO_UPDATE_FEED").is_ok()
+    !cfg!(target_os = "macos") || bundle_path().is_some() || std::env::var("LIEMO_UPDATE_FEED").is_ok()
+}
+
+/// Whether this copy can install an update itself (the Mac app); elsewhere it links to it.
+pub fn can_install() -> bool {
+    cfg!(target_os = "macos") && (bundle_path().is_some() || std::env::var("LIEMO_UPDATE_FEED").is_ok())
 }
 
 // ---------- versions ----------
@@ -130,11 +145,14 @@ pub fn fetch_latest() -> Result<Option<Release>> {
     if v["draft"].as_bool() == Some(true) || v["prerelease"].as_bool() == Some(true) || !newer(&version, current_version()) {
         return Ok(None);
     }
-    let want = format!("Liemo-{version}-macos-{}.zip", arch());
+    let want = format!("Liemo-{version}-{}-{}.zip", os(), arch());
     let assets = v["assets"].as_array().cloned().unwrap_or_default();
     let url_of = |name: &str| assets.iter().find(|a| a["name"].as_str() == Some(name)).and_then(|a| a["browser_download_url"].as_str()).map(String::from);
-    let (Some(zip), Some(sig)) = (url_of(&want), url_of(&format!("{want}.sig"))) else {
-        return Ok(None); // nothing for this Mac yet
+    let (zip, sig) = match (url_of(&want), url_of(&format!("{want}.sig"))) {
+        (Some(z), Some(s)) => (z, s),
+        // Windows and Linux only need to know there's something new (they link to the page).
+        _ if !can_install() && assets.iter().any(|a| a["name"].as_str().is_some_and(|n| n.contains(os()))) => (String::new(), String::new()),
+        _ => return Ok(None), // nothing for this computer yet
     };
     Ok(Some(Release {
         version,
