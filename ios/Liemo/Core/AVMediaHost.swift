@@ -2,6 +2,7 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import ImageIO
+import Vision
 
 /// What the engine asks of AVFoundation and Image I/O: the desktop app does these with FFmpeg.
 /// The engine calls in from its own threads and waits for the answer.
@@ -83,6 +84,49 @@ final class AVMediaHost: MediaHost, @unchecked Sendable {
             }
         }
         return reader.status == .completed ? samples : nil
+    }
+
+    /// The subject in a picture, found by Vision: everything that stands out in front (people,
+    /// pets, objects), or failing that the people. The mask comes back as alpha.
+    func segment(frame: MediaFrame) -> MediaFrame? {
+        guard let cg = frame.cgImage else { return nil }
+        let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+        let subjects = VNGenerateForegroundInstanceMaskRequest()
+        if (try? handler.perform([subjects])) != nil, let r = subjects.results?.first, !r.allInstances.isEmpty,
+           let mask = try? r.generateScaledMaskForImage(forInstances: r.allInstances, from: handler) {
+            return maskFrame(mask)
+        }
+        let people = VNGeneratePersonSegmentationRequest()
+        people.qualityLevel = .balanced
+        people.outputPixelFormat = kCVPixelFormatType_OneComponent8
+        if (try? handler.perform([people])) != nil, let m = people.results?.first?.pixelBuffer {
+            return maskFrame(m)
+        }
+        return nil
+    }
+
+    /// A one-channel mask (8-bit or float) as RGBA with the mask in alpha.
+    private func maskFrame(_ buf: CVPixelBuffer) -> MediaFrame? {
+        CVPixelBufferLockBaseAddress(buf, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buf, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(buf) else { return nil }
+        let (w, h, row) = (CVPixelBufferGetWidth(buf), CVPixelBufferGetHeight(buf), CVPixelBufferGetBytesPerRow(buf))
+        let float = CVPixelBufferGetPixelFormatType(buf) == kCVPixelFormatType_OneComponent32Float
+        var out = Data(count: w * h * 4)
+        out.withUnsafeMutableBytes { raw in
+            let o = raw.bindMemory(to: UInt8.self)
+            for y in 0..<h {
+                let line = base.advanced(by: y * row)
+                for x in 0..<w {
+                    let v: UInt8 = float
+                        ? UInt8((line.assumingMemoryBound(to: Float32.self)[x]).clamped(0, 1) * 255)
+                        : line.assumingMemoryBound(to: UInt8.self)[x]
+                    let i = (y * w + x) * 4
+                    o[i] = v; o[i + 1] = v; o[i + 2] = v; o[i + 3] = v
+                }
+            }
+        }
+        return MediaFrame(width: UInt32(w), height: UInt32(h), rgba: out)
     }
 
     /// Draw a CGImage into RGBA bytes.

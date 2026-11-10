@@ -24,6 +24,8 @@ struct TimelineView: View {
     struct Lane: Identifiable, Equatable {
         let track: String
         let height: CGFloat
+        /// Titles at the same moment stack in rows.
+        var rows: Int = 1
         var y: CGFloat = 0
         var id: String { track }
     }
@@ -34,7 +36,10 @@ struct TimelineView: View {
         if used.contains("A1") || !used.contains("A2") { stack.append(Lane(track: "A1", height: 34)) }
         if used.contains("A2") { stack.append(Lane(track: "A2", height: 34)) }
         if used.contains("V2") { stack.append(Lane(track: "V2", height: 30)) }
-        if used.contains("T1") { stack.append(Lane(track: "T1", height: 30)) }
+        if used.contains("T1") {
+            let n = stackRows(doc.clips.filter { $0.track == "T1" }).count
+            stack.append(Lane(track: "T1", height: CGFloat(n) * 30 + CGFloat(n - 1) * 4, rows: n))
+        }
         var y = height - 18
         for i in stack.indices {
             y -= stack[i].height
@@ -151,8 +156,12 @@ private struct TrackContent: View, Equatable {
                     let track = doc.tracks.first { $0.id == lane.track }
                     let off = track.map { $0.hidden || $0.muted } ?? false
                     ZStack(alignment: .topLeading) {
+                        let rows = stackRows(doc.clips.filter { $0.track == lane.track })
                         ForEach(doc.clips.filter { $0.track == lane.track }) { c in
-                            ClipView(model: model, clip: c, lane: lane, pps: pps)
+                            let r = rows.row[c.id] ?? 0
+                            let rowH = lane.rows > 1 ? 30 : lane.height
+                            ClipView(model: model, clip: c, lane: TimelineView.Lane(track: lane.track, height: rowH), pps: pps)
+                                .offset(y: CGFloat(r) * (rowH + 4))
                         }
                     }
                     .opacity(off ? 0.4 : 1)
@@ -351,4 +360,20 @@ private struct FilmTile: View {
         .overlay(alignment: .trailing) { Rectangle().fill(Color.black.opacity(0.25)).frame(width: 0.5) }
         .task(id: model.rev) { model.loadTile(index) }
     }
+}
+
+/// Rows for clips that share moments (titles stack): first fit by start time.
+func stackRows(_ clips: [Clip]) -> (row: [String: Int], count: Int) {
+    var ends: [Double] = []
+    var row: [String: Int] = [:]
+    for c in clips.sorted(by: { $0.start < $1.start }) {
+        if let r = ends.firstIndex(where: { $0 <= c.start + 1e-6 }) {
+            ends[r] = c.end
+            row[c.id] = r
+        } else {
+            ends.append(c.end)
+            row[c.id] = ends.count - 1
+        }
+    }
+    return (row, max(1, ends.count))
 }

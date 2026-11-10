@@ -160,6 +160,8 @@ private struct TextSection: View {
             StyleColorRow(label: "Shadow", value: text.shadow, fallback: "#000000") { set(["shadow": $0 ?? "none"]) }
             StyleColorRow(label: "Glow", value: text.glow, fallback: "#ff2bd6") { set(["glow": $0 ?? "none"]) }
             StyleColorRow(label: "Highlight", value: text.highlight, fallback: "#ffd400") { set(["highlight": $0 ?? "none"]) }
+            SliderRow(label: "3D tilt ↕", value: text.tiltX ?? 0, range: -70...70, fmt: { "\(Int($0))°" }) { set(["tiltX": $0]) }
+            SliderRow(label: "3D tilt ↔", value: text.tiltY ?? 0, range: -70...70, fmt: { "\(Int($0))°" }) { set(["tiltY": $0]) }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Blend").font(.system(size: 14))
                 Picker("Blend", selection: Binding(get: { text.blend ?? "normal" }, set: { set(["blend": $0]) })) {
@@ -288,11 +290,18 @@ private struct FontPicker: View {
     }
 }
 
-private struct EffectRow: View {
+struct EffectRow: View {
     let model: EditorModel
     let clip: Clip
     let effect: AppliedEffect
-    @State private var expanded = false
+    @State private var expanded: Bool
+
+    init(model: EditorModel, clip: Clip, effect: AppliedEffect, expandedAtStart: Bool = false) {
+        self.model = model
+        self.clip = clip
+        self.effect = effect
+        _expanded = State(initialValue: expandedAtStart)
+    }
 
     private var def: EffectDef? { EffectPicker.defs.first { $0.id == effect.id } }
 

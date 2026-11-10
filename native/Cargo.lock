@@ -3806,7 +3806,7 @@ dependencies = [
 
 [[package]]
 name = "liemo-mobile"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -4846,6 +4846,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-vision"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfc194758a2d5d7540b1ad283bfb9ca318ec608991892326e95b428230b2689b"
+dependencies = [
+ "objc2 0.6.5",
+ "objc2-core-graphics",
+ "objc2-core-video",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
 name = "objc_exception"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5636,7 +5648,7 @@ dependencies = [
 
 [[package]]
 name = "rayna"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5653,6 +5665,12 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
  "image",
+ "objc2 0.6.5",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-video",
+ "objc2-foundation 0.3.2",
+ "objc2-vision",
  "parking_lot",
  "pollster",
  "rustybuzz",

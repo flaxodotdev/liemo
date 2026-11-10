@@ -39,6 +39,7 @@ final class EditorModel {
     @ObservationIgnored private let audio = AudioOut()
     /// While recording a voiceover the playhead may run past the end of the edit.
     @ObservationIgnored var recordingPastEnd = false
+    @ObservationIgnored private var gestureSent: CFTimeInterval = 0
 
     init(id: String) {
         self.id = id
@@ -116,6 +117,25 @@ final class EditorModel {
         guard (try? data.write(to: url)) != nil else { return }
         edit("split_clip", ["clip": c.id, "time": t])
         addMedia(url, track: c.track, duration: hold, extra: [:])
+    }
+
+    // MARK: Gestures on the preview
+
+    /// The edits until `endGesture` are one undo step, and go to the engine at most ~20 times a
+    /// second so the preview keeps up with the finger.
+    func beginGesture() {
+        core.engine.beginGesture()
+        gestureSent = 0
+    }
+    func gestureUpdate(_ clip: String, _ fields: [String: Any], final: Bool = false) {
+        let now = CACurrentMediaTime()
+        guard final || now - gestureSent > 0.05 else { return }
+        gestureSent = now
+        update(clip, fields)
+    }
+    func endGesture() {
+        core.engine.endGesture()
+        canUndo = core.engine.canUndo()
     }
 
     func update(_ clip: String, _ fields: [String: Any]) {

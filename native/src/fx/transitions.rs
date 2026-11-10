@@ -173,6 +173,22 @@ fn wipe(c: &mut Canvas, a: Option<&Pixmap>, b: &Pixmap, p: f32, _: f32) {
     draw(c, a, 0.0, 0.0);
     clip_to(c, |g| g.rect(0.0, 0.0, x, h), |c| draw(c, Some(b), 0.0, 0.0));
 }
+/// The next clip arrives in thirds: the top band slides in, then the bottom from the other side,
+/// and the middle last completes it.
+fn thirds(c: &mut Canvas, a: Option<&Pixmap>, b: &Pixmap, p: f32, _: f32) {
+    let (w, h) = (c.w(), c.h());
+    draw(c, a, 0.0, 0.0);
+    // (band, from, to, direction): overlapping a little so it reads as one move.
+    for (band, from, to, dir) in [(0.0f32, 0.0f32, 0.42f32, -1.0f32), (2.0, 0.29, 0.71, 1.0), (1.0, 0.58, 1.0, -1.0)] {
+        let q = ((p - from) / (to - from)).clamp(0.0, 1.0);
+        if q <= 0.0 {
+            continue;
+        }
+        let e = 1.0 - (1.0 - q).powi(3);
+        let y = band * h / 3.0;
+        clip_to(c, |g| g.rect(0.0, y, w, h / 3.0 + 1.0), |c| draw(c, Some(b), dir * (1.0 - e) * w, 0.0));
+    }
+}
 fn soft_wipe(c: &mut Canvas, a: Option<&Pixmap>, b: &Pixmap, p: f32, _: f32) {
     let (w, h) = (c.w(), c.h());
     let edge = w * 0.25;
@@ -286,7 +302,7 @@ shader_transition!(particles, "remocn-particles");
 shader_transition!(particle_drift, "remocn-particles-up");
 shader_transition!(shatter, "remocn-shatter");
 
-pub const TRANSITIONS: [TransitionDef; 49] = {
+pub const TRANSITIONS: [TransitionDef; 50] = {
     use TransitionGroup::*;
     [
         TransitionDef { id: "dissolve", name: "Dissolve", group: Dissolve, draw: dissolve },
@@ -311,6 +327,7 @@ pub const TRANSITIONS: [TransitionDef; 49] = {
         // Drawn by the compositor through the title over the cut (see compositor::text_window);
         // with no title there it's a plain zoom.
         TransitionDef { id: "text-zoom", name: "Text zoom", group: Stylized, draw: zoom },
+        TransitionDef { id: "thirds", name: "Thirds", group: Motion, draw: thirds },
         TransitionDef { id: "remocn-displacement", name: "Displacement", group: Shader, draw: displacement },
         TransitionDef { id: "remocn-ember-burn", name: "Ember burn", group: Shader, draw: ember_burn },
         TransitionDef { id: "remocn-glitch-cut", name: "Glitch cut", group: Shader, draw: glitch_cut },

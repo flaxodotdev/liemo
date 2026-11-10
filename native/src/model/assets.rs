@@ -357,7 +357,7 @@ fn tp_inv(content: &str, font: &str, size: f64, weight: f64, color: &str, align:
     TextProps { blend: TextBlend::Invert, ..tp_full(content, font, size, weight, color, align, anim, boxed, y) }
 }
 fn tp_full(content: &str, font: &str, size: f64, weight: f64, color: &str, align: TextAlign, anim: TextAnim, boxed: bool, y: f64) -> TextProps {
-    TextProps { content: content.into(), font: font.into(), size, weight, color: color.into(), align, anim, boxed, y, blend: TextBlend::Normal, outline: None, outline_width: 6.0, shadow: None, glow: None, highlight: None }
+    TextProps { content: content.into(), font: font.into(), size, weight, color: color.into(), align, anim, boxed, y, blend: TextBlend::Normal, outline: None, outline_width: 6.0, shadow: None, glow: None, highlight: None, tilt_x: 0.0, tilt_y: 0.0 }
 }
 pub fn text_presets() -> Vec<Asset> {
     use TextAlign::*;

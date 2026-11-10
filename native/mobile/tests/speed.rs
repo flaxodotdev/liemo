@@ -8,6 +8,7 @@ impl MediaHost for NoMedia {
     fn video_frame(&self, _: String, _: f64, _: u32, _: u32) -> Option<MediaFrame> { None }
     fn decode_image(&self, _: String, _: u32) -> Option<MediaFrame> { None }
     fn decode_audio(&self, _: String) -> Option<Vec<f32>> { None }
+    fn segment(&self, _: MediaFrame) -> Option<MediaFrame> { None }
 }
 #[test]
 fn speed_changes_keep_the_track_tight() {

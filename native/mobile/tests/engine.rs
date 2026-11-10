@@ -17,6 +17,9 @@ impl MediaHost for NoMedia {
     fn decode_audio(&self, _: String) -> Option<Vec<f32>> {
         None
     }
+    fn segment(&self, _: MediaFrame) -> Option<MediaFrame> {
+        None
+    }
 }
 
 /// The first clip of a type in the project.
@@ -163,4 +166,46 @@ fn every_new_effect_and_animation_renders() {
             let _ = e.render_frame(start + d, 200);
         }
     }
+}
+
+#[test]
+fn cutout_tilt_and_thirds_render() {
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-tests-{}", std::process::id()));
+    let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
+    let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
+    let id = serde_json::from_str::<serde_json::Value>(&made.text).unwrap()["id"].as_str().unwrap().to_string();
+    e.open_project(id.clone());
+    let call = |tool: &str, args: String| {
+        let r = e.call(tool.into(), args);
+        assert!(r.ok, "{tool}: {}", r.text);
+        r
+    };
+    // The main track's clips, in order (ids depend on what else was made in this process).
+    let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap();
+    let mut main: Vec<(String, f64)> = doc["clips"].as_array().unwrap().iter().filter(|c| c["track"] == "V1")
+        .map(|c| (c["id"].as_str().unwrap().to_string(), c["start"].as_f64().unwrap())).collect();
+    main.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let (c1, c2, c3) = (main[0].0.clone(), main[1].0.clone(), main[2].0.clone());
+    // Chroma key with a generous range takes something out of the first clip.
+    let before = e.render_frame(3.0, 240).unwrap().rgba;
+    call("apply_effect", format!(r##"{{"project":"{id}","clip":"{c1}","effect":"chroma-key","params":{{"color":"#3a6f9a","similarity":0.9,"outline":6}}}}"##));
+    assert_ne!(before, e.render_frame(3.0, 240).unwrap().rgba, "chroma key changed nothing");
+    // Without an AI on this machine, Remove background leaves the picture alone (and doesn't fail).
+    call("apply_effect", format!(r#"{{"project":"{id}","clip":"{c2}","effect":"remove-bg","params":{{"background":"blur"}}}}"#));
+    let _ = e.render_frame(7.0, 240);
+    // Tilted text looks different from flat text.
+    let title = clip_of(&e, &id, "text");
+    let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap();
+    let t = doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == title.as_str()).unwrap()["start"].as_f64().unwrap() + 1.5;
+    let flat = e.render_frame(t, 320).unwrap().rgba;
+    call("update_clip", format!(r#"{{"project":"{id}","clip":"{title}","text":{{"tiltX":30,"tiltY":-35}}}}"#));
+    assert_ne!(flat, e.render_frame(t, 320).unwrap().rgba, "tilt changed nothing");
+    // Thirds, half way through, shows both clips.
+    call("set_transition", format!(r#"{{"project":"{id}","clip":"{c3}","transition":"thirds","duration":1.0}}"#));
+    let _ = e.render_frame(11.0, 240);
+    // Titles at the same moment both stay where they were put.
+    let a = call("add_text", format!(r#"{{"project":"{id}","content":"ONE","start":12.0,"duration":2.0}}"#));
+    let b = call("add_text", format!(r#"{{"project":"{id}","content":"TWO","start":12.5,"duration":2.0}}"#));
+    let start = |r: &liemo_mobile::api::ToolResult| serde_json::from_str::<serde_json::Value>(&r.text).unwrap()["clip"]["start"].as_f64().unwrap();
+    assert_eq!((start(&a), start(&b)), (12.0, 12.5));
 }

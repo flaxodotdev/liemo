@@ -4,7 +4,7 @@
 use super::{ClipMode, Drag, DropTarget, Editor};
 use crate::fx::registry::effect_def;
 use crate::model::assets::asset;
-use crate::model::store::{track_height, EditMode};
+use crate::model::store::{stack_rows, track_height, EditMode};
 use crate::model::time::{rng, snap_frame};
 use crate::model::types::*;
 use crate::render::compositor::transition_windows;
@@ -33,7 +33,7 @@ impl Editor {
     fn clamp_scroll(&mut self) {
         let vw = self.bounds("tl-view").map(|b| f32::from(b.size.width)).unwrap_or(800.0);
         let vh = self.bounds("tl-lanes-view").map(|b| f32::from(b.size.height)).unwrap_or(200.0);
-        let ch: f32 = self.store.tracks.iter().map(|t| track_height(t.kind)).sum();
+        let ch: f32 = self.store.tracks.iter().map(|t| self.lane_height(t)).sum();
         self.scroll_x = self.scroll_x.clamp(0.0, (self.content_w() - vw).max(0.0));
         self.scroll_y = self.scroll_y.clamp(0.0, (ch - vh).max(0.0));
     }
@@ -324,7 +324,7 @@ impl Editor {
         };
         let lock = small(if t.locked { "lock" } else { "lock-open" }, t.locked, if t.locked { "Unlock".into() } else { "Lock".into() }, "locked", cx);
         div()
-            .h(px(track_height(t.kind)))
+            .h(px(self.lane_height(t)))
             .flex_none()
             .flex()
             .items_center()
@@ -349,7 +349,9 @@ impl Editor {
         mine.sort_by(|a, b| a.start.total_cmp(&b.start));
         let ghost_dur = self.lib_drag.as_ref().and_then(|p| asset(&p.id)).map(|a| a.dur).unwrap_or(0.0);
         let dim = t.hidden || t.muted;
-        let h = track_height(t.kind);
+        let row_h = track_height(t.kind);
+        let (rows, n) = stack_rows(&self.store.clips, &t.id);
+        let h = row_h * n as f32;
         let mut lane = div()
             .id(SharedString::from(format!("lane-{}", t.id)))
             .relative()
@@ -365,7 +367,8 @@ impl Editor {
                 this.start_scrub(ev.position, cx);
             }));
         for c in &mine {
-            lane = lane.child(self.clip_view(c, h, dim, cx));
+            let row = rows.get(&c.id).copied().unwrap_or(0);
+            lane = lane.child(self.clip_view(c, row_h, row as f32 * row_h, dim, cx));
         }
         for w in transition_windows(&mine) {
             let bid = w.b.id.clone();
@@ -376,7 +379,7 @@ impl Editor {
                 div()
                     .id(SharedString::from(format!("tr-{bid}")))
                     .absolute()
-                    .top(px(h / 2.0 - 10.0))
+                    .top(px(row_h / 2.0 - 10.0))
                     .left(px((w.from * zoom) as f32))
                     .w(px(wpx.max(20.0)))
                     .h(px(20.))
@@ -421,7 +424,12 @@ impl Editor {
         lane.w_full()
     }
 
-    fn clip_view(&self, c: &Clip, lane_h: f32, dim: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    /// A track's height: one row, or a row per stack of overlapping titles.
+    fn lane_height(&self, t: &Track) -> f32 {
+        track_height(t.kind) * stack_rows(&self.store.clips, &t.id).1 as f32
+    }
+
+    fn clip_view(&self, c: &Clip, lane_h: f32, top: f32, dim: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let zoom = self.store.zoom;
         let selected = self.store.selected.as_deref() == Some(&c.id);
         let fx_target = matches!(&self.drop_target, Some(DropTarget::Clip(id)) if *id == c.id);
@@ -443,7 +451,7 @@ impl Editor {
             .group(group_name.clone())
             .absolute()
             .left(px((c.start * zoom) as f32))
-            .top(px(4.))
+            .top(px(top + 4.))
             .w(px(w))
             .h(px(h))
             .overflow_hidden()

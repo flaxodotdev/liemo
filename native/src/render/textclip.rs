@@ -6,6 +6,7 @@ use super::text::{fill_text, measure, stroke_text, Align, Baseline, TextStyle};
 use crate::model::assets::font_def;
 use crate::model::time::{H, W};
 use crate::model::types::{TextAlign, TextAnim, TextBlend, TextProps};
+use tiny_skia::Pixmap;
 
 fn ease(p: f32) -> f32 {
     1.0 - (1.0 - p).powi(3)
@@ -56,9 +57,98 @@ pub fn text_blend(b: TextBlend) -> tiny_skia::BlendMode {
 }
 
 /// Draw a text clip at local time `lt` (seconds into the clip), in 1280×720 units.
-/// Draw a text clip at local time `lt` (seconds into the clip), in 1280×720 units: its
-/// entrance animation, backing (box or per-line highlight), soft shadow and glow, outline, fill.
+/// Draw a text clip at local time `lt` (seconds into the clip), in 1280×720 units. Tilted text is
+/// drawn flat on a layer, then laid onto its turned plane in perspective.
 pub fn draw_text(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
+    if t.tilt_x.abs() < 0.05 && t.tilt_y.abs() < 0.05 {
+        return draw_flat(c, t, lt, alpha);
+    }
+    let ts = c.transform();
+    let mut layer = Canvas::from_pixmap(pixmap(c.width(), c.height()));
+    layer.set_transform(ts);
+    draw_flat(&mut layer, t, lt, alpha);
+    let r = text_rect(t);
+    // The text's middle, and how far its look (glow, shadow) reaches, in device pixels.
+    let map = |x: f32, y: f32| (ts.sx * x + ts.kx * y + ts.tx, ts.ky * x + ts.sy * y + ts.ty);
+    let (cx, cy) = map(r.x + r.w / 2.0, r.y + r.h / 2.0);
+    let k = (ts.sx * ts.sy - ts.kx * ts.ky).abs().sqrt();
+    let (hw, hh) = (r.w * k * 0.5 + r.h * k * 0.6, r.h * k * 0.5 + r.h * k * 0.6);
+    let warped = tilt(&layer.into_pixmap(), cx, cy, hw, hh, t.tilt_x as f32, t.tilt_y as f32);
+    c.save();
+    c.reset_transform();
+    c.composite(&warped, 1.0, text_blend(t.blend));
+    c.restore();
+}
+
+/// `src` turned in 3D about (`cx`, `cy`) by `rx` (tip, around the horizontal axis) and `ry`
+/// (swing, around the vertical one), in perspective. Only the region within `hw`×`hh` of the
+/// centre (where the text and its glow are) is carried over.
+fn tilt(src: &Pixmap, cx: f32, cy: f32, hw: f32, hh: f32, rx: f32, ry: f32) -> Pixmap {
+    let (w, h) = (src.width() as i32, src.height() as i32);
+    let mut out = pixmap(src.width(), src.height());
+    let (ax, ay) = (rx.to_radians(), ry.to_radians());
+    let (sx, cxr, sy, cyr) = (ax.sin(), ax.cos(), ay.sin(), ay.cos());
+    // Rotation R = Rx · Ry: where the plane's own axes and its normal end up.
+    let ex = [cyr, sx * sy, -cxr * sy];
+    let ey = [0.0, cxr, sx];
+    let n = [sy, -sx * cyr, cxr * cyr];
+    let f = (w.max(h) as f32) * 1.4; // the eye's distance: a natural, not fish-eyed, perspective
+    // Where the region's corners land on screen bounds the pixels to fill.
+    let project = |x: f32, y: f32| {
+        let p = [ex[0] * x + ey[0] * y, ex[1] * x + ey[1] * y, ex[2] * x + ey[2] * y];
+        let d = (f + p[2]).max(f * 0.05);
+        (cx + f * p[0] / d, cy + f * p[1] / d)
+    };
+    let corners = [project(-hw, -hh), project(hw, -hh), project(-hw, hh), project(hw, hh)];
+    let x0 = corners.iter().map(|p| p.0).fold(f32::MAX, f32::min).floor().max(0.0) as i32;
+    let x1 = corners.iter().map(|p| p.0).fold(f32::MIN, f32::max).ceil().min(w as f32) as i32;
+    let y0 = corners.iter().map(|p| p.1).fold(f32::MAX, f32::min).floor().max(0.0) as i32;
+    let y1 = corners.iter().map(|p| p.1).fold(f32::MIN, f32::max).ceil().min(h as f32) as i32;
+    let s = src.data();
+    let d = out.data_mut();
+    let sample = |x: f32, y: f32, ch: usize| -> f32 {
+        let (x, y) = (x - 0.5, y - 0.5);
+        let (ix, iy) = (x.floor() as i32, y.floor() as i32);
+        let (fx, fy) = (x - ix as f32, y - iy as f32);
+        let at = |px: i32, py: i32| if px >= 0 && py >= 0 && px < w && py < h { s[((py * w + px) * 4) as usize + ch] as f32 } else { 0.0 };
+        let top = at(ix, iy) * (1.0 - fx) + at(ix + 1, iy) * fx;
+        let bottom = at(ix, iy + 1) * (1.0 - fx) + at(ix + 1, iy + 1) * fx;
+        top * (1.0 - fy) + bottom * fy
+    };
+    for py in y0..y1 {
+        for px in x0..x1 {
+            // The ray from the eye through this pixel, met with the turned plane.
+            let dir = [px as f32 + 0.5 - cx, py as f32 + 0.5 - cy, f];
+            let nd = n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2];
+            if nd.abs() < 1e-4 {
+                continue;
+            }
+            let t = n[2] * f / nd;
+            if t <= 0.0 {
+                continue;
+            }
+            let p = [dir[0] * t, dir[1] * t, dir[2] * t - f];
+            let u = p[0] * ex[0] + p[1] * ex[1] + p[2] * ex[2];
+            let v = p[0] * ey[0] + p[1] * ey[1] + p[2] * ey[2];
+            if u.abs() > hw || v.abs() > hh {
+                continue;
+            }
+            let o = ((py * w + px) * 4) as usize;
+            let a = sample(cx + u, cy + v, 3);
+            if a < 0.5 {
+                continue;
+            }
+            for ch in 0..4 {
+                d[o + ch] = sample(cx + u, cy + v, ch).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    out
+}
+
+/// Flat text: its entrance animation, backing (box or per-line highlight), soft shadow and glow,
+/// outline, fill.
+fn draw_flat(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
     let e = ease((lt / 0.6).min(1.0));
     let (mut ox, mut oy, mut a, mut k, mut blur) = (0.0, 0.0, 1.0, 1.0f32, 0.0f32);
     match t.anim {

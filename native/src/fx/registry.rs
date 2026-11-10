@@ -25,6 +25,8 @@ pub enum Engine {
     GradientMap, ZoomBlur, Wave, TiltShift, Glow, Threshold, Solarize, ColorScale, Look, Shader, Adjust,
     /// The phone-editor set in `fx::extra`, dispatched by id.
     Extra,
+    /// Remove background and chroma key (`fx::cutout`).
+    Cutout,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,8 +42,10 @@ pub enum EffectGroup {
     Light,
     Particles,
     Layout,
+    Cutout,
 }
-pub const EFFECT_GROUPS: [(EffectGroup, &str); 11] = [
+pub const EFFECT_GROUPS: [(EffectGroup, &str); 12] = [
+    (EffectGroup::Cutout, "Cutout & keying"),
     (EffectGroup::Motion, "Motion & beat"),
     (EffectGroup::Light, "Light & film"),
     (EffectGroup::Particles, "Particles"),
@@ -226,6 +230,30 @@ fn dots(id: &'static str, name: &'static str, over: &[(&str, ParamValue)]) -> Ef
     let base = [("pattern", s("halftone")), ("cell", n(14.0)), ("size", n(0.92)), ("color", s("white")), ("bg", s("black")), ("contrast", n(1.15)), ("glow", n(0.0)), ("invert", b(false))];
     EffectDef { id, name, group: EffectGroup::Stylize, engine: Engine::Dots, css: None, defaults: merge(&base, over), params: dot_params() }
 }
+/// The cutout effects' settings: the key (chroma only), then edges, outline, shadow, background.
+fn cutout_params(chroma: bool) -> Vec<ParamDef> {
+    let mut v = vec![];
+    if chroma {
+        v.extend([
+            color("color", "Key colour"),
+            range("similarity", "Similarity", 0.0, 1.0, 0.01, ""),
+            range("smoothness", "Smoothness", 0.01, 0.5, 0.01, ""),
+            range("spill", "Spill removal", 0.0, 1.0, 0.01, ""),
+        ]);
+    }
+    v.extend([
+        range("feather", "Feather", 0.0, 20.0, 0.5, "px"),
+        range("edge", "Shrink / grow edge", -1.0, 1.0, 0.05, ""),
+        range("outline", "Outline", 0.0, 40.0, 1.0, "px"),
+        color("outlineColor", "Outline colour"),
+        range("shadow", "Shadow", 0.0, 1.0, 0.05, ""),
+        select("background", "Background", vec![("none", "None"), ("color", "Colour"), ("blur", "Blurred"), ("dim", "Dimmed")]),
+        color("bgColor", "Background colour"),
+        toggle("invert", "Keep background instead"),
+    ]);
+    v
+}
+
 fn def(id: &'static str, name: &'static str, group: EffectGroup, engine: Engine, defaults: &[(&str, ParamValue)], p: Vec<ParamDef>) -> EffectDef {
     EffectDef { id, name, group, engine, css: None, defaults: params(defaults), params: p }
 }
@@ -273,6 +301,13 @@ pub fn effects() -> &'static Vec<EffectDef> {
             def("pixelate", "Pixelate", Stylize, En::Pixelate, &[("size", n(16.0))], vec![range("size", "Pixel size", 2.0, 80.0, 1.0, "px")]),
             def("dither", "Dither", Retro, En::Dither, &[("palette", s("1bit")), ("pixel", n(3.0)), ("spread", n(1.0))], dither_params.clone()),
             def("gameboy", "Game Boy", Retro, En::Dither, &[("palette", s("gameboy")), ("pixel", n(5.0)), ("spread", n(0.8))], dither_params),
+            // Cutout & keying
+            def("remove-bg", "Remove background", Cutout, En::Cutout,
+                &[("feather", n(1.0)), ("edge", n(0.0)), ("outline", n(0.0)), ("outlineColor", s("#ffffff")), ("shadow", n(0.0)), ("background", s("none")), ("bgColor", s("#ffffff")), ("invert", b(false))],
+                cutout_params(false)),
+            def("chroma-key", "Chroma key", Cutout, En::Cutout,
+                &[("color", s("#00ff00")), ("similarity", n(0.4)), ("smoothness", n(0.08)), ("spill", n(0.5)), ("feather", n(0.5)), ("edge", n(0.0)), ("outline", n(0.0)), ("outlineColor", s("#ffffff")), ("shadow", n(0.0)), ("background", s("none")), ("bgColor", s("#ffffff")), ("invert", b(false))],
+                cutout_params(true)),
             // Motion & beat
             def("flash", "Beat flash", Motion, En::Extra, &[("rate", n(2.0)), ("intensity", n(0.7)), ("color", s("#ffffff"))],
                 vec![range("rate", "Flashes a second", 0.5, 8.0, 0.25, ""), range("intensity", "Strength", 0.1, 1.0, 0.05, ""), color("color", "Colour")]),

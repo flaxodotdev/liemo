@@ -249,6 +249,8 @@ fn all_definitions() -> Vec<Value> {
         "shadow": { "type": "string", "description": "Soft drop-shadow colour #rrggbb, or \"none\"" },
         "glow": { "type": "string", "description": "Neon glow colour #rrggbb, or \"none\"" },
         "highlight": { "type": "string", "description": "Rounded highlight behind each line, colour #rrggbb, or \"none\"" },
+        "tiltX": { "type": "number", "description": "3D: tip the text back (positive) or forward, degrees −80…80" },
+        "tiltY": { "type": "number", "description": "3D: swing the text to face right (positive) or left, degrees −80…80" },
     });
     let mut text_update = text_props.clone();
     let mut clip_fields = json!({
@@ -352,6 +354,7 @@ fn all_definitions() -> Vec<Value> {
                 "font": text_props["font"], "size": text_props["size"], "weight": text_props["weight"], "color": text_props["color"],
                 "align": text_props["align"], "y": text_props["y"], "animation": text_props["animation"], "box": text_props["box"],
                 "outline": text_props["outline"], "outlineWidth": text_props["outlineWidth"], "shadow": text_props["shadow"], "glow": text_props["glow"], "highlight": text_props["highlight"],
+                "tiltX": text_props["tiltX"], "tiltY": text_props["tiltY"],
                 "blend": text_props["blend"],
             }), &["project", "content"]),
         tool("update_clip", "Update a clip", "Change any of a clip's timing, track, transform, opacity, volume, fades, name, text or sound (speed, reverb, slowed + reverb and other presets). Only the fields given change.", clip_fields, &["project", "clip"]),
@@ -798,7 +801,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 }
                 if let Some(t) = args.get("text") {
                     apply_text(st, &cid, t)?;
-                } else if ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "outline", "outlineWidth", "shadow", "glow", "highlight"].iter().any(|k| args.get(*k).is_some()) {
+                } else if ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "outline", "outlineWidth", "shadow", "glow", "highlight", "tiltX", "tiltY"].iter().any(|k| args.get(*k).is_some()) {
                     // Text fields given flat, as add_text takes them (y stays the clip's offset).
                     let mut t = args.clone();
                     if let Some(o) = t.as_object_mut() {
@@ -1102,6 +1105,12 @@ fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
         }
         if let Some(v) = colour("highlight") {
             t.highlight = v;
+        }
+        if let Some(v) = f(&a, "tiltX") {
+            t.tilt_x = v.clamp(-80.0, 80.0);
+        }
+        if let Some(v) = f(&a, "tiltY") {
+            t.tilt_y = v.clamp(-80.0, 80.0);
         }
     });
     Ok(())

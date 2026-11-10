@@ -594,6 +594,15 @@ impl Editor {
                     None,
                 ))
                 .child(field_row("Animate", segmented("anim", &TEXT_ANIMS, &t.anim, |_| false, move |v, w, cx| (s_anim(Box::new(move |t: &mut TextProps| t.anim = v)))(w, cx)), None))
+                // Turned in 3D, in perspective.
+                .child(self.slider_field("3D tilt ↕", "f-tiltx", t.tilt_x, -70.0, 70.0, 1.0, |v| format!("{}°", v.round()), Rc::new({
+                    let id = c.id.clone();
+                    move |e: &mut Editor, v| e.store.update_text(&id, |t| t.tilt_x = v)
+                }), cx))
+                .child(self.slider_field("3D tilt ↔", "f-tilty", t.tilt_y, -70.0, 70.0, 1.0, |v| format!("{}°", v.round()), Rc::new({
+                    let id = c.id.clone();
+                    move |e: &mut Editor, v| e.store.update_text(&id, |t| t.tilt_y = v)
+                }), cx))
                 .into_any_element(),
         ]
     }

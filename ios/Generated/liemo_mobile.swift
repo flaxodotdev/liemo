@@ -620,6 +620,12 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func audioPeaks(clipId: String, buckets: UInt32)  -> [Float]
     
     /**
+     * A finger drag, pinch or twist on the preview starts: the edits until `end_gesture` are
+     * one undo step.
+     */
+    func beginGesture() 
+    
+    /**
      * Run a Liemo tool (the MCP tools: list_projects, create_project, add_clip, update_clip,
      * apply_effect, set_transition, render_frame, undo…). `args_json` is a JSON object.
      */
@@ -642,6 +648,8 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func duplicateProject(id: String)  -> String?
     
     func effectThumb(id: String)  -> MediaFrame
+    
+    func endGesture() 
     
     /**
      * Installed font families on this device.
@@ -795,6 +803,18 @@ open func audioPeaks(clipId: String, buckets: UInt32) -> [Float]  {
 }
     
     /**
+     * A finger drag, pinch or twist on the preview starts: the edits until `end_gesture` are
+     * one undo step.
+     */
+open func beginGesture()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_begin_gesture(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
      * Run a Liemo tool (the MCP tools: list_projects, create_project, add_clip, update_clip,
      * apply_effect, set_transition, render_frame, undo…). `args_json` is a JSON object.
      */
@@ -869,6 +889,14 @@ open func effectThumb(id: String) -> MediaFrame  {
         FfiConverterString.lower(id),uniffiCallStatus
     )
 })
+}
+    
+open func endGesture()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_end_gesture(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
 }
     
     /**
@@ -1102,6 +1130,12 @@ public protocol MediaHost: AnyObject, Sendable {
      */
     func decodeAudio(path: String)  -> [Float]?
     
+    /**
+     * Where the subject is in a picture (people, pets, things in front): a mask whose alpha
+     * is 255 on the subject and 0 behind it, at any size. None when nothing stands out.
+     */
+    func segment(frame: MediaFrame)  -> MediaFrame?
+    
 }
 /**
  * What the app does for the engine with AVFoundation and Image I/O.
@@ -1211,6 +1245,20 @@ open func decodeAudio(path: String) -> [Float]?  {
     uniffi_liemo_mobile_fn_method_mediahost_decode_audio(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(path),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Where the subject is in a picture (people, pets, things in front): a mask whose alpha
+     * is 255 on the subject and 0 behind it, at any size. None when nothing stands out.
+     */
+open func segment(frame: MediaFrame) -> MediaFrame?  {
+    return try!  FfiConverterOptionTypeMediaFrame.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_mediahost_segment(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeMediaFrame_lower(frame),uniffiCallStatus
     )
 })
 }
@@ -1341,6 +1389,30 @@ fileprivate struct UniffiCallbackInterfaceMediaHost {
 
             
             let writeReturn = { uniffiOutReturn.pointee = FfiConverterOptionSequenceFloat.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        segment: { (
+            uniffiHandle: UInt64,
+            frame: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> MediaFrame? in
+                guard let uniffiObj = try? FfiConverterTypeMediaHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.segment(
+                     frame: try FfiConverterTypeMediaFrame_lift(frame)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterOptionTypeMediaFrame.lower($0) }
             uniffiTraitInterfaceCall(
                 callStatus: uniffiCallStatus,
                 makeCall: makeCall,
@@ -1811,6 +1883,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_liemo_mobile_checksum_method_engine_audio_peaks() != 34529) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_liemo_mobile_checksum_method_engine_begin_gesture() != 16254) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_liemo_mobile_checksum_method_engine_call() != 44990) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1830,6 +1905,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_effect_thumb() != 27374) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_end_gesture() != 7829) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_installed_fonts() != 15054) {
@@ -1878,6 +1956,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_mediahost_decode_audio() != 29460) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_mediahost_segment() != 53644) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_constructor_engine_new() != 63931) {

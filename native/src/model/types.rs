@@ -113,6 +113,16 @@ pub struct TextProps {
     /// A rounded highlight behind each line, in this colour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub highlight: Option<String>,
+    /// Turned in 3D, in degrees: tipped back or forward (around the horizontal axis) and swung
+    /// left or right (around the vertical one), seen in perspective.
+    #[serde(default, skip_serializing_if = "is_zero", rename = "tiltX")]
+    pub tilt_x: f64,
+    #[serde(default, skip_serializing_if = "is_zero", rename = "tiltY")]
+    pub tilt_y: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 fn outline_width() -> f64 {

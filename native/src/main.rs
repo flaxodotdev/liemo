@@ -8,6 +8,8 @@ mod media;
 mod platform;
 mod storage;
 mod update;
+#[cfg(target_os = "macos")]
+mod vision_mac;
 mod agent;
 mod ui;
 mod model;
@@ -51,6 +53,9 @@ fn app_icon(out: &str) -> anyhow::Result<()> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // Remove background finds the subject with Apple's Vision.
+    #[cfg(target_os = "macos")]
+    fx::cutout::set_segmenter(Box::new(vision_mac::segment));
     if args.get(1).map(String::as_str) == Some("mcp") {
         mcp::serve_stdio();
         return;

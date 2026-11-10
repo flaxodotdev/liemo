@@ -271,6 +271,13 @@ typedef void (*UniffiCallbackInterfaceMediaHostMethod3)(uint64_t, RustBuffer, Ru
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_MEDIA_HOST_METHOD4
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_MEDIA_HOST_METHOD4
+typedef void (*UniffiCallbackInterfaceMediaHostMethod4)(uint64_t, RustBuffer, RustBuffer* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_MEDIA_HOST
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_MEDIA_HOST
 typedef struct UniffiVTableCallbackInterfaceMediaHost {
@@ -280,6 +287,7 @@ typedef struct UniffiVTableCallbackInterfaceMediaHost {
     UniffiCallbackInterfaceMediaHostMethod1 _Nonnull videoFrame;
     UniffiCallbackInterfaceMediaHostMethod2 _Nonnull decodeImage;
     UniffiCallbackInterfaceMediaHostMethod3 _Nonnull decodeAudio;
+    UniffiCallbackInterfaceMediaHostMethod4 _Nonnull segment;
 } UniffiVTableCallbackInterfaceMediaHost;
 
 #endif
@@ -306,6 +314,11 @@ RustBuffer uniffi_liemo_mobile_fn_method_engine_asset_thumb(uint64_t ptr, RustBu
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_AUDIO_PEAKS
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_AUDIO_PEAKS
 RustBuffer uniffi_liemo_mobile_fn_method_engine_audio_peaks(uint64_t ptr, RustBuffer clip_id, uint32_t buckets, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_BEGIN_GESTURE
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_BEGIN_GESTURE
+void uniffi_liemo_mobile_fn_method_engine_begin_gesture(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CALL
@@ -341,6 +354,11 @@ RustBuffer uniffi_liemo_mobile_fn_method_engine_duplicate_project(uint64_t ptr, 
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_EFFECT_THUMB
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_EFFECT_THUMB
 RustBuffer uniffi_liemo_mobile_fn_method_engine_effect_thumb(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_END_GESTURE
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_END_GESTURE
+void uniffi_liemo_mobile_fn_method_engine_end_gesture(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_INSTALLED_FONTS
@@ -436,6 +454,11 @@ RustBuffer uniffi_liemo_mobile_fn_method_mediahost_decode_image(uint64_t ptr, Ru
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_MEDIAHOST_DECODE_AUDIO
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_MEDIAHOST_DECODE_AUDIO
 RustBuffer uniffi_liemo_mobile_fn_method_mediahost_decode_audio(uint64_t ptr, RustBuffer path, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_MEDIAHOST_SEGMENT
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_MEDIAHOST_SEGMENT
+RustBuffer uniffi_liemo_mobile_fn_method_mediahost_segment(uint64_t ptr, RustBuffer frame, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_LIEMO_MOBILE_RUSTBUFFER_ALLOC
@@ -710,6 +733,12 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_audio_peaks(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_BEGIN_GESTURE
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_BEGIN_GESTURE
+uint16_t uniffi_liemo_mobile_checksum_method_engine_begin_gesture(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CALL
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CALL
 uint16_t uniffi_liemo_mobile_checksum_method_engine_call(void
@@ -749,6 +778,12 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_duplicate_project(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_EFFECT_THUMB
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_EFFECT_THUMB
 uint16_t uniffi_liemo_mobile_checksum_method_engine_effect_thumb(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_END_GESTURE
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_END_GESTURE
+uint16_t uniffi_liemo_mobile_checksum_method_engine_end_gesture(void
     
 );
 #endif
@@ -845,6 +880,12 @@ uint16_t uniffi_liemo_mobile_checksum_method_mediahost_decode_image(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_MEDIAHOST_DECODE_AUDIO
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_MEDIAHOST_DECODE_AUDIO
 uint16_t uniffi_liemo_mobile_checksum_method_mediahost_decode_audio(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_MEDIAHOST_SEGMENT
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_MEDIAHOST_SEGMENT
+uint16_t uniffi_liemo_mobile_checksum_method_mediahost_segment(void
     
 );
 #endif

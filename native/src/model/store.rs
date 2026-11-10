@@ -45,6 +45,28 @@ pub fn default_track(t: AssetType) -> &'static str {
         Audio => "A2",
     }
 }
+/// Rows for clips that share moments on one track (titles stack instead of pushing each other
+/// along): each clip's row, first fit by start time, and how many rows there are (at least one).
+pub fn stack_rows(clips: &[Clip], track: &str) -> (std::collections::HashMap<String, usize>, usize) {
+    let mut mine: Vec<&Clip> = clips.iter().filter(|c| c.track == track).collect();
+    mine.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let mut ends: Vec<f64> = vec![];
+    let mut rows = std::collections::HashMap::new();
+    for c in mine {
+        let row = match ends.iter().position(|e| *e <= c.start + EPS) {
+            Some(r) => r,
+            None => {
+                ends.push(0.0);
+                ends.len() - 1
+            }
+        };
+        ends[row] = c.start + c.dur;
+        rows.insert(c.id.clone(), row);
+    }
+    let n = ends.len().max(1);
+    (rows, n)
+}
+
 pub fn track_height(k: TrackKind) -> f32 {
     match k {
         TrackKind::Text => 44.0,
@@ -330,6 +352,10 @@ impl Store {
     }
     /// Fit a clip into its track according to the edit mode, and say what moved.
     fn place(&mut self, clips: Vec<Clip>, id: &str, snap_into_place: bool, announce: bool) -> Vec<Clip> {
+        // Titles may overlap: they stack on the Titles track (each in its own row) and all show.
+        if clips.iter().any(|c| c.id == id && c.kind == AssetType::Text) {
+            return clips;
+        }
         if self.edit_mode == EditMode::Overwrite {
             return resolve_overlaps(&clips, id);
         }
@@ -347,8 +373,12 @@ impl Store {
         t.locked
     }
 
+    /// One undo step for the edit about to happen; during a gesture (begin_edit…end_edit) the
+    /// whole gesture is already one step.
     pub fn commit(&mut self) {
-        self.push_past();
+        if !self.editing {
+            self.push_past();
+        }
     }
     pub fn begin_edit(&mut self) {
         if !self.editing {

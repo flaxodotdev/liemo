@@ -182,6 +182,9 @@ struct TextSpec: Decodable, Hashable {
     let highlight: String?
     /// normal, invert (reads on any footage) or exclusion (a softer invert).
     let blend: String?
+    /// Turned in 3D, degrees.
+    let tiltX: Double?
+    let tiltY: Double?
 }
 
 struct Library: Decodable {

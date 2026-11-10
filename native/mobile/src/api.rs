@@ -39,6 +39,9 @@ pub trait MediaHost: Send + Sync {
     fn decode_image(&self, path: String, max: u32) -> Option<MediaFrame>;
     /// The file's sound as 48 kHz interleaved stereo.
     fn decode_audio(&self, path: String) -> Option<Vec<f32>>;
+    /// Where the subject is in a picture (people, pets, things in front): a mask whose alpha
+    /// is 255 on the subject and 0 behind it, at any size. None when nothing stands out.
+    fn segment(&self, frame: MediaFrame) -> Option<MediaFrame>;
 }
 
 #[derive(uniffi::Record)]
@@ -132,7 +135,19 @@ impl Engine {
     pub fn new(data_dir: String, host: Arc<dyn MediaHost>) -> Arc<Self> {
         std::env::set_var("RAYNA_DATA", &data_dir);
         let _ = std::fs::create_dir_all(&data_dir);
-        crate::media::set_host(host);
+        crate::media::set_host(host.clone());
+        // Remove background asks the device's AI (Vision) for the subject, on a small copy.
+        crate::fx::cutout::set_segmenter(Box::new(move |pm: &Pixmap| {
+            let k = (512.0 / pm.width().max(pm.height()) as f32).min(1.0);
+            let small = if k < 1.0 {
+                crate::render::canvas::resample_area(pm, ((pm.width() as f32 * k) as u32).max(1), ((pm.height() as f32 * k) as u32).max(1))
+            } else {
+                pm.clone()
+            };
+            let m = host.segment(frame_of(&small))?;
+            let alpha: Vec<u8> = m.rgba.chunks_exact(4).map(|p| p[3]).collect();
+            Some((alpha, m.width, m.height))
+        }));
         // Index the fonts this device has, off the calling thread.
         std::thread::spawn(|| {
             crate::render::text::system_families();
@@ -189,6 +204,19 @@ impl Engine {
                     let _ = std::fs::remove_file(storage::project_thumb_path(&o.rec.id));
                 }
             }
+        }
+    }
+
+    /// A finger drag, pinch or twist on the preview starts: the edits until `end_gesture` are
+    /// one undo step.
+    pub fn begin_gesture(&self) {
+        if let Some(o) = self.open.lock().as_mut() {
+            o.store.begin_edit();
+        }
+    }
+    pub fn end_gesture(&self) {
+        if let Some(o) = self.open.lock().as_mut() {
+            o.store.end_edit();
         }
     }
 

@@ -532,3 +532,58 @@ enum Sfx: String, CaseIterable, Identifiable {
         return url
     }
 }
+
+// MARK: - Cutout
+
+/// Remove background (the device's AI finds the subject) or chroma key (a green or blue screen),
+/// with edges, outline, shadow and what goes behind.
+struct CutoutPanel: View {
+    let model: EditorModel
+    let done: () -> Void
+
+    private var clip: Clip? { model.selectedClip }
+    private var active: AppliedEffect? { clip?.effects.first { $0.id == "remove-bg" || $0.id == "chroma-key" } }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header("Cutout", done: done)
+            if let c = clip {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 8) {
+                            mode("Remove background", "person.crop.rectangle", id: "remove-bg", c)
+                            mode("Chroma key", "eyedropper.halffull", id: "chroma-key", c)
+                        }
+                        if let fx = active {
+                            Text(fx.id == "remove-bg"
+                                 ? "Liemo's AI finds the people, pets and things in front. Put the clip on the overlay track to see what's underneath."
+                                 : "Pick the screen's colour (the picker's eyedropper can sample the preview), then widen Similarity until it's gone.")
+                                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            EffectRow(model: model, clip: c, effect: fx, expandedAtStart: true)
+                            Button(role: .destructive) { model.edit("remove_effect", ["clip": c.id, "uid": fx.uid]) } label: {
+                                Label("Turn off", systemImage: "xmark.circle").font(.system(size: 14))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.bottom, 20)
+                }
+            }
+        }
+    }
+
+    private func mode(_ title: String, _ icon: String, id: String, _ c: Clip) -> some View {
+        let on = active?.id == id
+        return Button {
+            if let fx = active, fx.id != id { model.edit("remove_effect", ["clip": c.id, "uid": fx.uid]) }
+            if !on { model.edit("apply_effect", ["clip": c.id, "effect": id]) }
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 20))
+                Text(title).font(.system(size: 12, weight: .medium))
+            }
+            .frame(maxWidth: .infinity).frame(height: 70)
+            .background(on ? Color.white : Theme.surface2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .foregroundStyle(on ? Color.black : Theme.ink)
+        }
+    }
+}

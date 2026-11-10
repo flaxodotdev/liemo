@@ -2,7 +2,7 @@ import SwiftUI
 
 enum Panel: String, Identifiable {
     case library, audio, inspector, effects, transitions, filters, voice, captions, agent, export
-    case speed, animate, adjust, sound, stickers, sfx
+    case speed, animate, adjust, sound, stickers, sfx, cutout
     var id: String { rawValue }
 }
 
@@ -104,6 +104,7 @@ struct EditorView: View {
         case .sound: SoundPanel(model: model, done: close)
         case .stickers: StickerPanel(model: model, done: close)
         case .sfx: SfxPanel(model: model, done: close)
+        case .cutout: CutoutPanel(model: model, done: close)
         case .captions: CaptionsPanel(model: model, done: close)
         case .agent: AgentPanel(agent: agent, editor: model)
         case .export: ExportPanel(model: model)
@@ -207,6 +208,7 @@ struct EditorView: View {
                     } else if c.isVisual {
                         tool("Speed", "gauge.with.dots.needle.67percent") { show(.speed) }
                         tool("Animate", "wand.and.rays") { show(.animate) }
+                        tool("Cutout", "person.crop.rectangle") { show(.cutout) }
                         tool("Adjust", "dial.medium") { show(.adjust) }
                         tool("Filters", "camera.filters") { show(.filters) }
                         tool("Effects", "sparkles.rectangle.stack") { show(.effects) }
@@ -268,12 +270,111 @@ struct PreviewStage: View {
             }
             .frame(width: fit.width, height: fit.height)
             .overlay(Rectangle().stroke(Theme.border, lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                if model.selectedClip?.type == "text" {
+                    Button { tilt.toggle() } label: {
+                        Text("3D").font(.system(size: 12, weight: .bold))
+                            .padding(.horizontal, 10).frame(height: 26)
+                            .background(tilt ? Color.white : Color.black.opacity(0.55), in: Capsule())
+                            .foregroundStyle(tilt ? Color.black : Color.white)
+                    }
+                    .padding(8)
+                    .accessibilityLabel("Tilt in 3D by dragging")
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(moveOrTilt(fit), including: model.selectedClip?.isVisual == true ? .all : .subviews)
+            .simultaneousGesture(pinch, including: model.selectedClip?.isVisual == true ? .all : .subviews)
+            .simultaneousGesture(twist, including: model.selectedClip?.isVisual == true ? .all : .subviews)
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
             .onAppear { setMax(fit) }
             .onChange(of: fit) { _, f in setMax(f) }
             .onTapGesture { model.togglePlay() }
         }
         .padding(12)
+    }
+
+    // MARK: Moving the selected clip with fingers
+
+    /// Drag moves the selected clip (or, with 3D on, tilts its text); pinch scales; twist rotates.
+    /// Each gesture is one undo step.
+    @State private var tilt = false
+    @State private var start: (x: Double, y: Double, scale: Double, rot: Double, tx: Double, ty: Double)?
+    @State private var active = 0
+
+    private func began(_ c: Clip) {
+        if active == 0 {
+            model.beginGesture()
+            start = (c.x, c.y, c.scale, c.rot, c.text?.tiltX ?? 0, c.text?.tiltY ?? 0)
+        }
+        active += 1
+    }
+    private func ended() {
+        active = max(0, active - 1)
+        if active == 0 {
+            model.endGesture()
+            start = nil
+        }
+    }
+
+    private func moveOrTilt(_ fit: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { v in
+                guard let c = model.selectedClip, c.isVisual else { return }
+                if start == nil || active == 0 { began(c) }
+                guard let s = start else { return }
+                if tilt && c.type == "text" {
+                    model.gestureUpdate(c.id, ["text": ["tiltY": (s.ty + v.translation.width * 0.35).clamped(-70, 70),
+                                                        "tiltX": (s.tx - v.translation.height * 0.35).clamped(-70, 70)]])
+                } else {
+                    // Screen points to canvas units.
+                    let k = (model.doc?.canvas.width ?? 1280) / Double(fit.width)
+                    model.gestureUpdate(c.id, ["x": s.x + v.translation.width * k, "y": s.y + v.translation.height * k])
+                }
+            }
+            .onEnded { v in
+                guard let c = model.selectedClip, let s = start else { ended(); return }
+                if tilt && c.type == "text" {
+                    model.gestureUpdate(c.id, ["text": ["tiltY": (s.ty + v.translation.width * 0.35).clamped(-70, 70),
+                                                        "tiltX": (s.tx - v.translation.height * 0.35).clamped(-70, 70)]], final: true)
+                } else {
+                    let k = (model.doc?.canvas.width ?? 1280) / Double(fit.width)
+                    model.gestureUpdate(c.id, ["x": s.x + v.translation.width * k, "y": s.y + v.translation.height * k], final: true)
+                }
+                ended()
+            }
+    }
+
+    private var pinch: some Gesture {
+        MagnifyGesture()
+            .onChanged { v in
+                guard let c = model.selectedClip, c.isVisual else { return }
+                if start == nil || active == 0 { began(c) }
+                guard let s = start else { return }
+                model.gestureUpdate(c.id, ["scale": (s.scale * v.magnification).clamped(0.05, 8)])
+            }
+            .onEnded { v in
+                if let c = model.selectedClip, let s = start {
+                    model.gestureUpdate(c.id, ["scale": (s.scale * v.magnification).clamped(0.05, 8)], final: true)
+                }
+                ended()
+            }
+    }
+
+    private var twist: some Gesture {
+        RotateGesture()
+            .onChanged { v in
+                guard let c = model.selectedClip, c.isVisual else { return }
+                if start == nil || active == 0 { began(c) }
+                guard let s = start else { return }
+                model.gestureUpdate(c.id, ["rotation": s.rot + v.rotation.degrees])
+            }
+            .onEnded { v in
+                if let c = model.selectedClip, let s = start {
+                    model.gestureUpdate(c.id, ["rotation": s.rot + v.rotation.degrees], final: true)
+                }
+                ended()
+            }
     }
 
     private func setMax(_ s: CGSize) {
