@@ -198,7 +198,9 @@ pub fn check_on_launch() {
     if !supported() || std::env::var("LIEMO_NO_UPDATE_CHECK").is_ok() {
         return;
     }
-    check_if_due();
+    // Every launch asks GitHub (a release may have come out minutes ago); only the background
+    // re-checks are spaced out.
+    check(false);
     std::thread::spawn(|| loop {
         std::thread::sleep(std::time::Duration::from_secs(4 * 3600));
         check_if_due();
