@@ -405,10 +405,39 @@ fn draw_transition(c: &mut Canvas, w: &TransitionWindow, p: f64, t: f64, frames:
     let (cw, ch) = (c.width(), c.height());
     let a = w.a.map(|a| clip_frame(a, t, cw, ch, frames));
     let b = clip_frame(w.b, t, cw, ch, frames);
+    let p = p.clamp(0.0, 1.0) as f32;
     c.save();
     c.reset_transform();
-    (w.def.draw)(c, a.as_ref(), &b, p.clamp(0.0, 1.0) as f32, t as f32);
+    if w.b.track == "V1" {
+        (w.def.draw)(c, a.as_ref(), &b, p, t as f32);
+    } else {
+        // Titles and overlays: the transition happens to the object, not the frame. On its own
+        // layer, and (unless it moves the object) kept to where the object is, so a dip to black
+        // darkens the letters rather than the whole picture.
+        let mut layer = Canvas::from_pixmap(pixmap(cw, ch));
+        (w.def.draw)(&mut layer, a.as_ref(), &b, p, t as f32);
+        let mut out = layer.into_pixmap();
+        if w.def.group != crate::fx::transitions::TransitionGroup::Motion {
+            keep_within(&mut out, a.as_ref(), &b);
+        }
+        c.composite(&out, 1.0, tiny_skia::BlendMode::SourceOver);
+    }
     c.restore();
+}
+
+/// Limit `out` to where `a` or `b` has something (their larger alpha), scaling premultiplied
+/// pixels down where the transition painted beyond them.
+fn keep_within(out: &mut Pixmap, a: Option<&Pixmap>, b: &Pixmap) {
+    let (ad, bd) = (a.map(|a| a.data()), b.data());
+    for (i, px) in out.data_mut().chunks_exact_mut(4).enumerate() {
+        let cap = bd[i * 4 + 3].max(ad.map(|d| d[i * 4 + 3]).unwrap_or(0)) as u32;
+        let alpha = px[3] as u32;
+        if alpha > cap {
+            for v in px.iter_mut() {
+                *v = (*v as u32 * cap / alpha.max(1)) as u8;
+            }
+        }
+    }
 }
 
 /// Composite every visible clip at time `t`.

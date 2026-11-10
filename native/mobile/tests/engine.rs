@@ -209,3 +209,23 @@ fn cutout_tilt_and_thirds_render() {
     let start = |r: &liemo_mobile::api::ToolResult| serde_json::from_str::<serde_json::Value>(&r.text).unwrap()["clip"]["start"].as_f64().unwrap();
     assert_eq!((start(&a), start(&b)), (12.0, 12.5));
 }
+
+#[test]
+fn title_transitions_stay_on_the_title() {
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-tests-{}", std::process::id()));
+    let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
+    let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
+    let id = serde_json::from_str::<serde_json::Value>(&made.text).unwrap()["id"].as_str().unwrap().to_string();
+    e.open_project(id.clone());
+    let at = 2.3;
+    let without = e.render_frame(at, 320).unwrap();
+    let r = e.call("add_text".into(), format!(r#"{{"project":"{id}","content":"HI","start":2.0,"duration":3.0,"animation":"none"}}"#));
+    let tid = serde_json::from_str::<serde_json::Value>(&r.text).unwrap()["clip"]["id"].as_str().unwrap().to_string();
+    assert!(e.call("set_transition".into(), format!(r#"{{"project":"{id}","clip":"{tid}","transition":"dip-black","duration":0.6}}"#)).ok);
+    let with = e.render_frame(at, 320).unwrap();
+    // A corner far from the words is untouched: the dip happens to the title, not the frame.
+    let px = |f: &MediaFrame, x: u32, y: u32| f.rgba[((y * f.width + x) * 4) as usize..((y * f.width + x) * 4 + 3) as usize].to_vec();
+    for (x, y) in [(4, 4), (with.width - 5, 4), (4, with.height - 5), (with.width - 5, with.height - 5)] {
+        assert_eq!(px(&with, x, y), px(&without, x, y), "corner {x},{y} changed");
+    }
+}

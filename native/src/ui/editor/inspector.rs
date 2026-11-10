@@ -531,6 +531,12 @@ impl Editor {
             let w = *w;
             item(*l, w == t.weight, set(Box::new(move |t: &mut TextProps| t.weight = w)))
         }).collect();
+        // Twelve animations don't fit a segmented control: a menu, like Font and Weight.
+        let anim_label = TEXT_ANIMS.iter().find(|(a, _)| *a == t.anim).map(|(_, l)| l.to_string()).unwrap_or_else(|| "None".into());
+        let anim_entries: Vec<MenuEntry> = TEXT_ANIMS.iter().map(|(a, l)| {
+            let a = *a;
+            item(*l, a == t.anim, set(Box::new(move |t: &mut TextProps| t.anim = a)))
+        }).collect();
         let tid = id.clone();
         let tid2 = id.clone();
         let ed = cx.entity();
@@ -550,7 +556,6 @@ impl Editor {
         };
         let s_align = seg_set.clone();
         let s_box = seg_set.clone();
-        let s_anim = seg_set.clone();
         let s_col = seg_set.clone();
         let s_blend = seg_set.clone();
         // A custom-colour button next to the palette; picks are remembered for every row.
@@ -593,7 +598,7 @@ impl Editor {
                     segmented("box", &[(false, "None"), (true, "Box")], &t.boxed, |_| false, move |v, w, cx| (s_box(Box::new(move |t: &mut TextProps| t.boxed = v)))(w, cx)),
                     None,
                 ))
-                .child(field_row("Animate", segmented("anim", &TEXT_ANIMS, &t.anim, |_| false, move |v, w, cx| (s_anim(Box::new(move |t: &mut TextProps| t.anim = v)))(w, cx)), None))
+                .child(field_row("Animate", self.select("f-anim", anim_label, anim_entries, cx), None))
                 // Turned in 3D, in perspective.
                 .child(self.slider_field("3D tilt ↕", "f-tiltx", t.tilt_x, -70.0, 70.0, 1.0, |v| format!("{}°", v.round()), Rc::new({
                     let id = c.id.clone();
