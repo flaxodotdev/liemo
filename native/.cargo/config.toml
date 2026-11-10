@@ -3,3 +3,7 @@
 # Xcode's SDK works, so point builds at it.
 [env]
 SDKROOT = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+# Windows gives the main thread 1 MB of stack; FFmpeg's bindgen (in ffmpeg-sys-next's build
+# script) recurses deeper than that. 16 MB for every Windows binary.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:16777216"]
