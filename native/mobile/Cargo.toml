@@ -1,6 +1,6 @@
 [package]
 name = "liemo-mobile"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 description = "Liemo's editing engine for iOS: the desktop app's renderer, effects, text and project tools, behind a Swift API"
 license = "MIT"
