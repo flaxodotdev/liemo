@@ -1,11 +1,15 @@
 // Updates from GitHub Releases.
 //
-// A release is tagged vX.Y.Z and carries, per architecture, `Liemo-X.Y.Z-macos-<arch>.zip` (the
-// notarised Liemo.app, zipped with ditto) and `….zip.sig`: an ed25519 signature of the zip, made
-// with the release key (`liemo sign-update`). The app checks the latest release, and on request
-// downloads the zip, checks that signature against the public key below, checks the new app's
-// version, bundle id and code signature (same Apple team as this copy), swaps the bundles and
-// relaunches.
+// A release is tagged vX.Y.Z and carries, per system and architecture, an archive and its `.sig`
+// (an ed25519 signature made with the release key, `liemo sign-update`):
+//   Mac      `Liemo-X.Y.Z-macos-<arch>.zip`      the notarised Liemo.app, zipped with ditto
+//   Windows  `Liemo-X.Y.Z-windows-x86_64.zip`    a folder with Liemo.exe and its FFmpeg DLLs
+//   Linux    `Liemo-X.Y.Z-linux-x86_64.tar.gz`   a folder with the liemo binary
+// The app checks the latest release, and on request downloads the archive, checks that signature
+// against the public key below and that the new copy is the version the release says, puts it in
+// place of this one and relaunches. On the Mac it also checks the bundle id and code signature
+// (same Apple team as this copy). On Windows the files are swapped by a small script once this
+// process has quit, since Windows won't replace a running program's folder.
 //
 // LIEMO_UPDATE_FEED points the check at another release JSON (for testing).
 
@@ -93,9 +97,31 @@ pub fn supported() -> bool {
     !cfg!(target_os = "macos") || bundle_path().is_some() || std::env::var("LIEMO_UPDATE_FEED").is_ok()
 }
 
-/// Whether this copy can install an update itself (the Mac app); elsewhere it links to it.
+/// Whether this copy can install an update itself: the Mac app, or a Windows or Linux copy
+/// running from the folder its release unpacked to (not one installed by a package manager).
 pub fn can_install() -> bool {
-    cfg!(target_os = "macos") && (bundle_path().is_some() || std::env::var("LIEMO_UPDATE_FEED").is_ok())
+    if cfg!(target_os = "macos") {
+        return bundle_path().is_some() || std::env::var("LIEMO_UPDATE_FEED").is_ok();
+    }
+    install_dir().is_some()
+}
+
+/// Windows and Linux: the folder holding this copy, when it's a release folder Liemo may update.
+/// Release folders carry README.txt next to the program; copies a package manager installed (or
+/// a cargo build) don't, and are left to their own updates.
+fn install_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    let dir = exe.parent()?.to_path_buf();
+    if std::env::var("LIEMO_UPDATE_FEED").is_ok() || dir.join("README.txt").exists() {
+        return Some(dir);
+    }
+    None
+}
+
+/// The release archive for this computer.
+fn archive_name(version: &str) -> String {
+    let ext = if cfg!(target_os = "linux") { "tar.gz" } else { "zip" };
+    format!("Liemo-{version}-{}-{}.{ext}", os(), arch())
 }
 
 // ---------- versions ----------
@@ -145,7 +171,7 @@ pub fn fetch_latest() -> Result<Option<Release>> {
     if v["draft"].as_bool() == Some(true) || v["prerelease"].as_bool() == Some(true) || !newer(&version, current_version()) {
         return Ok(None);
     }
-    let want = format!("Liemo-{version}-{}-{}.zip", os(), arch());
+    let want = archive_name(&version);
     let assets = v["assets"].as_array().cloned().unwrap_or_default();
     let url_of = |name: &str| assets.iter().find(|a| a["name"].as_str() == Some(name)).and_then(|a| a["browser_download_url"].as_str()).map(String::from);
     let (zip, sig) = match (url_of(&want), url_of(&format!("{want}.sig"))) {
@@ -275,6 +301,9 @@ pub fn install(rel: Release) {
 }
 
 fn install_blocking(rel: &Release) -> Result<()> {
+    if !cfg!(target_os = "macos") {
+        return install_folder(rel);
+    }
     let app = bundle_path().ok_or_else(|| anyhow!("Updates install into the Liemo app. This copy isn't running from one."))?;
     let parent = app.parent().ok_or_else(|| anyhow!("Can't find the folder Liemo is in"))?;
     // Stage next to the app so the final swap is a rename on the same disk.
@@ -323,6 +352,101 @@ fn install_blocking(rel: &Release) -> Result<()> {
     }
     set(State::Done);
     relaunch(&app, &stage);
+    Ok(())
+}
+
+/// Windows and Linux: download and check the release folder, then swap it in for this one.
+fn install_folder(rel: &Release) -> Result<()> {
+    let dir = install_dir().ok_or_else(|| anyhow!("This copy of Liemo was installed by a package manager or isn't a release folder. Download the update from the release page."))?;
+    let parent = dir.parent().ok_or_else(|| anyhow!("Can't find the folder Liemo is in"))?.to_path_buf();
+    let stage = parent.join(format!(".liemo-update-{}", rel.version));
+    let _ = std::fs::remove_dir_all(&stage);
+    std::fs::create_dir_all(&stage).map_err(|_| anyhow!("Liemo can't write to {}. Move the Liemo folder somewhere you own and try again.", parent.display()))?;
+    set(State::Downloading(rel.clone(), 0, 0));
+    let archive = stage.join(archive_name(&rel.version));
+    download(&rel.zip, &archive, rel).context("Download failed")?;
+    let sig_path = stage.join("update.sig");
+    download(&rel.sig, &sig_path, rel).context("Download failed")?;
+    set(State::Installing(rel.clone()));
+    verify_signature(&archive, &std::fs::read_to_string(&sig_path)?)?;
+
+    // tar unpacks .tar.gz on Linux and .zip too on Windows 10 and later (bsdtar).
+    let unpacked = stage.join("new");
+    std::fs::create_dir_all(&unpacked)?;
+    let ok = Command::new("tar").arg("-xf").arg(&archive).arg("-C").arg(&unpacked).status().map(|s| s.success()).unwrap_or(false);
+    if !ok {
+        bail!("Couldn't unpack the update");
+    }
+    let exe_name = if cfg!(target_os = "windows") { "Liemo.exe" } else { "liemo" };
+    let new_dir = std::fs::read_dir(&unpacked)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| p.join(exe_name).exists())
+        .ok_or_else(|| anyhow!("The update doesn't contain {exe_name}"))?;
+    let new_exe = new_dir.join(exe_name);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&new_exe, std::fs::Permissions::from_mode(0o755));
+    }
+    // The new copy must say it's the version the release is.
+    let out = Command::new(&new_exe).arg("--version").output().context("The update doesn't run on this computer")?;
+    let said = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if said != format!("Liemo {}", rel.version) {
+        bail!("The update's version doesn't match the release ({said})");
+    }
+    let me = std::env::current_exe()?.file_name().map(|n| n.to_owned()).unwrap_or_else(|| exe_name.into());
+    if cfg!(target_os = "windows") {
+        swap_after_exit_windows(&dir, &new_dir, &stage, &dir.join(me))?;
+    } else {
+        // Linux lets a running program's folder be renamed: move this one aside, the new one in.
+        let old = stage.join("previous");
+        std::fs::rename(&dir, &old).map_err(|e| anyhow!("Couldn't replace Liemo ({e}). Is its folder one you can write to?"))?;
+        if let Err(e) = std::fs::rename(&new_dir, &dir) {
+            let _ = std::fs::rename(&old, &dir);
+            bail!("Couldn't put the update in place ({e})");
+        }
+        relaunch_unix(&dir.join(me), &stage);
+    }
+    // Liemo quits on this, and the new copy starts.
+    set(State::Done);
+    Ok(())
+}
+
+/// Linux: start the new copy once this process has exited, and tidy the staging folder.
+fn relaunch_unix(exe: &Path, stage: &Path) {
+    let q = |v: &str| v.replace('\'', "'\\''");
+    let script = format!(
+        "while kill -0 {pid} 2>/dev/null; do sleep 0.2; done; rm -rf '{stage}'; nohup '{exe}' >/dev/null 2>&1 &",
+        pid = std::process::id(),
+        stage = q(&stage.display().to_string()),
+        exe = q(&exe.display().to_string()),
+    );
+    let _ = Command::new("/bin/sh").arg("-c").arg(script).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+}
+
+/// Windows: once this process has quit, copy the new files over this folder, tidy up and start
+/// Liemo again. Done by a hidden PowerShell script, since the files are in use until then.
+fn swap_after_exit_windows(dir: &Path, new_dir: &Path, stage: &Path, exe: &Path) -> Result<()> {
+    let q = |p: &Path| p.display().to_string().replace('\'', "''");
+    let script = format!(
+        "$ErrorActionPreference='Stop'; try {{ Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 300; \
+         Copy-Item -Path '{new}\\*' -Destination '{dir}' -Recurse -Force; Remove-Item -LiteralPath '{stage}' -Recurse -Force -ErrorAction SilentlyContinue }} \
+         finally {{ Start-Process -FilePath '{exe}' }}",
+        pid = std::process::id(),
+        new = q(new_dir),
+        dir = q(dir),
+        stage = q(stage),
+        exe = q(exe),
+    );
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-Command", &script]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: no console flashing up. It outlives this process on its own.
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|e| anyhow!("Couldn't start the installer step ({e})"))?;
     Ok(())
 }
 

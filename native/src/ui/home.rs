@@ -849,7 +849,7 @@ impl Home {
                             cx.notify();
                         }))
                     } else {
-                        // Windows and Linux: the new version is downloaded from the release page.
+                        // Copies Liemo can't replace itself (installed by a package manager): download it.
                         button("update-install", Variant::Primary, 34.).child(icon("download", 14., black())).child("Download").on_click(open_page(r.page.clone()))
                     });
             }

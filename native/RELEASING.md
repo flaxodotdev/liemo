@@ -2,14 +2,18 @@
 
 Releases are built by GitHub Actions (`.github/workflows/release.yml`) when a version tag is
 pushed. Installed copies of Liemo check `flaxodotdev/liemo`'s latest release at launch (at most
-once a day, and from **Liemo → Check for Updates…**), and install it in place on one click.
+once a day, and from **Liemo → Check for Updates…**), and install it in place on one click: on
+the Mac, Windows and Linux. Windows and Linux copies update themselves when they run from the
+folder a release unpacked to (it has README.txt next to the program); copies installed some
+other way are shown the release page instead.
 
 ## Cutting a release
 
 1. Bump `version` in `native/Cargo.toml` (e.g. `0.2.0`) and commit.
 2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
 3. The workflow builds Apple silicon and Intel apps, signs them with the Developer ID, notarises
-   and staples them, signs each zip with the update key, and publishes the GitHub Release with
+   and staples them, builds Windows and Linux, signs every archive with the update key, and
+   publishes the GitHub Release with
    generated notes. Edit the notes afterwards if you like: the app shows them in its update
    dialog.
 
@@ -17,6 +21,12 @@ Assets per release, which the updater looks for by name:
 
 - `Liemo-<version>-macos-arm64.zip` and `.zip.sig`
 - `Liemo-<version>-macos-x86_64.zip` and `.zip.sig`
+- `Liemo-<version>-windows-x86_64.zip` and `.zip.sig`
+- `Liemo-<version>-linux-x86_64.tar.gz` and `.tar.gz.sig`
+
+On Windows and Linux the updater checks the signature and that the new program reports the
+release's version (`--version`) before swapping it in. Linux swaps the folder and relaunches; on
+Windows a hidden PowerShell step waits for Liemo to quit, copies the new files over and starts it.
 
 Drafts and pre-releases (tags like `v0.3.0-beta.1`) are never offered to installed copies.
 

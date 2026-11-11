@@ -1,5 +1,5 @@
 # Push a tag like v0.2.0 (matching native/Cargo.toml) to build and publish Liemo: signed and
-# notarised for Apple silicon and Intel Macs, plus Windows and Linux builds. The Mac app's updater
+# notarised for Apple silicon and Intel Macs, plus Windows and Linux builds. The app's updater
 # reads the resulting GitHub Release. Secrets and setup: native/RELEASING.md.
 #
 # Run it by hand (Actions → Release → Run workflow) for a dry run: Windows and Linux are built
@@ -119,10 +119,18 @@ jobs:
           printf '[Desktop Entry]\nType=Application\nName=Liemo\nComment=Video editor\nExec=liemo\nIcon=liemo\nCategories=AudioVideo;Video;\n' > "$d/liemo.desktop"
           printf 'Liemo %s for Linux (x86_64)\n\nRun ./liemo. Needs FFmpeg 6 or newer (Ubuntu/Debian: sudo apt install ffmpeg)\nand a Vulkan driver for the GPU effects.\n' "$v" > "$d/README.txt"
           tar -C dist -czf "$d.tar.gz" "$(basename "$d")"
+      - name: Sign for the updater
+        env:
+          LIEMO_UPDATE_KEY: ${{ secrets.LIEMO_UPDATE_KEY }}
+        run: |
+          [ -n "$LIEMO_UPDATE_KEY" ] || { echo "::error::LIEMO_UPDATE_KEY isn't set; installed copies couldn't verify this release"; exit 1; }
+          for f in dist/*.tar.gz; do target/release/rayna sign-update - "$f"; done
       - uses: actions/upload-artifact@v4
         with:
           name: liemo-linux
-          path: native/dist/*.tar.gz
+          path: |
+            native/dist/*.tar.gz
+            native/dist/*.tar.gz.sig
           if-no-files-found: error
 
   windows:
@@ -157,10 +165,20 @@ jobs:
           cp "$FFMPEG_BIN"/*.dll "$d/"
           printf 'Liemo %s for Windows (x86_64)\r\n\r\nRun Liemo.exe. FFmpeg (LGPL) is included; see https://ffmpeg.org.\r\n' "$v" > "$d/README.txt"
           (cd dist && 7z a -tzip "$(basename "$d").zip" "$(basename "$d")" >/dev/null)
+      - name: Sign for the updater
+        env:
+          LIEMO_UPDATE_KEY: ${{ secrets.LIEMO_UPDATE_KEY }}
+        run: |
+          [ -n "$LIEMO_UPDATE_KEY" ] || { echo "::error::LIEMO_UPDATE_KEY isn't set; installed copies couldn't verify this release"; exit 1; }
+          # The program needs its FFmpeg DLLs to start, even just to sign.
+          export PATH="$FFMPEG_BIN:$PATH"
+          for f in dist/*.zip; do target/release/rayna.exe sign-update - "$f"; done
       - uses: actions/upload-artifact@v4
         with:
           name: liemo-windows
-          path: native/dist/*.zip
+          path: |
+            native/dist/*.zip
+            native/dist/*.zip.sig
           if-no-files-found: error
 
   publish:
