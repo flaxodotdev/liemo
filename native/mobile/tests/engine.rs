@@ -229,3 +229,129 @@ fn title_transitions_stay_on_the_title() {
         assert_eq!(px(&with, x, y), px(&without, x, y), "corner {x},{y} changed");
     }
 }
+
+#[test]
+fn keyframes_ramps_and_captions() {
+    use liemo_mobile::model::keys::{self, Ease, Key};
+    use liemo_mobile::model::store::Store;
+    use liemo_mobile::model::types::AssetType;
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-tests-{}", std::process::id()));
+    let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
+    let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
+    let id = serde_json::from_str::<serde_json::Value>(&made.text).unwrap()["id"].as_str().unwrap().to_string();
+    e.open_project(id.clone());
+    let title = clip_of(&e, &id, "text");
+
+    // Opacity keyed from 0 to 1 over the title: hidden at its start, shown by its end.
+    let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap();
+    let t0 = doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == title.as_str()).unwrap()["start"].as_f64().unwrap();
+    let plain = e.render_frame(t0 + 0.05, 320).unwrap();
+    let r = e.call("set_keyframes".into(), format!(r#"{{"project":"{id}","clip":"{title}","property":"opacity","keys":[{{"time":{},"value":0}},{{"time":{},"value":1,"ease":"smooth"}}]}}"#, t0, t0 + 2.0));
+    assert!(r.ok, "{}", r.text);
+    let keyed = e.render_frame(t0 + 0.05, 320).unwrap();
+    assert_ne!(plain.rgba, keyed.rgba, "opacity keyframes changed nothing");
+    assert!(!e.call("set_keyframes".into(), format!(r#"{{"project":"{id}","clip":"{title}","property":"nope","keys":[]}}"#)).ok);
+
+    // Captions from cues land on Titles; export writes them back out.
+    let r = e.call("add_captions".into(), format!(r#"{{"project":"{id}","cues":[{{"start":1,"end":2,"text":"Hello"}},{{"start":2,"end":3.5,"text":"world"}}],"style":"pop"}}"#));
+    assert!(r.ok, "{}", r.text);
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&r.text).unwrap()["added"], 2);
+    let srt = std::env::temp_dir().join(format!("liemo-test-{}.srt", std::process::id()));
+    let r = e.call("export_captions".into(), format!(r#"{{"project":"{id}","path":"{}"}}"#, srt.display()));
+    assert!(r.ok, "{}", r.text);
+    let text = std::fs::read_to_string(&srt).unwrap();
+    assert!(text.contains("00:00:01,000 --> 00:00:02,000\nHello"), "{text}");
+    let _ = std::fs::remove_file(&srt);
+    e.close_project();
+
+    // Store: splitting a ramped clip keeps the footage continuous; freeze frames ripple.
+    let mut st = Store::new("t".into(), liemo_mobile::model::store::sample_clips(), vec![], vec![]);
+    let v = st.clips.iter().find(|c| c.track == "V1").unwrap().id.clone();
+    st.update_clip(&v, |c| {
+        c.keys.insert("speed".into(), vec![Key { t: 0.0, v: 1.0, ease: Ease::Smooth }, Key { t: 4.0, v: 3.0, ease: Ease::Linear }]);
+    });
+    let whole = st.clip(&v).unwrap().clone();
+    st.select(Some(v.clone()));
+    st.time = 2.5;
+    st.split();
+    let b = st.selected_clip().unwrap().clone();
+    assert!((b.in_ - (whole.in_ + whole.src_offset(2.5))).abs() < 1e-9);
+    assert!((b.src_offset(1.0) - (whole.src_offset(3.5) - whole.src_offset(2.5))).abs() < 1e-9, "ramp jumps at the cut");
+    assert!((keys::value_at(&b.keys["speed"], 0.0).unwrap() - keys::value_at(&whole.keys["speed"], 2.5).unwrap()).abs() < 1e-9);
+
+    let mut st = Store::new("t".into(), liemo_mobile::model::store::sample_clips(), vec![], vec![]);
+    let first = st.clips.iter().filter(|c| c.track == "V1").min_by(|a, b| a.start.total_cmp(&b.start)).unwrap().clone();
+    let end_before = st.clips.iter().filter(|c| c.track == "V1").map(|c| c.start + c.dur).fold(0.0, f64::max);
+    st.time = first.start + 2.0;
+    st.freeze_frame(&first.id, 1.5);
+    let held = st.selected_clip().unwrap().clone();
+    assert!(held.frozen() && (held.start - (first.start + 2.0)).abs() < 1e-6 && (held.dur - 1.5).abs() < 1e-6);
+    let end_after = st.clips.iter().filter(|c| c.track == "V1").map(|c| c.start + c.dur).fold(0.0, f64::max);
+    assert!((end_after - end_before - 1.5).abs() < 1e-6, "{end_before} → {end_after}");
+
+    // Multiple selection: copy two clips and paste them, keeping their spacing.
+    let mut st = Store::new("t".into(), liemo_mobile::model::store::sample_clips(), vec![], vec![]);
+    let titles: Vec<_> = st.clips.iter().filter(|c| c.kind == AssetType::Text).take(2).cloned().collect();
+    st.select_many(titles.iter().map(|c| c.id.clone()).collect());
+    assert!(st.many_selected());
+    st.copy();
+    st.paste(None, Some(30.0));
+    let pasted = st.selected_clips();
+    assert_eq!(pasted.len(), 2);
+    assert!((pasted[1].start - pasted[0].start - (titles[1].start - titles[0].start)).abs() < 1e-6);
+    st.remove();
+    assert!(st.clips.iter().all(|c| c.start < 29.0));
+}
+
+#[test]
+fn tracks_markers_masks_and_grading() {
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-tests-{}", std::process::id()));
+    let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
+    let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
+    let id = serde_json::from_str::<serde_json::Value>(&made.text).unwrap()["id"].as_str().unwrap().to_string();
+    e.open_project(id.clone());
+    let call = |name: &str, args: String| {
+        let r = e.call(name.into(), args);
+        assert!(r.ok, "{name}: {}", r.text);
+        serde_json::from_str::<serde_json::Value>(&r.text).unwrap()
+    };
+    let doc = || call("get_project", format!(r#"{{"project":"{id}"}}"#));
+
+    // A new picture track sits in front of the others and draws on top.
+    let before = e.render_frame(3.0, 320).unwrap();
+    let t = call("add_track", format!(r#"{{"project":"{id}","kind":"video","name":"Cutaways"}}"#));
+    let tid = t["track"]["id"].as_str().unwrap().to_string();
+    assert_eq!(t["order"][1], tid.as_str(), "{t}");
+    call("add_clip", format!(r#"{{"project":"{id}","asset":"sc-aurora","track":"{tid}","start":2,"duration":3}}"#));
+    let after = e.render_frame(3.0, 320).unwrap();
+    assert_ne!(before.rgba, after.rgba, "the new track didn't draw");
+    assert!(!e.call("remove_track".into(), format!(r#"{{"project":"{id}","track":"V1"}}"#)).ok);
+    call("remove_track", format!(r#"{{"project":"{id}","track":"{tid}"}}"#));
+    assert_eq!(e.render_frame(3.0, 320).unwrap().rgba, before.rgba);
+    assert!(e.call("undo".into(), format!(r#"{{"project":"{id}"}}"#)).ok);
+    assert!(doc()["tracks"].as_array().unwrap().iter().any(|t| t["id"] == tid.as_str()), "undo brings the track back");
+
+    // Markers and in/out are saved with the project.
+    call("set_markers", format!(r#"{{"project":"{id}","markers":[{{"time":4,"name":"Drop"}},{{"time":1.5}}],"in":1,"out":9}}"#));
+    let d = doc();
+    assert_eq!(d["markers"][0]["t"], 1.5);
+    assert_eq!(d["markers"][1]["name"], "Drop");
+    assert_eq!((d["in"].as_f64(), d["out"].as_f64()), (Some(1.0), Some(9.0)));
+
+    // A mask, a blend mode, colour wheels and a missing LUT all render without trouble.
+    let v1 = clip_of(&e, &id, "scene");
+    let plain = e.render_frame(1.0, 320).unwrap();
+    call("update_clip", format!(r#"{{"project":"{id}","clip":"{v1}","mask":{{"shape":"ellipse","w":400,"h":300,"feather":30}}}}"#));
+    let masked = e.render_frame(1.0, 320).unwrap();
+    assert_ne!(plain.rgba, masked.rgba);
+    let corner = |f: &MediaFrame| f.rgba[0..3].to_vec();
+    assert!(corner(&masked).iter().all(|v| *v < 60), "outside the mask should be dark: {:?}", corner(&masked));
+    call("update_clip", format!(r#"{{"project":"{id}","clip":"{v1}","mask":null,"blend":"screen"}}"#));
+    let fx = call("apply_effect", format!(r#"{{"project":"{id}","clip":"{v1}","effect":"grade","params":{{"gain_hue":30,"gain_amt":0.8,"lift_lum":-0.3}}}}"#));
+    assert!(fx.to_string().contains("grade"), "{fx}");
+    let graded = e.render_frame(1.0, 320).unwrap();
+    assert_ne!(graded.rgba, plain.rgba);
+    call("apply_effect", format!(r#"{{"project":"{id}","clip":"{v1}","effect":"lut","params":{{"file":"/nonexistent.cube"}}}}"#));
+    assert!(e.render_frame(1.0, 320).is_some());
+    e.close_project();
+}

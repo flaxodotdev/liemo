@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod import;
+pub mod proxy;
 pub mod video;
 
 use std::sync::Once;

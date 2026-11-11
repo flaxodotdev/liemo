@@ -51,20 +51,27 @@ pub fn corners(b: &BoxR) -> [(f32, f32); 5] {
     [p(-hw, -hh), p(hw, -hh), p(hw, hh), p(-hw, hh), p(0.0, -hh)]
 }
 
-/// Visual clips on screen at `t`, front-most first: titles, then picture-in-picture, then footage,
-/// overlays last.
+/// Visual clips on screen at `t`, front-most first: tracks from the top of the list down
+/// (titles, then picture-in-picture, then footage); blended overlays (light leaks, grain) last,
+/// so clicking through them picks what they cover.
 pub fn visible_clips<'a>(clips: &'a [Clip], tracks: &[Track], t: f64) -> Vec<&'a Clip> {
-    let hidden = |id: &str| tracks.iter().find(|x| x.id == id).map(|x| x.hidden).unwrap_or(false);
     let at = |track: &str| {
-        let mut v: Vec<&Clip> = clips.iter().filter(|c| c.track == track && !hidden(track) && t >= c.start && t < c.start + c.dur).collect();
+        let mut v: Vec<&Clip> = clips.iter().filter(|c| c.track == track && t >= c.start && t < c.start + c.dur).collect();
         v.sort_by(|a, b| b.start.total_cmp(&a.start));
         v
     };
-    let v2 = at("V2");
-    let mut out = at("T1");
-    out.extend(v2.iter().filter(|c| c.kind != AssetType::Overlay));
-    out.extend(at("V1"));
-    out.extend(v2.iter().filter(|c| c.kind == AssetType::Overlay));
+    let mut out = vec![];
+    let mut overlays = vec![];
+    for tr in tracks.iter().filter(|x| x.kind != TrackKind::Audio && !x.hidden) {
+        for c in at(&tr.id) {
+            if c.kind == AssetType::Overlay {
+                overlays.push(c);
+            } else {
+                out.push(c);
+            }
+        }
+    }
+    out.extend(overlays);
     out
 }
 

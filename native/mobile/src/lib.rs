@@ -18,3 +18,6 @@ pub mod storage;
 
 pub mod audio;
 pub mod mcp;
+/// Where clips sit on the canvas (hit-testing and selection boxes), shared with the desktop.
+#[path = "../../src/ui/editor/geometry.rs"]
+pub mod geometry;

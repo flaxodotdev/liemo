@@ -2,11 +2,15 @@
 // every pointer drag. Panels are split across the files in this module.
 
 pub(crate) mod agent_ui;
+mod captions_ui;
 mod export_ui;
+mod grade_ui;
+mod media_ui;
 pub mod geometry;
 mod inspector;
 pub mod layout;
 mod library;
+mod menus;
 mod preview;
 mod record_ui;
 mod timeline;
@@ -19,7 +23,7 @@ use super::theme::*;
 use crate::audio::AudioEngine;
 use crate::media::import::{self, file_name, new_media_id};
 use crate::model::assets::asset;
-use crate::model::store::{accepts, default_track, project_end, Store, min_clip};
+use crate::model::store::{accepts, default_track, Store, min_clip};
 use crate::model::time::{snap_frame, tc, FPS, H, W};
 use crate::model::types::*;
 use crate::storage::{self, MediaRecord, ProjectRecord};
@@ -43,6 +47,8 @@ use std::time::{Duration, Instant};
 /// Clips go on the system clipboard as text with this prefix, so they paste across windows (and
 /// between the browser and native versions).
 const CLIP_MARK: &str = "rayna-clip:";
+/// Several clips at once: a JSON array.
+const CLIPS_MARK: &str = "rayna-clips:";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
@@ -82,16 +88,45 @@ pub enum ClipMode {
     Move,
     Left,
     Right,
+    /// Option-drag on the right edge: change the clip's speed so its footage fills the new length.
+    Stretch,
+}
+
+/// A clip being moved or trimmed on the timeline, and the clips moving with it.
+pub struct ClipDrag {
+    pub id: String,
+    pub mode: ClipMode,
+    pub x0: f32,
+    pub y0: f32,
+    pub o_start: f64,
+    pub o_dur: f64,
+    pub o_in: f64,
+    pub o_speed: f64,
+    /// Other selected clips that move along: id and start before the drag.
+    pub group: Vec<(String, f64)>,
+    pub pts: Vec<f64>,
+    pub moved: bool,
 }
 
 pub type Apply = Rc<dyn Fn(&mut Editor, f64)>;
+
+/// What the rename field is renaming.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Rename {
+    Track(String),
+    Marker(usize),
+}
 
 pub enum Drag {
     /// Resizing a panel by dragging the gap beside it.
     Resize { edge: layout::Edge, start: f32, size0: f32 },
     Slider { key: String, min: f64, max: f64, step: f64, apply: Apply, history: bool },
     Scrub { was_playing: bool },
-    Clip { id: String, mode: ClipMode, x0: f32, y0: f32, o_start: f64, o_dur: f64, o_in: f64, pts: Vec<f64>, moved: bool },
+    Clip(ClipDrag),
+    /// A colour wheel's puck.
+    Wheel { key: String, clip: String, uid: String, which: &'static str },
+    /// Dragging out a box on empty timeline to select the clips it touches.
+    Marquee { x0: f32, y0: f32, additive: bool, base: Vec<String>, moved: bool },
     StageMove { id: String, o: (f64, f64), b0: BoxR, start: (f32, f32), begun: bool },
     StageScale { id: String, s0: f64, center: (f32, f32), start: (f32, f32), begun: bool },
     StageRotate { id: String, r0: f64, center: (f32, f32), start: (f32, f32), begun: bool },
@@ -150,6 +185,31 @@ pub struct Editor {
     pub scroll_y: f32,
     pub snap_at: Option<f64>,
     pub dragging_clip: Option<String>,
+    /// The selection box being dragged on the timeline, in window coordinates.
+    pub marquee: Option<Bounds<Pixels>>,
+    /// Auto captions running (status line for the Captions menu).
+    pub captioning: bool,
+    /// Where the last right-click on empty timeline was, for its menu.
+    pub ctx_time: f64,
+    /// Built-in music waveforms, made once per track.
+    pub music_peaks: timeline::MusicPeaks,
+    /// Preview zoom (1 = fit) and pan, in points.
+    pub pv_zoom: f32,
+    pub pv_pan: (f32, f32),
+    /// The preview alone, filling the screen.
+    pub cinema: bool,
+    cinema_went_fullscreen: bool,
+    /// Which scope shows over the preview, and its latest picture.
+    pub scope: Option<crate::render::scopes::Scope>,
+    pub scope_img: Option<Arc<RenderImage>>,
+    last_scale: f32,
+    /// Editing proxies being made, and whether the preview must reopen its videos (a proxy
+    /// appeared or went, or proxies were switched).
+    pub proxying: media_ui::Proxying,
+    pub reset_media: bool,
+    /// A track or marker being renamed, and the field for its name.
+    pub renaming: Option<Rename>,
+    pub rename_input: Entity<InputState>,
     // Pointer drags and geometry captured during layout
     drag: Option<Drag>,
     pub geo: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
@@ -198,7 +258,7 @@ impl Editor {
                 Self::load_payload_bg(rec, cx);
             }
         }
-        let store = Store::new(project.name.clone(), project.clips.clone(), project.tracks.clone(), live_pool);
+        let store = project.store(live_pool);
         let focus = cx.focus_handle();
 
         let name_input = cx.new(|cx| InputState::new(window, cx).default_value(store.name.clone()));
@@ -207,6 +267,7 @@ impl Editor {
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search library").default_value(query0.clone()));
         let text_input = cx.new(|cx| TextareaState::new(window, cx).rows(2));
         let export_name = cx.new(|cx| InputState::new(window, cx));
+        let rename_input = cx.new(|cx| InputState::new(window, cx));
         // Test hooks: RAYNA_COMBO=<select id> opens that searchable select, RAYNA_COMBO_QUERY fills its search.
         let combo_q = std::env::var("RAYNA_COMBO_QUERY").unwrap_or_default();
         let combo_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search").default_value(combo_q));
@@ -263,6 +324,10 @@ impl Editor {
             }
             _ => {}
         }));
+        subs.push(cx.subscribe_in(&rename_input, window, |this: &mut Editor, _, ev: &InputEvent, window, cx| match ev {
+            InputEvent::PressEnter { .. } | InputEvent::Blur => this.finish_rename(true, window, cx),
+            _ => {}
+        }));
         subs.push(cx.subscribe_in(&export_name, window, |this: &mut Editor, input, ev: &InputEvent, _w, cx| {
             if let InputEvent::Change = ev {
                 if let Some(e) = &mut this.export {
@@ -283,6 +348,15 @@ impl Editor {
                     if let Some(img) = next {
                         if let Some(old) = this.frame.replace(img) {
                             cx.drop_image(old, Some(window));
+                        }
+                        if let Some(kind) = this.scope {
+                            let pm = this.previewer.pixels.lock().clone();
+                            if let Some(pm) = pm {
+                                let img = crate::ui::images::to_image(&crate::render::scopes::draw(&pm, kind));
+                                if let Some(old) = this.scope_img.replace(img) {
+                                    cx.drop_image(old, Some(window));
+                                }
+                            }
                         }
                     }
                     cx.notify();
@@ -337,6 +411,21 @@ impl Editor {
             scroll_y: 0.0,
             snap_at: None,
             dragging_clip: None,
+            marquee: None,
+            captioning: false,
+            ctx_time: 0.0,
+            music_peaks: Default::default(),
+            renaming: None,
+            rename_input,
+            pv_zoom: 1.0,
+            pv_pan: (0.0, 0.0),
+            cinema: false,
+            cinema_went_fullscreen: false,
+            scope: None,
+            scope_img: None,
+            last_scale: 1.0,
+            proxying: Default::default(),
+            reset_media: false,
             drag: None,
             geo: Rc::new(RefCell::new(HashMap::new())),
             drop_target: None,
@@ -356,9 +445,11 @@ impl Editor {
         };
         ed.saved_rev = ed.store.rev;
         ed.scheduled_rev = ed.store.rev;
+        crate::media::proxy::ENABLED.store(super::prefs::get("proxies").and_then(|v| v.as_bool()).unwrap_or(true), std::sync::atomic::Ordering::Relaxed);
         if !pending.is_empty() {
             ed.import(pending, Some((0.0, None)), cx);
         }
+        ed.rescan_watched(cx);
         // New projects have no card thumbnail yet; make one once media has had a moment to load.
         if !storage::project_thumb_path(&ed.project.id).exists() && !ed.store.clips.is_empty() {
             ed.save_task = Some(cx.spawn(async move |this, cx| {
@@ -380,6 +471,19 @@ impl Editor {
         }
         if let Some(i) = std::env::var("RAYNA_SELECT").ok().and_then(|v| v.parse::<usize>().ok()) {
             ed.store.selected = ed.store.clips.get(i).map(|c| c.id.clone());
+        }
+        // Test hooks: RAYNA_SCOPE=waveform|parade|vector|histogram, RAYNA_PV_ZOOM=<1–8>.
+        if let Ok(v) = std::env::var("RAYNA_SCOPE") {
+            use crate::render::scopes::Scope;
+            ed.scope = Some(match v.as_str() {
+                "parade" => Scope::Parade,
+                "vector" => Scope::Vector,
+                "histogram" => Scope::Histogram,
+                _ => Scope::Waveform,
+            });
+        }
+        if let Some(z) = std::env::var("RAYNA_PV_ZOOM").ok().and_then(|v| v.parse::<f32>().ok()) {
+            ed.set_preview_zoom(z, None);
         }
         if let Ok(t) = std::env::var("RAYNA_TAB") {
             ed.tab = match t.as_str() {
@@ -432,10 +536,17 @@ impl Editor {
     }
 
     // ---------- Playback ----------
+    /// Where playback runs: the in-to-out range while looping, else the whole edit.
+    fn play_range(&self) -> (f64, f64) {
+        match self.store.in_out_range() {
+            Some(r) if self.store.looping => r,
+            _ => (0.0, self.store.end()),
+        }
+    }
     pub fn play(&mut self) {
-        let end = self.store.end();
-        if self.store.time >= end - 1.0 / FPS() {
-            self.store.time = 0.0;
+        let (start, end) = self.play_range();
+        if self.store.time >= end - 1.0 / FPS() || self.store.time < start - 1e-6 {
+            self.store.time = start;
         }
         self.store.playing = true;
         self.sync_audio_timeline();
@@ -495,12 +606,12 @@ impl Editor {
             .time()
             .or_else(|| self.fallback_clock.filter(|_| !self.audio.available()).map(|(at, t0)| t0 + at.elapsed().as_secs_f64()))
             .unwrap_or(self.store.time);
-        let end = self.store.end();
+        let (start, end) = self.play_range();
         if t >= end {
             if self.store.looping {
-                self.store.time = 0.0;
-                self.audio.play(0.0);
-                self.fallback_clock = Some((Instant::now(), 0.0));
+                self.store.time = start;
+                self.audio.play(start);
+                self.fallback_clock = Some((Instant::now(), start));
             } else {
                 self.store.time = (end - 1.0 / FPS()).max(0.0);
                 self.pause();
@@ -517,6 +628,7 @@ impl Editor {
             || self.search_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.text_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.export_name.read(cx).focus_handle(cx).contains_focused(window, cx)
+            || self.rename_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.combo_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.agent.input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.agent.picker_input.read(cx).focus_handle(cx).contains_focused(window, cx)
@@ -531,6 +643,10 @@ impl Editor {
             return;
         }
         if self.text_entry_focused(window, cx) {
+            if ev.keystroke.key == "escape" && self.renaming.is_some() {
+                self.finish_rename(false, window, cx);
+                cx.stop_propagation();
+            }
             return;
         }
         let k = ev.keystroke.key.as_str();
@@ -546,17 +662,26 @@ impl Editor {
                 "b" => self.toggle_panel(layout::Edge::Library, cx),
                 "j" => self.toggle_panel(layout::Edge::Timeline, cx),
                 "i" => self.toggle_agent(cx),
+                "0" => self.set_preview_zoom(1.0, None),
+                "=" | "+" => self.set_preview_zoom(self.pv_zoom * 1.5, None),
+                "-" => self.set_preview_zoom(self.pv_zoom / 1.5, None),
                 "z" if m.shift => s.redo(),
                 "z" => s.undo(),
                 "y" => s.redo(),
                 "d" => s.duplicate(),
                 "c" => self.copy_to_clipboard(cx),
-                "x" => {
-                    self.store.cut();
-                    self.write_clipboard(cx);
-                }
+                "x" => self.cut_to_clipboard(cx),
+                "a" => s.select_all(None),
                 "v" => self.paste_from_clipboard(cx),
                 _ => return,
+            }
+        } else if m.alt && matches!(k, "i" | "o" | "x") {
+            // ⌥I, ⌥O, ⌥X clear the in point, the out point, or both.
+            if k != "o" {
+                s.set_in(None);
+            }
+            if k != "i" {
+                s.set_out(None);
             }
         } else if m.alt {
             // Option + arrows nudge the selected picture or text on screen (Shift for 10px).
@@ -568,18 +693,29 @@ impl Editor {
                 "down" => (0.0, d),
                 _ => return,
             };
-            if let Some(c) = s.selected_clip().cloned().filter(|c| c.visual()) {
+            if let Some(c) = s.selected_clip().map(|c| c.posed(s.time)).filter(|c| c.visual()) {
                 if !ev.is_held {
                     s.commit();
                 }
-                s.update_clip(&c.id, |k| {
-                    k.x += dir.0;
-                    k.y += dir.1;
-                });
+                self.set_props_now(&c.id, &[("x", c.x + dir.0), ("y", c.y + dir.1)]);
             }
         } else {
             match k {
                 "s" => s.split(),
+                "m" => s.toggle_marker(),
+                "i" => {
+                    let t = s.time;
+                    s.set_in(Some(t));
+                }
+                "o" => {
+                    let t = s.time;
+                    s.set_out(Some(t));
+                }
+                "[" | "]" => {
+                    if let Some(t) = s.marker_from(if k == "]" { 1 } else { -1 }) {
+                        self.seek(t);
+                    }
+                }
                 "delete" | "backspace" => s.remove(),
                 "left" => self.step(if m.shift { -10 } else { -1 }),
                 "right" => self.step(if m.shift { 10 } else { 1 }),
@@ -593,7 +729,9 @@ impl Editor {
                 "g" => s.guides = !s.guides,
                 "=" | "+" => self.zoom_by(1.25, None),
                 "-" => self.zoom_by(0.8, None),
+                "escape" if self.cinema => self.toggle_cinema(window, cx),
                 "escape" => s.select(None),
+                "f" => self.toggle_cinema(window, cx),
                 _ => return,
             }
         }
@@ -603,18 +741,25 @@ impl Editor {
 
     // ---------- Clipboard ----------
     fn write_clipboard(&mut self, cx: &mut Context<Self>) {
-        if let Some(c) = &self.store.clipboard {
-            if let Ok(json) = serde_json::to_string(c) {
-                cx.write_to_clipboard(ClipboardItem::new_string(format!("{CLIP_MARK}{json}")));
-            }
+        let text = match self.store.clipboard.as_slice() {
+            [] => return,
+            [one] => serde_json::to_string(one).map(|j| format!("{CLIP_MARK}{j}")),
+            many => serde_json::to_string(many).map(|j| format!("{CLIPS_MARK}{j}")),
+        };
+        if let Ok(t) = text {
+            cx.write_to_clipboard(ClipboardItem::new_string(t));
         }
     }
-    fn copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub fn cut_to_clipboard(&mut self, cx: &mut Context<Self>) {
+        self.store.cut();
+        self.write_clipboard(cx);
+    }
+    pub fn copy_to_clipboard(&mut self, cx: &mut Context<Self>) {
         if self.store.copy().is_some() {
             self.write_clipboard(cx);
         }
     }
-    fn paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub fn paste_from_clipboard(&mut self, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else {
             self.store.paste(None, None);
             return;
@@ -641,11 +786,18 @@ impl Editor {
             }
         }
         let text = item.text().unwrap_or_default();
-        // 2. A clip copied from Liemo.
+        // 2. Clips copied from Liemo.
         if let Some(json) = text.strip_prefix(CLIP_MARK) {
             match serde_json::from_str::<Clip>(json) {
-                Ok(c) => self.store.paste(Some(c), None),
+                Ok(c) => self.store.paste(Some(vec![c]), None),
                 Err(_) => self.store.toast("That clipboard content couldn't be read as a clip"),
+            }
+            return;
+        }
+        if let Some(json) = text.strip_prefix(CLIPS_MARK) {
+            match serde_json::from_str::<Vec<Clip>>(json) {
+                Ok(v) => self.store.paste(Some(v), None),
+                Err(_) => self.store.toast("That clipboard content couldn't be read as clips"),
             }
             return;
         }
@@ -675,7 +827,7 @@ impl Editor {
 
     // ---------- Import ----------
     pub fn pick_files(&mut self, place: Option<(f64, Option<String>)>, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Import".into()) });
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: true, multiple: true, prompt: Some("Import".into()) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 let _ = this.update(cx, |this, cx| this.import(paths, place, cx));
@@ -687,8 +839,22 @@ impl Editor {
     /// Add files to the media pool. With `place`, each file also lands on the timeline once it
     /// has been read: the first at the given time, the rest one after another.
     pub fn import(&mut self, paths: Vec<PathBuf>, place: Option<(f64, Option<String>)>, cx: &mut Context<Self>) {
+        let paths = self.expand_folders(paths);
         let mut accepted = vec![];
         for p in paths {
+            // A .cube file dropped in grades the selected picture clip.
+            if p.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("cube")).unwrap_or(false) {
+                match self.store.selected_clip().filter(|c| c.visual() && c.kind != AssetType::Text).map(|c| c.id.clone()) {
+                    Some(id) => self.apply_lut(&id, None, &p),
+                    None => self.store.toast("Select a picture clip, then drop the LUT on Liemo to grade it"),
+                }
+                continue;
+            }
+            // Subtitle files become captions on Titles.
+            if crate::model::captions::is_subtitle_file(&p) {
+                self.import_subtitles(&p);
+                continue;
+            }
             if import::kind_of(&p).is_none() {
                 self.store.toast(format!("{} isn't a video, audio or image file", file_name(&p)));
                 continue;
@@ -730,6 +896,10 @@ impl Editor {
                                     *cursor.borrow_mut() = c.start + c.dur;
                                 }
                             }
+                            // Big videos get an editing proxy straight away (unless turned off).
+                            if rec.kind == AssetType::Video && crate::media::proxy::worth_it(rec.width, rec.height) && crate::ui::prefs::get("auto_proxy").and_then(|v| v.as_bool()).unwrap_or(true) {
+                                this.make_proxy(&rec.id, cx);
+                            }
                             if rec.kind != AssetType::Photo {
                                 Self::load_payload_bg(rec, cx);
                             }
@@ -751,16 +921,11 @@ impl Editor {
     /// The project as it is now, including edits not yet saved.
     pub fn record(&self) -> ProjectRecord {
         let s = &self.store;
-        ProjectRecord {
-            name: if s.name.trim().is_empty() { "Untitled project".into() } else { s.name.trim().to_string() },
-            clips: s.clips.clone(),
-            tracks: s.tracks.clone(),
-            pool: s.pool.clone(),
-            duration: project_end(&s.clips),
-            clip_count: s.clips.len(),
-            updated_at: storage::now_ms(),
-            ..self.project.clone()
-        }
+        let mut r = self.project.clone();
+        r.take(s);
+        r.name = if s.name.trim().is_empty() { "Untitled project".into() } else { s.name.trim().to_string() };
+        r.updated_at = storage::now_ms();
+        r
     }
     fn schedule_save(&mut self, cx: &mut Context<Self>) {
         self.save_state = SaveState::Saving;
@@ -906,8 +1071,38 @@ impl Editor {
                 let t = snap_frame(self.time_at(pos.x));
                 self.seek(t);
             }
-            Drag::Clip { id, mode, x0, y0, o_start, o_dur, o_in, pts, moved } => {
-                self.clip_drag_move(id.clone(), *mode, *x0, *y0, *o_start, *o_dur, *o_in, pts, moved, pos);
+            Drag::Clip(d) => self.clip_drag_move(d, pos),
+            Drag::Wheel { key, clip, uid, which } => {
+                let (k, c, u, w) = (key.clone(), clip.clone(), uid.clone(), *which);
+                self.wheel_drag(&k, &c, &u, w, pos);
+            }
+            Drag::Marquee { x0, y0, additive, base, moved } => {
+                let (x, y) = (f32::from(pos.x), f32::from(pos.y));
+                if !*moved && (x - *x0).hypot(y - *y0) < 3.0 {
+                    self.drag = Some(drag);
+                    return;
+                }
+                *moved = true;
+                let r = Bounds::from_corners(gpui::point(px(x.min(*x0)), px(y.min(*y0))), gpui::point(px(x.max(*x0)), px(y.max(*y0))));
+                let geo = self.geo.borrow();
+                let mut ids: Vec<String> = if *additive { base.clone() } else { vec![] };
+                let mut hit: Vec<(f64, String)> = self
+                    .store
+                    .clips
+                    .iter()
+                    .filter(|c| geo.get(&format!("clip:{}", c.id)).map(|b| b.intersects(&r)).unwrap_or(false))
+                    .filter(|c| !self.store.track(&c.track).locked)
+                    .map(|c| (c.start, c.id.clone()))
+                    .collect();
+                drop(geo);
+                hit.sort_by(|a, b| a.0.total_cmp(&b.0));
+                for (_, id) in hit {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
+                self.store.select_many(ids);
+                self.marquee = Some(r);
             }
             Drag::Resize { edge, start, size0 } => self.resize_drag(*edge, *start, *size0, pos),
             Drag::StageMove { id, o, b0, start, begun } => {
@@ -953,12 +1148,33 @@ impl Editor {
                     self.play();
                 }
             }
-            Drag::Clip { id, mode, moved, .. } => {
+            Drag::Clip(d) => {
                 self.snap_at = None;
                 self.dragging_clip = None;
-                if moved {
-                    self.store.settle(&id, mode == ClipMode::Move);
+                self.readout = None;
+                if d.moved {
+                    if d.group.is_empty() {
+                        self.store.settle(&d.id, d.mode == ClipMode::Move);
+                    } else {
+                        let mut ids: Vec<String> = d.group.iter().map(|(i, _)| i.clone()).collect();
+                        ids.push(d.id.clone());
+                        self.store.settle_many(&ids);
+                    }
                     self.restart_audio();
+                } else if !d.group.is_empty() {
+                    // A click (no drag) on one of several selected clips selects just that one.
+                    self.store.select(Some(d.id.clone()));
+                }
+            }
+            Drag::Marquee { x0, additive, moved, .. } => {
+                self.marquee = None;
+                if !moved {
+                    // A plain click on empty timeline: clear the selection and move the playhead there.
+                    if !additive {
+                        self.store.select(None);
+                    }
+                    let t = snap_frame(self.time_at(px(x0)));
+                    self.seek(t);
                 }
             }
             Drag::StageMove { begun, .. } | Drag::StageScale { begun, .. } | Drag::StageRotate { begun, .. } => {
@@ -969,25 +1185,28 @@ impl Editor {
                 self.readout = None;
             }
             Drag::Range { .. } => {}
+            Drag::Wheel { .. } => self.store.end_edit(),
             Drag::Resize { .. } => self.layout.save(),
         }
         cx.notify();
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn clip_drag_move(&mut self, id: String, mode: ClipMode, x0: f32, y0: f32, o_start: f64, o_dur: f64, o_in: f64, pts: &[f64], moved: &mut bool, pos: Point<Pixels>) {
+    fn clip_drag_move(&mut self, d: &mut ClipDrag, pos: Point<Pixels>) {
         let (x, y) = (f32::from(pos.x), f32::from(pos.y));
-        if !*moved && (x - x0).hypot(y - y0) < 3.0 {
+        if !d.moved && (x - d.x0).hypot(y - d.y0) < 3.0 {
             return;
         }
-        if !*moved {
+        if !d.moved {
             self.store.commit();
-            *moved = true;
-            self.dragging_clip = Some(id.clone());
+            d.moved = true;
+            self.dragging_clip = Some(d.id.clone());
         }
+        let id = d.id.clone();
+        let (o_start, o_dur, o_in) = (d.o_start, d.o_dur, d.o_in);
         let Some(cur) = self.store.clip(&id).cloned() else { return };
         let zoom = self.store.zoom;
         let snap = self.store.snap;
+        let pts = &d.pts;
         let snap_to = |t: f64| -> (f64, Option<f64>) {
             if !snap {
                 return (t, None);
@@ -1004,7 +1223,7 @@ impl Editor {
                 None => (t, None),
             }
         };
-        let dx = (x - x0) as f64 / zoom;
+        let dx = (x - d.x0) as f64 / zoom;
         let media = matches!(cur.kind, AssetType::Video | AssetType::Audio);
         let a = asset(&cur.asset);
         let mut hit = None;
@@ -1012,9 +1231,11 @@ impl Editor {
         let mut dur = cur.dur;
         let mut in_ = cur.in_;
         let mut track = cur.track.clone();
-        match mode {
+        match d.mode {
             ClipMode::Move => {
-                let mut ns = (o_start + dx).max(0.0);
+                // A group can't go before 0 either.
+                let lowest = d.group.iter().map(|(_, s)| *s).fold(o_start, f64::min);
+                let mut ns = (o_start + dx).max(o_start - lowest);
                 let a1 = snap_to(ns);
                 let a2 = snap_to(ns + cur.dur);
                 if a1.1.is_some() {
@@ -1024,11 +1245,18 @@ impl Editor {
                     ns = a2.0 - cur.dur;
                     hit = a2.1;
                 }
-                start = snap_frame(ns.max(0.0));
-                if let Some(tid) = self.lane_at(pos) {
-                    if tid != cur.track && accepts(&self.store.tracks, &tid, cur.kind) && !self.store.track(&tid).locked {
-                        track = tid;
+                start = snap_frame(ns.max(o_start - lowest).max(0.0));
+                if d.group.is_empty() {
+                    if let Some(tid) = self.lane_at(pos) {
+                        if tid != cur.track && accepts(&self.store.tracks, &tid, cur.kind) && !self.store.track(&tid).locked {
+                            track = tid;
+                        }
                     }
+                }
+                let delta = start - o_start;
+                for (gid, gs) in &d.group {
+                    let ns = snap_frame((gs + delta).max(0.0));
+                    self.store.update_clip(gid, |c| c.start = ns);
                 }
             }
             ClipMode::Left => {
@@ -1046,25 +1274,45 @@ impl Editor {
                         .fold(0.0f64, |m, k| m.max(k.start + k.dur));
                     ns = ns.max(prev_end);
                 }
-                if media {
+                if media && !cur.ramped() {
                     ns = ns.max(o_start - o_in / cur.speed());
                 }
                 start = snap_frame(ns);
                 dur = end - start;
-                in_ = (o_in + (start - o_start) * cur.speed()).max(0.0);
+                in_ = if cur.ramped() {
+                    // Along a ramp, the footage skipped is the ramp's integral.
+                    let cut = start - cur.start;
+                    if cut >= 0.0 { cur.in_ + cur.src_offset(cut) } else { cur.in_ + cut * cur.value("speed", 0.0).unwrap_or(1.0) }
+                } else if cur.frozen() {
+                    o_in
+                } else {
+                    o_in + (start - o_start) * cur.speed()
+                }
+                .max(0.0);
             }
             ClipMode::Right => {
                 let sn = snap_to(o_start + o_dur + dx);
                 hit = sn.1;
                 let mut d = (sn.0 - cur.start).max(min_clip());
-                if media {
+                if media && !cur.frozen() {
                     if let Some(a) = &a {
-                        d = d.min((a.dur - cur.in_) / cur.speed());
+                        if !cur.ramped() {
+                            d = d.min((a.dur - cur.in_) / cur.speed());
+                        }
                     }
                 }
                 dur = snap_frame(d);
             }
+            ClipMode::Stretch => {
+                let sn = snap_to(o_start + o_dur + dx);
+                self.snap_at = sn.1;
+                self.store.stretch_to(&id, o_dur, d.o_speed, (sn.0 - o_start).max(min_clip()));
+                let sp = self.store.clip(&id).map(|c| c.speed()).unwrap_or(1.0);
+                self.readout = Some(format!("{:.2}×", sp));
+                return;
+            }
         }
+        let shift = start - cur.start;
         self.store.update_clip(&id, |c| {
             c.start = start;
             c.dur = dur;
@@ -1072,8 +1320,92 @@ impl Editor {
             c.track = track;
             c.fade_in = c.fade_in.min(dur / 2.0);
             c.fade_out = c.fade_out.min(dur / 2.0);
+            if d.mode == ClipMode::Left && shift != 0.0 {
+                // Keys stay on the same moment of the footage.
+                crate::model::keys::shift(&mut c.keys, shift);
+            }
         });
         self.snap_at = hit;
+    }
+
+    /// Set properties of a clip as it is at the playhead: keyed ones get a key there.
+    pub fn set_props_now(&mut self, id: &str, props: &[(&str, f64)]) {
+        let Some(start) = self.store.clip(id).map(|c| c.start) else { return };
+        let lt = self.store.time - start;
+        for (p, v) in props {
+            self.store.set_prop(id, p, *v, lt);
+        }
+    }
+    /// Preview zoom, 1 (fit) to 8, keeping the point under `anchor` (stage-wrap coordinates) still.
+    pub fn set_preview_zoom(&mut self, z: f32, anchor: Option<(f32, f32)>) {
+        let z = z.clamp(1.0, 8.0);
+        let old = self.pv_zoom;
+        if let (Some((ax, ay)), Some(b)) = (anchor, self.bounds("stage-wrap")) {
+            // The anchor's offset from the wrap's centre, scaled with the zoom.
+            let (cx, cy) = (ax - f32::from(b.size.width) / 2.0, ay - f32::from(b.size.height) / 2.0);
+            let k = z / old;
+            self.pv_pan = (cx - (cx - self.pv_pan.0) * k, cy - (cy - self.pv_pan.1) * k);
+        } else {
+            let k = z / old;
+            self.pv_pan = (self.pv_pan.0 * k, self.pv_pan.1 * k);
+        }
+        self.pv_zoom = z;
+        if z <= 1.0 {
+            self.pv_pan = (0.0, 0.0);
+        }
+    }
+    /// The preview alone, full screen; again (or Esc) to come back.
+    pub fn toggle_cinema(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cinema = !self.cinema;
+        if self.cinema {
+            self.cinema_went_fullscreen = !window.is_fullscreen();
+            if self.cinema_went_fullscreen {
+                window.toggle_fullscreen();
+            }
+        } else if self.cinema_went_fullscreen && window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
+        cx.notify();
+    }
+    /// Start renaming a track or marker in place.
+    pub fn start_rename(&mut self, what: Rename, window: &mut Window, cx: &mut Context<Self>) {
+        let name = match &what {
+            Rename::Track(id) => self.store.track(id).name.clone(),
+            Rename::Marker(i) => self.store.markers.get(*i).map(|m| m.name.clone()).unwrap_or_default(),
+        };
+        self.renaming = Some(what);
+        self.rename_input.update(cx, |s, cx| {
+            s.set_value(name, window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+    fn finish_rename(&mut self, keep: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(what) = self.renaming.take() else { return };
+        if keep {
+            let v = self.rename_input.read(cx).value().trim().to_string();
+            match what {
+                Rename::Track(id) => self.store.rename_track(&id, &v),
+                Rename::Marker(i) => self.store.update_marker(i, |m| m.name = v),
+            }
+        }
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+    /// The keyframe button for a property: a key at the playhead, or none.
+    pub fn toggle_key_now(&mut self, id: &str, prop: &str) {
+        let Some(start) = self.store.clip(id).map(|c| c.start) else { return };
+        let lt = self.store.time - start;
+        self.store.toggle_key(id, prop, lt);
+    }
+    /// Every clip as it stands at the playhead (keyframes applied), for hit-testing the picture.
+    pub fn posed_clips(&self) -> Vec<Clip> {
+        let t = self.store.time;
+        self.store.clips.iter().map(|c| c.posed(t)).collect()
+    }
+    /// The clip with its keyed properties as they are at the playhead.
+    pub fn posed(&self, id: &str) -> Option<Clip> {
+        self.store.clip(id).map(|c| c.posed(self.store.time))
     }
 
     // Stage gestures (move with snapping to centre lines and safe margins; scale from a corner;
@@ -1116,10 +1448,7 @@ impl Editor {
             }
         }
         let (nx, ny) = (nx.round(), ny.round());
-        self.store.update_clip(id, |c| {
-            c.x = nx;
-            c.y = ny;
-        });
+        self.set_props_now(id, &[("x", nx), ("y", ny)]);
         self.stage_guides = found;
         self.readout = Some(format!("X {nx}  Y {ny}"));
     }
@@ -1128,7 +1457,7 @@ impl Editor {
             *begun = true;
             self.store.begin_edit();
         }
-        let Some(clip) = self.store.clip(id).cloned() else { return };
+        let Some(clip) = self.posed(id) else { return };
         let d0 = (start.0 - center.0).hypot(start.1 - center.1).max(1.0) as f64;
         let s = ((s0 * (p.0 - center.0).hypot(p.1 - center.1) as f64) / d0).clamp(0.05, 8.0);
         // Keep the box centre where it is: compensate the offset for the scale change.
@@ -1138,11 +1467,7 @@ impl Editor {
         let ds = s - clip.scale;
         let shift = ((lc.0 * a.cos() - lc.1 * a.sin()) * ds, (lc.0 * a.sin() + lc.1 * a.cos()) * ds);
         let s = (s * 1000.0).round() / 1000.0;
-        self.store.update_clip(id, |c| {
-            c.scale = s;
-            c.x = (clip.x - shift.0).round();
-            c.y = (clip.y - shift.1).round();
-        });
+        self.set_props_now(id, &[("scale", s), ("x", (clip.x - shift.0).round()), ("y", (clip.y - shift.1).round())]);
         self.readout = Some(format!("{}%", (s * 100.0).round()));
     }
     #[allow(clippy::too_many_arguments)]
@@ -1151,7 +1476,7 @@ impl Editor {
             *begun = true;
             self.store.begin_edit();
         }
-        let Some(clip) = self.store.clip(id).cloned() else { return };
+        let Some(clip) = self.posed(id) else { return };
         let a0 = (start.1 - center.1).atan2(start.0 - center.0);
         let a1 = (p.1 - center.1).atan2(p.0 - center.0);
         let mut r = r0 + ((a1 - a0) as f64).to_degrees();
@@ -1165,16 +1490,23 @@ impl Editor {
         let lc = (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
         let before = to_canvas(&clip, lc.0, lc.1);
         let after = to_canvas(&Clip { rot: r, ..clip.clone() }, lc.0, lc.1);
-        self.store.update_clip(id, |c| {
-            c.rot = r;
-            c.x = (clip.x + (before.0 - after.0) as f64).round();
-            c.y = (clip.y + (before.1 - after.1) as f64).round();
-        });
+        self.set_props_now(id, &[("rot", r), ("x", (clip.x + (before.0 - after.0) as f64).round()), ("y", (clip.y + (before.1 - after.1) as f64).round())]);
         self.readout = Some(format!("{r}°"));
     }
 
-    pub fn start_clip_drag(&mut self, id: &str, mode: ClipMode, pos: Point<Pixels>, cx: &mut Context<Self>) {
-        self.store.select(Some(id.to_string()));
+    pub fn start_clip_drag(&mut self, id: &str, mode: ClipMode, pos: Point<Pixels>, mods: Modifiers, cx: &mut Context<Self>) {
+        // Shift- or ⌘-click adds a clip to the selection or takes it out.
+        if mode == ClipMode::Move && (mods.shift || mods.platform) {
+            self.store.toggle_select(id);
+            cx.notify();
+            return;
+        }
+        let in_group = self.store.is_selected(id) && self.store.many_selected();
+        if in_group {
+            self.store.focus_in_selection(id);
+        } else {
+            self.store.select(Some(id.to_string()));
+        }
         let Some(c) = self.store.clip(id).cloned() else { return };
         if self.store.track(&c.track).locked {
             let n = self.store.track(&c.track).name.clone();
@@ -1182,19 +1514,46 @@ impl Editor {
             cx.notify();
             return;
         }
+        // Trimming works on one clip; moving takes the whole selection along.
+        let group: Vec<(String, f64)> = if in_group && mode == ClipMode::Move {
+            self.store.selected_clips().iter().filter(|k| k.id != id && !self.store.track(&k.track).locked).map(|k| (k.id.clone(), k.start)).collect()
+        } else {
+            vec![]
+        };
+        let mut mode = mode;
+        if mode == ClipMode::Right && mods.alt {
+            if c.ramped() || c.frozen() || matches!(c.kind, AssetType::Text | AssetType::Image | AssetType::Photo | AssetType::Music) {
+                self.store.toast(if c.ramped() { "This clip has a speed ramp. Change it with the Speed keyframes." } else { "Rate stretch changes the speed of video and audio clips" });
+            } else {
+                mode = ClipMode::Stretch;
+            }
+        }
         let mut pts = vec![0.0, self.store.time];
-        for k in self.store.clips.iter().filter(|k| k.id != id) {
+        for k in self.store.clips.iter().filter(|k| k.id != id && !group.iter().any(|(g, _)| *g == k.id)) {
             pts.push(k.start);
             pts.push(k.start + k.dur);
+            // Beats of the music and audio underneath, so cuts land on the beat.
+            if k.kind.is_audio() {
+                pts.extend(self.beat_times(k));
+            }
         }
+        pts.extend(self.store.markers.iter().map(|m| m.t));
+        pts.extend([self.store.in_out.0, self.store.in_out.1].into_iter().flatten());
         self.begin_drag(
-            Drag::Clip { id: id.to_string(), mode, x0: f32::from(pos.x), y0: f32::from(pos.y), o_start: c.start, o_dur: c.dur, o_in: c.in_, pts, moved: false },
+            Drag::Clip(ClipDrag { id: id.to_string(), mode, x0: f32::from(pos.x), y0: f32::from(pos.y), o_start: c.start, o_dur: c.dur, o_in: c.in_, o_speed: c.speed(), group, pts, moved: false }),
             cx,
         );
     }
 
+    /// A press on empty timeline: a click moves the playhead, a drag draws a selection box.
+    pub fn start_marquee(&mut self, ev: &gpui::MouseDownEvent, cx: &mut Context<Self>) {
+        let additive = ev.modifiers.shift || ev.modifiers.platform;
+        let base = if additive { self.store.selection() } else { vec![] };
+        self.begin_drag(Drag::Marquee { x0: f32::from(ev.position.x), y0: f32::from(ev.position.y), additive, base, moved: false }, cx);
+    }
+
     pub fn start_stage_gesture(&mut self, kind: &str, pos: Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(c) = self.store.selected_clip().cloned() else { return };
+        let Some(c) = self.store.selected_clip().map(|c| c.posed(self.store.time)) else { return };
         if self.locked_on_stage(&c) {
             cx.notify();
             return;
@@ -1328,10 +1687,15 @@ impl Render for Editor {
         let media_changed = self.media_rev != self.seen_media_rev;
         self.seen_media_rev = self.media_rev;
         let key = (self.store.time, self.store.rev, media_changed);
-        if self.last_job.map(|k| k.0 != key.0 || k.1 != key.1).unwrap_or(true) || media_changed {
+        // Zoomed in, the frame renders at the stage's pixel size so it stays sharp.
+        let scale = if self.pv_zoom > 1.01 { (self.stage_size.0 * window.scale_factor() / W()).clamp(1.0, 3.0) } else { 1.0 };
+        let scale = (scale * 4.0).round() / 4.0;
+        if self.last_job.map(|k| k.0 != key.0 || k.1 != key.1).unwrap_or(true) || media_changed || scale != self.last_scale || self.reset_media {
             self.refresh_arcs();
-            self.previewer.request(Job { time: self.store.time, clips: self.clips_arc.clone(), tracks: self.tracks_arc.clone(), reset_media: false, env: self.env() });
+            let reset_media = std::mem::take(&mut self.reset_media);
+            self.previewer.request(Job { time: self.store.time, clips: self.clips_arc.clone(), tracks: self.tracks_arc.clone(), reset_media, env: self.env(), scale });
             self.last_job = Some(key);
+            self.last_scale = scale;
         }
 
         // Toasts from edit actions.
@@ -1405,8 +1769,9 @@ impl Render for Editor {
             .gap_2()
             .px_4()
             .pb_3()
-            .child(self.render_top_bar(window, cx))
-            .child(
+            .when(self.cinema, |d| d.p_0().child(div().flex().flex_1().min_h_0().child(self.render_preview(window, cx))))
+            .when(!self.cinema, |d| d.child(self.render_top_bar(window, cx)))
+            .when(!self.cinema, |d| d.child(
                 // Everything under the top bar: the editor, and the AI sidebar beside it, full height.
                 div()
                     .flex()
@@ -1434,7 +1799,7 @@ impl Render for Editor {
                             }),
                     )
                     .when(self.agent.open, |d| d.child(self.splitter(layout::Edge::Agent, cx)).child(self.render_agent(cx))),
-            )
+            ))
             .when_some(self.export.is_some().then_some(()), |d, _| d.child(self.render_export(window, cx)))
             .when(dragging, |d| {
                 // While a pointer drag runs, follow the pointer anywhere in the window.

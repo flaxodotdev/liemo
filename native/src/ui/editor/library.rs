@@ -11,6 +11,7 @@ use crate::ui::images::{cached, put, to_image};
 use crate::ui::prefs;
 use crate::ui::theme::*;
 use futures::channel::mpsc::UnboundedSender;
+use gpui_component::menu::ContextMenuExt;
 use gpui::prelude::*;
 use gpui::{div, img, px, AnyElement, App, Context, FontWeight, ObjectFit, Pixels, Point, RenderImage, SharedString, WeakEntity, Window};
 use gpui_component::input::Input;
@@ -363,7 +364,10 @@ impl Editor {
                     .pt(px(6.))
                     .pb_2()
                     .child(type_micro(div()).font_weight(FontWeight::MEDIUM).truncate().child(a.name.clone()))
-                    .child(type_micro(div()).text_size(px(11.)).text_color(ink_muted()).truncate().child(a.sub.clone())),
+                    .child(type_micro(div()).text_size(px(11.)).text_color(ink_muted()).truncate().child(match self.proxy_status(&a.id) {
+                        Some(p) => format!("{} · {p}", a.sub),
+                        None => a.sub.clone(),
+                    })),
             )
             .child(
                 div()
@@ -387,8 +391,8 @@ impl Editor {
                         cx.notify();
                     })),
             );
-        let _ = id;
-        self.drag_source(card, payload, cx)
+        let ed = cx.entity();
+        self.drag_source(card, payload, cx).context_menu(move |menu, _, _| super::menus::asset_menu(menu, &ed, id.clone()))
     }
 
     fn music_row(&self, a: &Asset, imported: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -457,7 +461,8 @@ impl Editor {
                     cx.notify();
                 }
             })));
-        self.drag_source(row, payload, cx).into_any_element()
+        let (ed, mid) = (cx.entity(), a.id.clone());
+        self.drag_source(row, payload, cx).context_menu(move |menu, _, _| super::menus::asset_menu(menu, &ed, mid.clone())).into_any_element()
     }
     fn audio_bpm(&self, id: &str) -> f64 {
         asset(id).map(|a| a.bpm).filter(|b| *b > 0.0).unwrap_or(90.0)

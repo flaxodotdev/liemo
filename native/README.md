@@ -83,7 +83,10 @@ Tools: `list_projects`, `create_project` (any format, custom size, fps, backgrou
 template), `get_project`, `open_project`, `set_project`, `list_library`, `list_effects`,
 `list_transitions`, `list_formats`, `import_media`, `add_clip`, `add_text`, `update_clip`,
 `remove_clip`, `split_clip`, `duplicate_clip`, `apply_effect`, `update_effect`, `remove_effect`,
-`set_transition`, `set_track`, `undo`, `redo`, `render_frame` (returns a PNG) and `export`.
+`set_transition`, `set_track` (rename, reorder), `add_track`, `remove_track`, `set_markers` (markers
+and in/out), `detach_audio`, `set_keyframes` (any numeric property, speed ramps), `transcribe`
+(the edit's speech as caption cues, Mac), `add_captions` (cues or an SRT/VTT file),
+`export_captions`, `undo`, `redo`, `render_frame` (returns a PNG) and `export`.
 Code: `src/mcp/` (protocol and socket) and `src/mcp/tools.rs` (definitions and executor).
 
 ## Checks without the UI
@@ -94,4 +97,5 @@ cargo run --release -- --media-test <file> <dir>    # import, decode, and every 
 ```
 
 Launch hooks for screenshots and testing: `RAYNA_MUTE=1` (no audio output), `RAYNA_OPEN=sample`,
-`RAYNA_TIME=<s>`, `RAYNA_SELECT=<n>`, `RAYNA_TAB=effects|transitions|text|music`, `RAYNA_EXPORT=1`.
+`RAYNA_TIME=<s>`, `RAYNA_SELECT=<n>`, `RAYNA_TAB=effects|transitions|text|music`, `RAYNA_EXPORT=1`,
+`RAYNA_SCOPE=waveform|parade|vector|histogram`, `RAYNA_PV_ZOOM=<1–8>`.

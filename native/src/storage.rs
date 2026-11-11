@@ -35,6 +35,15 @@ pub struct ProjectRecord {
     pub resolution: u32,
     #[serde(default = "default_background")]
     pub background: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<crate::model::types::Marker>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "inPoint")]
+    pub in_point: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "outPoint")]
+    pub out_point: Option<f64>,
+    /// Folders imported whole: new files in them join the media pool when the project opens.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watch: Vec<PathBuf>,
 }
 
 fn default_fps() -> u32 {
@@ -69,6 +78,24 @@ pub fn ratio_key(w: u32, h: u32) -> String {
 }
 
 impl ProjectRecord {
+    /// An editing session for this project, with `pool` as its media.
+    pub fn store(&self, pool: Vec<String>) -> crate::model::store::Store {
+        let mut s = crate::model::store::Store::new(self.name.clone(), self.clips.clone(), self.tracks.clone(), pool);
+        s.markers = self.markers.clone();
+        s.in_out = (self.in_point, self.out_point);
+        s
+    }
+    /// Take the session's edit back into the record.
+    pub fn take(&mut self, s: &crate::model::store::Store) {
+        self.name = s.name.clone();
+        self.clips = s.clips.clone();
+        self.tracks = s.tracks.clone();
+        self.pool = s.pool.clone();
+        self.markers = s.markers.clone();
+        (self.in_point, self.out_point) = s.in_out;
+        self.duration = crate::model::store::project_end(&self.clips);
+        self.clip_count = self.clips.len();
+    }
     pub fn env(&self) -> crate::model::time::Env {
         let (w, h) = match (self.format.as_str(), self.size) {
             ("custom", Some([pw, ph])) => design_canvas(pw, ph),
@@ -338,6 +365,10 @@ pub fn create_project(sample: bool, name: Option<String>, np: &NewProject) -> an
         fps: np.fps,
         resolution: np.resolution,
         background: np.background.clone(),
+        markers: vec![],
+        in_point: None,
+        out_point: None,
+        watch: vec![],
     };
     // The sample's titles are laid out for the project's canvas and frame rate.
     let env = p.env();

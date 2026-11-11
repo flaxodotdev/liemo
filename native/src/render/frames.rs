@@ -12,11 +12,17 @@ use tiny_skia::Pixmap;
 pub struct DecoderPool {
     decs: HashMap<String, (String, Option<VideoDecoder>)>,
     max: (u32, u32),
+    /// Decode editing proxies where they exist (the preview; never export).
+    proxies: bool,
 }
 
 impl DecoderPool {
     pub fn new(max_w: u32, max_h: u32) -> Self {
-        DecoderPool { decs: HashMap::new(), max: (max_w, max_h) }
+        DecoderPool { decs: HashMap::new(), max: (max_w, max_h), proxies: false }
+    }
+    /// For the preview: plays proxies instead of big originals.
+    pub fn preview(max_w: u32, max_h: u32) -> Self {
+        DecoderPool { proxies: true, ..Self::new(max_w, max_h) }
     }
     /// Drop decoders for clips that no longer exist.
     pub fn retain(&mut self, clips: &[Clip]) {
@@ -32,7 +38,10 @@ impl Frames for DecoderPool {
     fn video(&mut self, clip: &Clip, src_t: f64) -> Option<Arc<Pixmap>> {
         let entry = self.decs.entry(clip.id.clone()).or_insert_with(|| (String::new(), None));
         if entry.0 != clip.asset {
-            let path = asset(&clip.asset)?.media.as_ref()?.path.clone();
+            let mut path = asset(&clip.asset)?.media.as_ref()?.path.clone();
+            if self.proxies {
+                path = crate::media::proxy::for_preview(&clip.asset, &path);
+            }
             *entry = (clip.asset.clone(), VideoDecoder::open(&path).ok());
         }
         let dec = entry.1.as_mut()?;

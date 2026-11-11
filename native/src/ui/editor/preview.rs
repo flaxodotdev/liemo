@@ -4,6 +4,9 @@
 use super::geometry::{clip_box, corners, hit_test};
 use super::{DropTarget, Editor};
 use crate::model::time::{tc, FPS, H, W};
+use crate::model::types::Clip;
+use gpui_component::button::ButtonVariants;
+use gpui_component::menu::{ContextMenuExt, DropdownMenu};
 use crate::ui::theme::*;
 use gpui::prelude::*;
 use gpui::Focusable;
@@ -26,10 +29,14 @@ impl Editor {
                     h = ph;
                     w = h * ar;
                 }
-                (w.max(0.0), h.max(0.0))
+                (w.max(0.0) * self.pv_zoom, h.max(0.0) * self.pv_zoom)
             }
             None => (0.0, 0.0),
         };
+        // Zoomed in, the picture can be panned up to its edges.
+        let (mx, my) = (((w - pw0) / 2.0).max(0.0), ((h - ph0) / 2.0).max(0.0));
+        self.pv_pan = (self.pv_pan.0.clamp(-mx, mx), self.pv_pan.1.clamp(-my, my));
+        let (pan_x, pan_y) = self.pv_pan;
         if (w, h) != self.stage_size {
             self.stage_size = (w, h);
             window.request_animation_frame();
@@ -44,8 +51,8 @@ impl Editor {
         // measured, never derived from the stage itself.
         let stage = div()
             .absolute()
-            .left(px(((pw0 - w) / 2.0).max(0.0)))
-            .top(px(((ph0 - h) / 2.0).max(0.0)))
+            .left(px((pw0 - w) / 2.0 + pan_x))
+            .top(px((ph0 - h) / 2.0 + pan_y))
             .w(px(w))
             .h(px(h))
             .overflow_hidden()
@@ -133,22 +140,126 @@ impl Editor {
             .child(icon_button("guides", "scan", "Safe-area guides", Some("G"), 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
                 this.store.guides = !this.store.guides;
                 cx.notify();
-            })).when(guides, |d| d.bg(surface3()))));
+            })).when(guides, |d| d.bg(surface3())))
+            .when(!compact, |d| {
+                let ed = cx.entity();
+                let z = self.pv_zoom;
+                d.child(
+                    gpui_component::button::Button::new("pv-zoom")
+                        .label(if z <= 1.0 { "Fit".to_string() } else { format!("{}×", (z * 10.0).round() / 10.0) })
+                        .ghost()
+                        .dropdown_caret(true)
+                        .h(px(32.))
+                        .text_size(px(12.))
+                        .tooltip("Zoom the picture: ⌘= ⌘− ⌘0, or ⌘-scroll over it")
+                        .dropdown_menu(move |mut menu, _, _| {
+                            for (v, l) in [(1.0, "Fit"), (2.0, "2×"), (4.0, "4×"), (8.0, "8×")] {
+                                let ed = ed.clone();
+                                menu = menu.item(gpui_component::menu::PopupMenuItem::new(l).checked((z - v).abs() < 0.01).on_click(move |_, _, cx| {
+                                    ed.update(cx, |e, cx| {
+                                        e.set_preview_zoom(v, None);
+                                        cx.notify();
+                                    })
+                                }));
+                            }
+                            menu
+                        }),
+                )
+            })
+            .child({
+                let ed = cx.entity();
+                let on = self.scope;
+                icon_button("scopes", "activity", "Scopes", None, 32., Variant::Ghost, |_, _, _| {})
+                    .when(on.is_some(), |d| d.bg(surface3()))
+                    .on_click(move |_, _, cx| {
+                        ed.update(cx, |e, cx| {
+                            e.scope = if e.scope.is_some() { None } else { Some(crate::render::scopes::Scope::Waveform) };
+                            e.scope_img = None;
+                            e.last_job = None;
+                            cx.notify();
+                        })
+                    })
+            })
+            .child(icon_button("cinema", "maximize", if self.cinema { "Leave full screen" } else { "Full-screen preview" }, Some("F"), 32., Variant::Ghost, cx.listener(|this, _, window, cx| this.toggle_cinema(window, cx)))));
 
         panel()
             .flex_1()
             .min_w_0()
-            .child(div().relative().flex_1().min_h_0().min_w_0().m_4().child(self.track_bounds("stage-wrap")).child(stage))
+            .child(
+                div()
+                    .id("stage-wrap")
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .m_4()
+                    .overflow_hidden()
+                    .child(self.track_bounds("stage-wrap"))
+                    .child(stage)
+                    .when_some(self.scope_panel(cx), |d, p| d.child(p))
+                    .on_scroll(cx.listener(|this, ev: &gpui::ScrollEvent, _, cx| {
+                        let d = ev.delta.pixel_delta(px(20.));
+                        if ev.modifiers.platform || ev.modifiers.control {
+                            // ⌘-scroll zooms about the pointer.
+                            let anchor = this.bounds("stage-wrap").map(|b| (f32::from(ev.position.x - b.origin.x), f32::from(ev.position.y - b.origin.y)));
+                            let f = (f32::from(d.y) * 0.01).exp();
+                            this.set_preview_zoom(this.pv_zoom * f, anchor);
+                        } else if this.pv_zoom > 1.0 {
+                            this.pv_pan.0 += f32::from(d.x);
+                            this.pv_pan.1 += f32::from(d.y);
+                        } else {
+                            return;
+                        }
+                        cx.stop_propagation();
+                        cx.notify();
+                    })),
+            )
             .child(transport)
+    }
+
+    /// The scope over the picture's corner, with its kind switch.
+    fn scope_panel(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        use crate::render::scopes::{SCOPES, H as SH, W as SW};
+        let kind = self.scope?;
+        let ed = cx.entity();
+        Some(
+            div()
+                .id("scope")
+                .absolute()
+                .right(px(8.))
+                .bottom(px(8.))
+                .w(px(SW as f32 + 16.))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .p_2()
+                .rounded(px(10.))
+                .bg(black_overlay(0.82))
+                .border_1()
+                .border_color(white_a(0.1))
+                .occlude()
+                .child(segmented("scope-kind", &SCOPES.map(|(k, l)| (k, l)), &kind, |_| false, move |v, _, cx| {
+                    ed.update(cx, |e, cx| {
+                        e.scope = Some(v);
+                        e.last_job = None;
+                        cx.notify();
+                    })
+                }))
+                .child(div().relative().w(px(SW as f32)).h(px(SH as f32)).bg(black()).rounded(px(4.)).when_some(self.scope_img.clone(), |d, i| d.child(img(i).absolute().size_full()))),
+        )
     }
 
     fn render_stage_overlay(&mut self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let k = width / W();
         let s = &self.store;
-        let sel = s.selected_clip().cloned();
-        let visible = sel.as_ref().filter(|c| c.visual() && !s.track(&c.track).hidden && s.time >= c.start && s.time < c.start + c.dur).cloned();
+        // Boxes follow keyframes: each clip as it stands at the playhead.
+        let on_screen = |c: &Clip| c.visual() && !s.track(&c.track).hidden && s.time >= c.start && s.time < c.start + c.dur;
+        let sel = s.selected_clip().map(|c| c.posed(s.time));
+        let visible = sel.as_ref().filter(|c| on_screen(c)).cloned();
         let bx = visible.as_ref().map(clip_box);
-        let hover_box = self.hover_clip.as_ref().filter(|h| Some(*h) != sel.as_ref().map(|c| &c.id)).and_then(|h| s.clip(h)).map(clip_box);
+        let hover_box = self.hover_clip.as_ref().filter(|h| Some(*h) != sel.as_ref().map(|c| &c.id)).and_then(|h| s.clip(h)).map(|c| clip_box(&c.posed(s.time)));
+        // The rest of a multiple selection gets a plain outline.
+        let others: Vec<super::geometry::BoxR> = s.multi.iter().filter_map(|id| s.clip(id)).filter(|c| on_screen(c)).map(|c| clip_box(&c.posed(s.time))).collect();
         let guides = self.stage_guides.clone();
         let readout = self.readout.clone();
 
@@ -187,13 +298,25 @@ impl Editor {
             .size_full()
             .when(self.hover_clip.is_some() || bx.is_some(), |d| d.cursor_move())
             .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, window, cx| this.stage_mouse_down(ev, window, cx)))
+            // Right-click a clip on the picture: its menu (the clip becomes the selection first).
+            .on_mouse_down(MouseButton::Right, cx.listener(|this, ev: &MouseDownEvent, _, cx| {
+                let posed = this.posed_clips();
+                let hit = this.stage_point(ev.position).and_then(|(x, y)| hit_test(&posed, &this.store.tracks, x, y, this.store.time)).map(|c| c.id.clone());
+                match hit {
+                    Some(id) if !this.store.is_selected(&id) => this.store.select(Some(id)),
+                    Some(id) => this.store.focus_in_selection(&id),
+                    None => this.store.select(None),
+                }
+                cx.notify();
+            }))
             // A quick click releases before the window-wide drag listeners are drawn; end it here.
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| this.drag_end(cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
                 if this.drag.is_some() {
                     return;
                 }
-                let hit = this.stage_point(ev.position).and_then(|(x, y)| hit_test(&this.store.clips, &this.store.tracks, x, y, this.store.time)).map(|c| c.id.clone());
+                let posed = this.posed_clips();
+                let hit = this.stage_point(ev.position).and_then(|(x, y)| hit_test(&posed, &this.store.tracks, x, y, this.store.time)).map(|c| c.id.clone());
                 if hit != this.hover_clip {
                     this.hover_clip = hit;
                     cx.notify();
@@ -214,6 +337,44 @@ impl Editor {
         }
         if let Some(hb) = hover_box {
             layer = layer.child(outline(hb, white_a(0.45), 1.0));
+        }
+        for ob in others {
+            layer = layer.child(outline(ob, alpha(signal(), 0.7), 1.0));
+        }
+        // The selected clip's mask, as its shape on the picture.
+        if let Some((c, m)) = visible.as_ref().and_then(|c| c.mask.clone().map(|m| (c.clone(), m))) {
+            let n = if m.shape == "rect" { 4 } else { 64 };
+            let (a, (hw, hh)) = ((m.rot as f32).to_radians(), (m.w as f32 / 2.0, m.h as f32 / 2.0));
+            let pts: Vec<(f32, f32)> = (0..n)
+                .map(|i| {
+                    let (lx, ly) = if m.shape == "rect" {
+                        [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)][i]
+                    } else {
+                        let t = i as f32 / n as f32 * std::f32::consts::TAU;
+                        (t.cos() * hw, t.sin() * hh)
+                    };
+                    let (rx, ry) = (lx * a.cos() - ly * a.sin(), lx * a.sin() + ly * a.cos());
+                    let p = super::geometry::to_canvas(&c, W() / 2.0 + m.x as f32 + rx, H() / 2.0 + m.y as f32 + ry);
+                    (p.0 * k, p.1 * k)
+                })
+                .collect();
+            layer = layer.child(
+                canvas(|_, _, _| {}, move |bounds: Bounds<Pixels>, _, window, _| {
+                    let o = bounds.origin;
+                    let mut pb = PathBuilder::stroke(px(1.));
+                    pb.move_to(point(o.x + px(pts[0].0), o.y + px(pts[0].1)));
+                    for p in pts.iter().skip(1).chain(std::iter::once(&pts[0])) {
+                        pb.line_to(point(o.x + px(p.0), o.y + px(p.1)));
+                    }
+                    if let Ok(p) = pb.build() {
+                        window.paint_path(p, hex("#ffd166"));
+                    }
+                })
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            );
         }
         if let Some(b) = bx {
             layer = layer.child(outline(b, signal(), 1.5));
@@ -291,7 +452,13 @@ impl Editor {
                 );
             }
         }
-        layer
+        let ed = cx.entity();
+        layer.context_menu(move |menu, window, cx| {
+            if ed.read(cx).store.selected.is_none() {
+                return menu;
+            }
+            super::menus::clip_menu(menu.min_w(px(220.)), &ed, window, cx)
+        })
     }
 
     fn stage_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -299,12 +466,19 @@ impl Editor {
         let t = self.store.time;
         // The topmost clip under the pointer, as you see it: clicking a title over a selected
         // background picks the title.
-        let hit = hit_test(&self.store.clips, &self.store.tracks, p.0, p.1, t).cloned();
+        let posed = self.posed_clips();
+        let hit = hit_test(&posed, &self.store.tracks, p.0, p.1, t).cloned();
         let Some(hit) = hit else {
             self.store.select(None);
             cx.notify();
             return;
         };
+        // Shift- or ⌘-click adds to the selection, as on the timeline.
+        if ev.modifiers.shift || ev.modifiers.platform {
+            self.store.toggle_select(&hit.id);
+            cx.notify();
+            return;
+        }
         if self.store.selected.as_deref() != Some(&hit.id) {
             self.store.select(Some(hit.id.clone()));
         }

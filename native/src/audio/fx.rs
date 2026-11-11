@@ -30,7 +30,7 @@ pub const PRESETS: [(&str, &str, AudioFx); 9] = [
     ("8d", "8D audio", fx(1.0, false, 0.3, 0.75, 0.0, 0.0, 0.8)),
 ];
 const fn fx(speed: f64, keep_pitch: bool, reverb: f64, room: f64, bass: f64, muffle: f64, pan8d: f64) -> AudioFx {
-    AudioFx { speed, keep_pitch, reverb, room, bass, muffle, pan8d }
+    AudioFx { speed, keep_pitch, reverb, room, bass, muffle, pan8d, eq_low: 0.0, eq_mid: 0.0, eq_high: 0.0 }
 }
 
 // ---------- Speed ----------
@@ -166,6 +166,29 @@ impl Biquad {
             (a + 1.0) + (a - 1.0) * c - k,
         )
     }
+    /// RBJ high shelf, `db` of gain above `f`.
+    fn high_shelf(f: f64, db: f64) -> Self {
+        let a = 10f64.powf(db / 40.0);
+        let w = 2.0 * PI * f / RATE as f64;
+        let (c, s) = (w.cos(), w.sin());
+        let al = s / 2.0 * 2f64.sqrt();
+        let k = 2.0 * a.sqrt() * al;
+        Self::new(
+            a * ((a + 1.0) + (a - 1.0) * c + k),
+            -2.0 * a * ((a - 1.0) + (a + 1.0) * c),
+            a * ((a + 1.0) + (a - 1.0) * c - k),
+            (a + 1.0) - (a - 1.0) * c + k,
+            2.0 * ((a - 1.0) - (a + 1.0) * c),
+            (a + 1.0) - (a - 1.0) * c - k,
+        )
+    }
+    /// RBJ peaking bell, `db` at `f`.
+    fn peaking(f: f64, q: f64, db: f64) -> Self {
+        let a = 10f64.powf(db / 40.0);
+        let w = 2.0 * PI * f / RATE as f64;
+        let (c, al) = (w.cos(), w.sin() / (2.0 * q));
+        Self::new(1.0 + al * a, -2.0 * c, 1.0 - al * a, 1.0 + al / a, -2.0 * c, 1.0 - al / a)
+    }
     fn run(&mut self, buf: &mut [f32]) {
         for f in buf.chunks_exact_mut(2) {
             for (ch, x) in f.iter_mut().enumerate() {
@@ -295,6 +318,15 @@ pub fn process(src: &AudioBuf, fx: &AudioFx) -> Processed {
     if fx.bass > 0.0 {
         Biquad::low_shelf(90.0, 12.0 * fx.bass).run(&mut s);
     }
+    if fx.eq_low != 0.0 {
+        Biquad::low_shelf(110.0, fx.eq_low.clamp(-12.0, 12.0)).run(&mut s);
+    }
+    if fx.eq_mid != 0.0 {
+        Biquad::peaking(1000.0, 0.8, fx.eq_mid.clamp(-12.0, 12.0)).run(&mut s);
+    }
+    if fx.eq_high != 0.0 {
+        Biquad::high_shelf(7000.0, fx.eq_high.clamp(-12.0, 12.0)).run(&mut s);
+    }
     if fx.muffle > 0.0 {
         // 20 kHz at 0 down to about 250 Hz at 1, 24 dB/octave.
         let f = 20000.0 * 0.0125f64.powf(fx.muffle.clamp(0.0, 1.0));
@@ -314,7 +346,7 @@ pub fn process(src: &AudioBuf, fx: &AudioFx) -> Processed {
 // ---------- Cache ----------
 
 fn key(asset: &str, fx: &AudioFx) -> String {
-    format!("{asset}|{:.3}|{}|{:.3}|{:.3}|{:.3}|{:.3}|{:.3}", fx.speed, fx.keep_pitch, fx.reverb, fx.room, fx.bass, fx.muffle, fx.pan8d)
+    format!("{asset}|{:.3}|{}|{:.3}|{:.3}|{:.3}|{:.3}|{:.3}|{:.2}|{:.2}|{:.2}", fx.speed, fx.keep_pitch, fx.reverb, fx.room, fx.bass, fx.muffle, fx.pan8d, fx.eq_low, fx.eq_mid, fx.eq_high)
 }
 
 #[derive(Default)]

@@ -24,6 +24,8 @@ struct State {
     stamp: Option<(Instant, f64)>,
     preview: Option<(Arc<Asset>, f64)>,
     gain: f32,
+    /// Peak level of the sound just played, left and right, with a falling hold for meters.
+    levels: [f32; 2],
 }
 
 pub struct AudioEngine {
@@ -42,6 +44,7 @@ impl AudioEngine {
             stamp: None,
             preview: None,
             gain: 0.0,
+            levels: [0.0; 2],
         }));
         // RAYNA_MUTE=1 runs without an output device (the playhead then follows the wall clock).
         let muted = std::env::var("RAYNA_MUTE").map(|v| v == "1").unwrap_or(false);
@@ -99,13 +102,22 @@ impl AudioEngine {
                     let target = if s.playing || s.preview.is_some() { 1.0 } else { 0.0 };
                     let mut g = s.gain;
                     drop(s);
+                    let mut peak = [0f32; 2];
                     for f in 0..frames {
                         g += (target - g) * 0.004;
                         for c in 0..ch {
                             data[f * ch + c] = buf[f * 2 + c.min(1)] * g;
                         }
+                        peak[0] = peak[0].max((buf[f * 2] * g).abs());
+                        peak[1] = peak[1].max((buf[f * 2 + 1] * g).abs());
                     }
-                    state.lock().gain = g;
+                    let mut s = state.lock();
+                    s.gain = g;
+                    // Meters jump up and fall back at about 20 dB a second.
+                    let fall = (-(frames as f32 / sr as f32) * 2.3).exp();
+                    for c in 0..2 {
+                        s.levels[c] = peak[c].max(s.levels[c] * fall);
+                    }
                 },
                 |e| eprintln!("Liemo: audio output error: {e}"),
                 None,
@@ -142,6 +154,10 @@ impl AudioEngine {
         let (at, pos) = s.stamp?;
         let block = s.pos - pos;
         Some(pos + at.elapsed().as_secs_f64().min(block.max(0.0) * 1.5))
+    }
+    /// Left and right output peaks (0–1+) for the level meters.
+    pub fn levels(&self) -> [f32; 2] {
+        self.state.lock().levels
     }
     pub fn preview(&self, a: Option<Arc<Asset>>) {
         self.state.lock().preview = a.map(|a| (a, 0.0));

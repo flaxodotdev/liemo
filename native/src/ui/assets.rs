@@ -7,7 +7,11 @@ use std::borrow::Cow;
 const ICONS: &[(&str, &[u8])] = &[
     ("alert-triangle", include_bytes!("../../assets/icons/alert-triangle.svg")),
     ("audio-lines", include_bytes!("../../assets/icons/audio-lines.svg")),
+    ("activity", include_bytes!("../../assets/icons/activity.svg")),
     ("blend", include_bytes!("../../assets/icons/blend.svg")),
+    ("folder-open", include_bytes!("../../assets/icons/folder-open.svg")),
+    ("maximize", include_bytes!("../../assets/icons/maximize.svg")),
+    ("captions", include_bytes!("../../assets/icons/captions.svg")),
     ("check", include_bytes!("../../assets/icons/check.svg")),
     ("chevron-down", include_bytes!("../../assets/icons/chevron-down.svg")),
     ("chevron-left", include_bytes!("../../assets/icons/chevron-left.svg")),

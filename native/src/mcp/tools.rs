@@ -79,16 +79,11 @@ impl Workspace for FileWorkspace {
         let old = crate::model::time::env();
         crate::model::time::set_env(rec.env());
         ensure_media(&rec, false);
-        let mut store = Store::new(rec.name.clone(), rec.clips.clone(), rec.tracks.clone(), rec.pool.clone());
+        let mut store = rec.store(rec.pool.clone());
         let rev = store.rev;
         let r = f(&mut store);
         if r.is_ok() && store.rev != rev {
-            rec.name = store.name.clone();
-            rec.clips = store.clips.clone();
-            rec.tracks = store.tracks.clone();
-            rec.pool = store.pool.clone();
-            rec.duration = project_end(&rec.clips);
-            rec.clip_count = rec.clips.len();
+            rec.take(&store);
             rec.updated_at = storage::now_ms();
             storage::put_project(&rec).map_err(|e| format!("Couldn't save the project: {e}"))?;
             let mut pool = crate::render::frames::DecoderPool::new(640, 640);
@@ -180,6 +175,9 @@ fn project_json(rec: &ProjectRecord) -> Value {
         "duration": project_end(&rec.clips),
         "tracks": rec.tracks,
         "clips": clips.into_iter().map(clip_json).collect::<Vec<_>>(),
+        "markers": rec.markers,
+        "in": rec.in_point,
+        "out": rec.out_point,
         "media": pool,
     })
 }
@@ -259,17 +257,21 @@ fn all_definitions() -> Vec<Value> {
         "start": { "type": "number", "description": "Seconds on the timeline" },
         "duration": { "type": "number", "description": "Seconds" },
         "in": { "type": "number", "description": "Seconds into the source media where the clip begins (video/audio)" },
-        "track": { "type": "string", "enum": ["T1", "V2", "V1", "A1", "A2"] },
+        "track": { "type": "string", "description": "Track id from get_project (T1 titles, V2 overlays, V1 main video, A1 music, A2 voice, plus any added)" },
         "name": { "type": "string" },
         "x": { "type": "number", "description": "Horizontal offset from the centre, canvas units" },
         "y": { "type": "number", "description": "Vertical offset from the centre, canvas units" },
         "scale": { "type": "number", "description": "1 is full size" },
         "rotation": { "type": "number", "description": "Degrees" },
         "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
-        "volume": { "type": "number", "minimum": 0, "maximum": 1 },
+        "volume": { "type": "number", "minimum": 0, "maximum": 2, "description": "1 is as recorded; up to 2 (+6 dB)" },
         "fadeIn": { "type": "number", "description": "Seconds" },
         "fadeOut": { "type": "number", "description": "Seconds" },
         "effectsOn": { "type": "string", "enum": ["clip", "frame"], "description": "Effects stay on the clip's own shape, or fill the whole frame" },
+        "blend": { "type": "string", "enum": BLEND_MODES.iter().map(|(k, _)| *k).collect::<Vec<_>>(), "description": "Picture clips: how the clip blends over what's below (lighter = add). On text clips, blend is the text style (normal, invert, exclusion)" },
+        "mask": { "description": "A shape limiting where the clip shows (moves with the clip): { shape: ellipse|rect, x, y (centre offset), w, h, rot, feather, radius, invert }, or null to remove. Mask values can be keyframed as mask.x, mask.w…" },
+        "duck": { "type": "number", "minimum": 0, "maximum": 1, "description": "Sound clips: dip by this much while voice plays on other tracks (music under a voice-over: 0.7)" },
+        "normalize": { "type": "boolean", "description": "Set volume so the clip's sound averages about −16 dB with peaks under −1 dB" },
         "text": { "type": "object", "properties": text_update.take(), "description": "Text clips only" },
         "sound": {
             "type": "object",
@@ -283,6 +285,9 @@ fn all_definitions() -> Vec<Value> {
                 "bass": { "type": "number", "minimum": 0, "maximum": 1, "description": "Bass boost, up to +12 dB" },
                 "muffle": { "type": "number", "minimum": 0, "maximum": 1, "description": "Low-pass: 1 sounds underwater" },
                 "pan8d": { "type": "number", "minimum": 0, "maximum": 1, "description": "8D audio: sound circling the listener" },
+                "eqLow": { "type": "number", "minimum": -12, "maximum": 12, "description": "EQ lows (~110 Hz shelf), dB" },
+                "eqMid": { "type": "number", "minimum": -12, "maximum": 12, "description": "EQ mids (1 kHz bell), dB" },
+                "eqHigh": { "type": "number", "minimum": -12, "maximum": 12, "description": "EQ highs (7 kHz shelf), dB" },
             },
         },
     });
@@ -291,6 +296,7 @@ fn all_definitions() -> Vec<Value> {
     let motion = json!({
         "speed": { "type": "number", "minimum": 0.25, "maximum": 4, "description": "Playback speed of a picture clip (its sound follows); the clip's length changes to keep the same footage" },
         "reverse": { "type": "boolean", "description": "Play the clip backwards" },
+        "freeze": { "type": "boolean", "description": "Hold one frame (the one at `in`) for the whole clip. To freeze mid-clip, split at that time and freeze the second part, or use set_keyframes on speed for a ramp" },
         "flipH": { "type": "boolean", "description": "Mirror left–right" },
         "flipV": { "type": "boolean", "description": "Flip upside down" },
         "animIn": { "type": "string", "enum": anims, "description": "How the clip enters" },
@@ -333,13 +339,13 @@ fn all_definitions() -> Vec<Value> {
                 "paths": { "type": "array", "items": { "type": "string" } },
                 "addToTimeline": { "type": "boolean", "description": "Default true" },
                 "start": { "type": "number", "description": "Where the first file lands, seconds. Default: end of the main track" },
-                "track": { "type": "string", "enum": ["V1", "V2", "A1", "A2"] },
+                "track": { "type": "string", "description": "Track id from get_project" },
             }), &["project", "paths"]),
         tool("add_clip", "Add a clip", "Put a library asset or imported media on the timeline. Clips that would overlap are pushed along (insert edit).",
             json!({
                 "project": project_prop(),
                 "asset": { "type": "string", "description": "Asset id from list_library, e.g. sc-coast, mu-golden, ov-grain, or an imported media id" },
-                "track": { "type": "string", "enum": ["T1", "V2", "V1", "A1", "A2"], "description": "Default: the asset's usual track" },
+                "track": { "type": "string", "description": "Track id from get_project; default the asset's usual track" },
                 "start": { "type": "number", "description": "Seconds; default 0" },
                 "duration": { "type": "number", "description": "Seconds; default the asset's length" },
                 "in": { "type": "number", "description": "Seconds into the source (video/audio)" },
@@ -358,6 +364,27 @@ fn all_definitions() -> Vec<Value> {
                 "blend": text_props["blend"],
             }), &["project", "content"]),
         tool("update_clip", "Update a clip", "Change any of a clip's timing, track, transform, opacity, volume, fades, name, text or sound (speed, reverb, slowed + reverb and other presets). Only the fields given change.", clip_fields, &["project", "clip"]),
+        tool("set_keyframes", "Set keyframes", "Animate a clip property over time. Between keys the value moves in a straight line (linear), eases in and out (smooth) or stays put (hold); before the first key and after the last, the nearest key's value holds. Keys on speed make a speed ramp (the clip keeps its length; its footage runs at the keyed speed). An empty keys list removes the animation and leaves the property at its value at the clip's start.",
+            json!({
+                "project": project_prop(), "clip": clip_prop(),
+                "property": { "type": "string", "description": "x, y (offsets from centre, canvas units), scale, rotation, opacity, volume, speed (picture clips, 0.25–4), or an effect's strength / numeric parameter as fx.<uid>.amount or fx.<uid>.<param> (uid from apply_effect or get_project)" },
+                "keys": { "type": "array", "items": { "type": "object", "properties": {
+                    "time": { "type": "number", "description": "Seconds on the timeline (inside the clip)" },
+                    "value": { "type": "number" },
+                    "ease": { "type": "string", "enum": ["linear", "smooth", "hold"], "description": "How the value travels to the next key; default linear" },
+                }, "required": ["time", "value"] } },
+            }), &["project", "clip", "property", "keys"]),
+        tool("transcribe", "Transcribe the sound", "Listen to the project's sound (voice, music, video audio as mixed) with Apple's speech recognition on the Mac and return what's said as short caption cues with timeline times. Pass them to add_captions (fix wording first if needed). The user may be asked to allow speech recognition. Mac app only.",
+            json!({ "project": project_prop() }), &["project"]),
+        tool("add_captions", "Add captions", "Put captions on the Titles track as text clips, from an SRT or WebVTT file (path) or from cues (e.g. from transcribe). Styles: subtitle (the Caption text style), pop (big bold words that pop in), clean, boxed.",
+            json!({
+                "project": project_prop(),
+                "path": { "type": "string", "description": "Absolute path to a .srt or .vtt file" },
+                "cues": { "type": "array", "items": { "type": "object", "properties": { "start": { "type": "number" }, "end": { "type": "number" }, "text": { "type": "string" } }, "required": ["start", "end", "text"] } },
+                "style": { "type": "string", "enum": ["subtitle", "pop", "clean", "boxed"], "description": "Default subtitle" },
+            }), &["project"]),
+        tool("export_captions", "Export captions", "Write the project's titles and captions as a subtitle file (SRT or WebVTT) for upload alongside the video.",
+            json!({ "project": project_prop(), "path": { "type": "string", "description": "Where to write, ending .srt or .vtt; default ~/Downloads/<name>.srt" } }), &["project"]),
         tool("remove_clip", "Remove a clip", "Delete a clip from the timeline.", json!({ "project": project_prop(), "clip": clip_prop() }), &["project", "clip"]),
         tool("split_clip", "Split a clip", "Cut a clip in two at a time (seconds). Without a clip, splits the main-video clip under that time.",
             json!({ "project": project_prop(), "time": { "type": "number" }, "clip": clip_prop() }), &["project", "time"]),
@@ -375,7 +402,7 @@ fn all_definitions() -> Vec<Value> {
         tool("set_transition", "Set a transition", "The transition into a clip (between touching clips it blends across the cut). \"none\" removes it. fadein/fadeout/both set fades instead.",
             json!({ "project": project_prop(), "clip": clip_prop(), "transition": { "type": "string", "description": "Id from list_transitions, or none" }, "duration": { "type": "number", "description": "Seconds" } }), &["project", "clip", "transition"]),
         tool("set_track", "Set a track", "Hide, mute or lock a track.",
-            json!({ "project": project_prop(), "track": { "type": "string", "enum": ["T1", "V2", "V1", "A1", "A2"] }, "hidden": { "type": "boolean" }, "muted": { "type": "boolean" }, "locked": { "type": "boolean" } }), &["project", "track"]),
+            json!({ "project": project_prop(), "track": { "type": "string", "description": "Track id from get_project (T1 titles, V2 overlays, V1 main video, A1 music, A2 voice, plus any added)" }, "hidden": { "type": "boolean" }, "muted": { "type": "boolean" }, "locked": { "type": "boolean" } }), &["project", "track"]),
         tool("record_audio", "Record audio", "Record a voice-over or any sound from the Mac's microphone. start begins a take (the user talks or plays; with playAlong the timeline plays meanwhile so they can speak over the picture), stop ends it and the take lands on A2 (Voice & SFX) at the time it started, status says whether a take is running and which microphone is used. Needs Liemo running with the project open (open_project). Tell the user when you start so they know to speak, and stop when they say they're done.",
             json!({
                 "project": project_prop(),
@@ -411,7 +438,7 @@ fn all_definitions() -> Vec<Value> {
 /// Tools that read a snapshot and do heavy work (rendering, encoding): in the app these run off
 /// the UI thread.
 pub fn is_heavy(name: &str) -> bool {
-    matches!(name, "render_frame" | "export")
+    matches!(name, "render_frame" | "export" | "transcribe")
 }
 
 // ---------- Executor ----------
@@ -532,6 +559,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                             ParamKind::Select(o) => json!({ "key": p.key, "label": p.label, "type": "select", "options": o.iter().map(|(v, _)| *v).collect::<Vec<_>>(), "default": e.defaults.get(p.key) }),
                             ParamKind::Color => json!({ "key": p.key, "label": p.label, "type": "color", "default": e.defaults.get(p.key) }),
                             ParamKind::Toggle => json!({ "key": p.key, "label": p.label, "type": "boolean", "default": e.defaults.get(p.key) }),
+                            ParamKind::File(ext) => json!({ "key": p.key, "label": p.label, "type": "file", "extension": ext, "description": format!("Absolute path to a .{ext} file") }),
                         })
                         .collect();
                     let group = EFFECT_GROUPS.iter().find(|(g, _)| *g == e.group).map(|(_, l)| *l).unwrap_or("");
@@ -565,7 +593,30 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
             let env = rec.env();
             let mut imported = vec![];
             let mut failed = vec![];
+            // Folders bring in the media inside them (four levels deep, by name).
+            let mut expanded = vec![];
             for p in paths {
+                if p.is_dir() {
+                    fn walk(d: &std::path::Path, depth: u32, out: &mut Vec<PathBuf>) {
+                        let Ok(rd) = std::fs::read_dir(d) else { return };
+                        let mut v: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| !p.file_name().and_then(|n| n.to_str()).unwrap_or(".").starts_with('.')).collect();
+                        v.sort();
+                        for p in v {
+                            if p.is_dir() {
+                                if depth < 4 {
+                                    walk(&p, depth + 1, out);
+                                }
+                            } else if kind_of(&p).is_some() {
+                                out.push(p);
+                            }
+                        }
+                    }
+                    walk(&p, 0, &mut expanded);
+                } else {
+                    expanded.push(p);
+                }
+            }
+            for p in expanded {
                 if kind_of(&p).is_none() || !p.exists() {
                     failed.push(json!({ "path": p, "error": if p.exists() { "not a video, audio or image file" } else { "file not found" } }));
                     continue;
@@ -666,6 +717,9 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
         }
         "update_clip" => {
             let id = resolve(a)?;
+            if b(a, "normalize") == Some(true) {
+                ensure_media(&ws.record(&id)?, true);
+            }
             let cid = req(a, "clip")?.to_string();
             let args = a.clone();
             out(ws.edit(&id, &mut |st| {
@@ -715,7 +769,32 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                         k.opacity = v.clamp(0.0, 1.0);
                     }
                     if let Some(v) = f(&args, "volume") {
-                        k.volume = v.clamp(0.0, 1.0);
+                        k.volume = v.clamp(0.0, MAX_VOLUME);
+                    }
+                    // Text clips take blend as their text style (normal / invert / exclusion).
+                    if let Some(v) = s(&args, "blend").filter(|_| k.kind != AssetType::Text) {
+                        k.blend = (v != "normal").then(|| v.to_string());
+                    }
+                    if let Some(v) = f(&args, "duck") {
+                        k.duck = v.clamp(0.0, 1.0);
+                    }
+                    match args.get("mask") {
+                        Some(Value::Null) => {
+                            k.mask = None;
+                            k.keys.retain(|p, _| !p.starts_with("mask."));
+                        }
+                        Some(m @ Value::Object(_)) => {
+                            let mut cur = serde_json::to_value(k.mask.clone().unwrap_or_default()).unwrap_or(Value::Null);
+                            if let (Value::Object(c), Value::Object(n)) = (&mut cur, m) {
+                                for (key, v) in n {
+                                    c.insert(key.clone(), v.clone());
+                                }
+                            }
+                            if let Ok(mm) = serde_json::from_value::<Mask>(cur) {
+                                k.mask = Some(mm);
+                            }
+                        }
+                        _ => {}
                     }
                     if let Some(v) = f(&args, "fadeIn") {
                         k.fade_in = v.max(0.0);
@@ -727,7 +806,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                         k.fx_scope = Some(if v == "clip" { FxScope::Clip } else { FxScope::Frame });
                     }
                     // Motion: speed, direction, flips, entrance and exit.
-                    let motion_keys = ["speed", "reverse", "flipH", "flipV", "animIn", "animInDur", "animOut", "animOutDur", "animLoop", "animLoopSpeed"];
+                    let motion_keys = ["speed", "reverse", "freeze", "flipH", "flipV", "animIn", "animInDur", "animOut", "animOutDur", "animLoop", "animLoopSpeed"];
                     if k.kind != AssetType::Audio && motion_keys.iter().any(|key| args.get(*key).is_some()) {
                         let mut m = k.motion.clone().unwrap_or_default();
                         if let Some(v) = f(&args, "speed") {
@@ -741,6 +820,9 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                         }
                         if let Some(v) = b(&args, "reverse") {
                             m.reverse = v;
+                        }
+                        if let Some(v) = b(&args, "freeze") {
+                            m.freeze = v;
                         }
                         if let Some(v) = b(&args, "flipH") {
                             m.flip_h = v;
@@ -771,6 +853,14 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                     k.fade_in = k.fade_in.min(k.dur / 2.0);
                     k.fade_out = k.fade_out.min(k.dur / 2.0);
                 });
+                if b(&args, "normalize") == Some(true) {
+                    let c = st.clip(&cid).cloned().ok_or("clip gone")?;
+                    let v = crate::audio::mix::normalize_volume(&c).ok_or("This clip's sound isn't loaded, or it's silent")?;
+                    st.update_clip(&cid, |k| {
+                        k.volume = v;
+                        k.keys.remove("volume");
+                    });
+                }
                 if let Some(snd) = args.get("sound").filter(|v| v.is_object()) {
                     if c.kind != AssetType::Audio {
                         return Err("Sound effects work on audio clips (imported audio and recordings)".into());
@@ -796,12 +886,17 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                                 *field = v.clamp(0.0, 1.0);
                             }
                         }
+                        for (k, field) in [("eqLow", &mut x.eq_low), ("eqMid", &mut x.eq_mid), ("eqHigh", &mut x.eq_high)] {
+                            if let Some(v) = g(k) {
+                                *field = v.clamp(-12.0, 12.0);
+                            }
+                        }
                     });
                     moved = true;
                 }
                 if let Some(t) = args.get("text") {
                     apply_text(st, &cid, t)?;
-                } else if ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "outline", "outlineWidth", "shadow", "glow", "highlight", "tiltX", "tiltY"].iter().any(|k| args.get(*k).is_some()) {
+                } else if c.kind == AssetType::Text && ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "outline", "outlineWidth", "shadow", "glow", "highlight", "tiltX", "tiltY"].iter().any(|k| args.get(*k).is_some()) {
                     // Text fields given flat, as add_text takes them (y stays the clip's offset).
                     let mut t = args.clone();
                     if let Some(o) = t.as_object_mut() {
@@ -827,6 +922,114 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 }
                 Ok(json!({ "clip": clip_json(st.clip(&cid).unwrap()) }))
             })?)
+        }
+        "set_keyframes" => {
+            let id = resolve(a)?;
+            let cid = req(a, "clip")?.to_string();
+            let prop = match req(a, "property")? {
+                "rotation" => "rot".to_string(),
+                p => p.to_string(),
+            };
+            let list = a.get("keys").and_then(|v| v.as_array()).ok_or("Missing \"keys\" (an array, empty to remove)")?.clone();
+            out(ws.edit(&id, &mut |st| {
+                let c = st.clip(&cid).cloned().ok_or_else(|| format!("No clip {cid}"))?;
+                if c.base(&prop).is_none() && prop != "speed" {
+                    return Err(format!("{cid} has no numeric property \"{prop}\". Use x, y, scale, rotation, opacity, volume, speed, or fx.<uid>.amount / fx.<uid>.<param>."));
+                }
+                if prop == "speed" && (c.kind.is_audio() || c.kind == AssetType::Text) {
+                    return Err("Speed ramps are for video and animated picture clips. Audio clips change speed with update_clip sound.".into());
+                }
+                let mut keys = vec![];
+                for k in &list {
+                    let t = f(k, "time").ok_or("Each key needs a time")?;
+                    let mut v = f(k, "value").ok_or("Each key needs a value")?;
+                    if prop == "speed" {
+                        v = v.clamp(0.25, 4.0);
+                    }
+                    let ease = match s(k, "ease") {
+                        Some("smooth") => crate::model::keys::Ease::Smooth,
+                        Some("hold") => crate::model::keys::Ease::Hold,
+                        _ => crate::model::keys::Ease::Linear,
+                    };
+                    keys.push(crate::model::keys::Key { t: (t - c.start).clamp(0.0, c.dur), v, ease });
+                }
+                keys.sort_by(|a, b| a.t.total_cmp(&b.t));
+                keys.dedup_by(|a, b| (a.t - b.t).abs() < crate::model::keys::SAME);
+                st.commit();
+                let p2 = prop.clone();
+                st.update_clip(&cid, move |k| {
+                    if keys.is_empty() {
+                        if let Some(v) = k.value(&p2, 0.0) {
+                            if p2 != "speed" {
+                                k.set_base(&p2, v);
+                            }
+                        }
+                        k.keys.remove(&p2);
+                    } else {
+                        k.keys.insert(p2.clone(), keys);
+                    }
+                });
+                let c = st.clip(&cid).cloned().unwrap();
+                let mut notes = vec![];
+                if prop == "speed" {
+                    if let Some(a) = asset(&c.asset).filter(|a| a.media.is_some()) {
+                        if c.src_span() > a.dur - c.in_ + 1e-3 {
+                            notes.push(format!("The ramp runs past the end of the footage ({:.2} s of {:.2} s); the last frame holds. Shorten the clip or lower the speeds.", c.src_span(), a.dur - c.in_));
+                        }
+                    }
+                }
+                Ok(with_notes(clip_json(&c), notes))
+            })?)
+        }
+        "transcribe" => {
+            let id = resolve(a)?;
+            let cues = auto_cues(&ws.record(&id)?)?;
+            out(json!({ "cues": cues.iter().map(|c| json!({ "start": (c.start * 100.0).round() / 100.0, "end": (c.end * 100.0).round() / 100.0, "text": c.text })).collect::<Vec<_>>() }))
+        }
+        "add_captions" => {
+            let id = resolve(a)?;
+            let mut cues: Vec<crate::model::captions::Cue> = vec![];
+            if let Some(p) = s(a, "path") {
+                let text = std::fs::read(p).map_err(|e| format!("Couldn't read {p}: {e}"))?;
+                cues = crate::model::captions::parse(&String::from_utf8_lossy(&text));
+                if cues.is_empty() {
+                    return Err(format!("{p} has no SRT or WebVTT captions in it"));
+                }
+            }
+            if let Some(list) = a.get("cues").and_then(|v| v.as_array()) {
+                for c in list {
+                    let (Some(start), Some(end), Some(text)) = (f(c, "start"), f(c, "end"), s(c, "text")) else { return Err("Each cue needs start, end and text".into()) };
+                    cues.push(crate::model::captions::Cue { start, end: end.max(start + 0.1), text: text.to_string() });
+                }
+            }
+            if cues.is_empty() {
+                return Err("Give a path or cues (transcribe makes cues from the sound)".into());
+            }
+            let style = s(a, "style").unwrap_or("subtitle").to_string();
+            out(ws.edit(&id, &mut |st| {
+                let n = st.add_captions(&cues, &style);
+                if n == 0 {
+                    return Err("The Titles track is locked. Unlock it with set_track.".into());
+                }
+                let added: Vec<Value> = st.selected_clips().iter().map(clip_json).collect();
+                Ok(json!({ "added": n, "clips": added }))
+            })?)
+        }
+        "export_captions" => {
+            let id = resolve(a)?;
+            let rec = ws.record(&id)?;
+            let cues = crate::model::captions::cues_from_clips(&rec.clips);
+            if cues.is_empty() {
+                return Err("This project has no titles or captions to export".into());
+            }
+            let path = match s(a, "path") {
+                Some(p) => std::path::PathBuf::from(p),
+                None => dirs::download_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default()).join(format!("{}.srt", rec.name.replace(['/', ':'], "-"))),
+            };
+            let vtt = path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("vtt")).unwrap_or(false);
+            let body = if vtt { crate::model::captions::to_vtt(&cues) } else { crate::model::captions::to_srt(&cues) };
+            std::fs::write(&path, body).map_err(|e| format!("Couldn't write {}: {e}", path.display()))?;
+            out(json!({ "path": path, "captions": cues.len(), "format": if vtt { "vtt" } else { "srt" } }))
         }
         "remove_clip" => {
             let id = resolve(a)?;
@@ -973,7 +1176,79 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                         }
                     }
                 }
-                Ok(json!({ "track": st.tracks.iter().find(|t| t.id == tid) }))
+                if let Some(n) = s(&args, "name") {
+                    st.rename_track(&tid, n);
+                }
+                if let Some(m) = s(&args, "move") {
+                    st.move_track(&tid, if m == "up" { -1 } else { 1 });
+                }
+                Ok(json!({ "track": st.tracks.iter().find(|t| t.id == tid), "order": st.tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>() }))
+            })?)
+        }
+        "add_track" => {
+            let id = resolve(a)?;
+            let kind = match req(a, "kind")? {
+                "titles" | "text" => TrackKind::Text,
+                "audio" => TrackKind::Audio,
+                _ => TrackKind::Overlay,
+            };
+            let name = s(a, "name").map(String::from);
+            out(ws.edit(&id, &mut |st| {
+                let tid = st.add_track(kind, name.clone());
+                Ok(json!({ "track": st.tracks.iter().find(|t| t.id == tid), "order": st.tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>() }))
+            })?)
+        }
+        "remove_track" => {
+            let id = resolve(a)?;
+            let tid = req(a, "track")?.to_string();
+            out(ws.edit(&id, &mut |st| {
+                if !st.tracks.iter().any(|t| t.id == tid) {
+                    return Err(format!("No track {tid}"));
+                }
+                if !st.remove_track(&tid) {
+                    return Err(st.toasts.pop().unwrap_or_else(|| "That track stays".into()));
+                }
+                Ok(json!({ "removed": tid, "order": st.tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>() }))
+            })?)
+        }
+        "set_markers" => {
+            let id = resolve(a)?;
+            let args = a.clone();
+            out(ws.edit(&id, &mut |st| {
+                st.commit();
+                if let Some(list) = args.get("markers").and_then(|v| v.as_array()) {
+                    let mut ms: Vec<Marker> = list
+                        .iter()
+                        .filter_map(|m| f(m, "time").map(|t| Marker { t: crate::model::time::snap_frame(t.max(0.0)), name: s(m, "name").unwrap_or("").to_string(), color: s(m, "color").unwrap_or("#ffb020").to_string() }))
+                        .collect();
+                    ms.sort_by(|a, b| a.t.total_cmp(&b.t));
+                    st.markers = ms;
+                }
+                for (key, is_in) in [("in", true), ("out", false)] {
+                    match args.get(key) {
+                        Some(Value::Null) => if is_in { st.in_out.0 = None } else { st.in_out.1 = None },
+                        Some(v) => if let Some(t) = v.as_f64() {
+                            let t = crate::model::time::snap_frame(t.max(0.0));
+                            if is_in { st.in_out.0 = Some(t) } else { st.in_out.1 = Some(t) }
+                        },
+                        None => {}
+                    }
+                }
+                st.changed();
+                Ok(json!({ "markers": st.markers, "in": st.in_out.0, "out": st.in_out.1, "range": st.in_out_range() }))
+            })?)
+        }
+        "detach_audio" => {
+            let id = resolve(a)?;
+            let cid = req(a, "clip")?.to_string();
+            out(ws.edit(&id, &mut |st| {
+                if st.clip(&cid).map(|c| c.kind != AssetType::Video).unwrap_or(true) {
+                    return Err(format!("{cid} isn't a video clip"));
+                }
+                match st.detach_audio(&cid) {
+                    Some(aid) => Ok(json!({ "audio": st.clip(&aid).map(clip_json), "video": st.clip(&cid).map(clip_json) })),
+                    None => Err(st.toasts.pop().unwrap_or_else(|| "Couldn't detach the audio".into())),
+                }
             })?)
         }
         "record_audio" => {
@@ -1135,6 +1410,26 @@ pub fn render_png(rec: &ProjectRecord, t: f64, long: u32) -> R<Vec<u8>> {
         .write_image(&rgba, pm.width(), pm.height(), image::ExtendedColorType::Rgba8)
         .map_err(|e| e.to_string())?;
     Ok(bytes)
+}
+
+/// Listen to a project's sound and turn what's said into caption cues.
+#[cfg(all(not(liemo_mobile), target_os = "macos"))]
+fn auto_cues(rec: &ProjectRecord) -> R<Vec<crate::model::captions::Cue>> {
+    ensure_media(rec, true);
+    let old = crate::model::time::env();
+    crate::model::time::set_env(rec.env());
+    let mix = crate::audio::mix::voice_range(&rec.clips, &rec.tracks, 0.0, project_end(&rec.clips));
+    crate::model::time::set_env(old);
+    let mix = mix.ok_or("There's no voice or video sound in this project to caption (music is left out)")?;
+    let words = crate::speech_mac::transcribe_mix(&mix)?;
+    if words.is_empty() {
+        return Err("No speech found in this project's sound".into());
+    }
+    Ok(crate::model::captions::group_words(&words))
+}
+#[cfg(not(all(not(liemo_mobile), target_os = "macos")))]
+fn auto_cues(_: &ProjectRecord) -> R<Vec<crate::model::captions::Cue>> {
+    Err("Auto captions run in the Mac app. On iPhone and iPad use the Captions tool; elsewhere pass cues or an SRT/VTT path.".into())
 }
 
 #[cfg(not(liemo_mobile))]

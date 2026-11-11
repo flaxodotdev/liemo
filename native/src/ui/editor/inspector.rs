@@ -56,6 +56,37 @@ impl Editor {
             }))
     }
 
+    /// A slider for a property that can be keyframed: it shows and sets the value at the playhead,
+    /// and the diamond beside it adds or removes a keyframe there.
+    #[allow(clippy::too_many_arguments)]
+    pub fn keyed_slider(&self, c: &Clip, prop: &str, label_text: &str, min: f64, max: f64, step: f64, fmt: impl Fn(f64) -> String, apply: Option<Apply>, cx: &mut Context<Self>) -> Div {
+        let lt = (self.store.time - c.start).clamp(0.0, c.dur);
+        let value = c.value(prop, lt).unwrap_or(min);
+        let keyed = c.keys.get(prop).map(|k| !k.is_empty()).unwrap_or(false);
+        let here = c.keys.get(prop).map(|k| crate::model::keys::has_key_at(k, crate::model::time::snap_frame(lt))).unwrap_or(false);
+        let (id, p) = (c.id.clone(), prop.to_string());
+        let apply = apply.unwrap_or_else(|| {
+            let (id, p) = (id.clone(), p.clone());
+            Rc::new(move |e: &mut Editor, v| e.set_props_now(&id, &[(p.as_str(), v)]))
+        });
+        let tip = if here { "Remove this keyframe" } else if keyed { "Add a keyframe at the playhead" } else { "Animate: add a keyframe at the playhead" };
+        let key_btn = div()
+            .id(SharedString::from(format!("kf-{}-{prop}", c.id)))
+            .size(px(20.))
+            .flex_none()
+            .rounded(px(5.))
+            .cursor_pointer()
+            .hover(|s| s.bg(surface2()))
+            .child(key_glyph(if keyed { signal() } else { ink_muted() }, here))
+            .tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(tip).build(w, cx))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_key_now(&id, &p);
+                this.restart_audio();
+                cx.notify();
+            }));
+        field_row(label_text, self.slider(format!("k-{}-{prop}", c.id), value, min, max, step, true, apply, cx), Some(fmt(value))).child(key_btn)
+    }
+
     /// Label · slider · value, with one undo step per drag.
     #[allow(clippy::too_many_arguments)]
     pub fn slider_field(&self, label_text: &str, key: impl Into<String>, value: f64, min: f64, max: f64, step: f64, fmt: impl Fn(f64) -> String, apply: Apply, cx: &mut Context<Self>) -> Div {
@@ -317,8 +348,9 @@ impl Editor {
 
     pub(super) fn render_inspector(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body: Vec<AnyElement> = match self.store.selected_clip().cloned() {
+            Some(_) if self.store.many_selected() => self.multi_inspector(cx),
             Some(c) => self.clip_inspector(&c, window, cx),
-            None => self.project_inspector(),
+            None => self.project_inspector(cx),
         };
         panel()
             .w(px(self.layout.insp_w))
@@ -331,7 +363,7 @@ impl Editor {
             .child(div().id("inspector-scroll").flex_1().min_h_0().overflow_y_scroll().child(div().flex().flex_col().px_4().pb_4().children(body)))
     }
 
-    fn project_inspector(&self) -> Vec<AnyElement> {
+    fn project_inspector(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let s = &self.store;
         let shortcuts = [
             ("Space", "Play / pause"),
@@ -343,6 +375,14 @@ impl Editor {
             ("⌘X", "Cut clip"),
             ("⌥ arrows", "Nudge on screen (⇧ for 10px)"),
             ("⌘D", "Duplicate clip"),
+            ("⇧ click", "Add a clip to the selection"),
+            ("⌘A", "Select every clip"),
+            ("⌥ drag edge", "Change a clip's speed"),
+            ("◆", "Keyframe the value at the playhead"),
+            ("M", "Marker at playhead ([ ] to jump)"),
+            ("I O", "In and out points (⌥X clears)"),
+            ("F", "Full-screen preview"),
+            ("⌘= ⌘0", "Zoom the preview, back to fit"),
             ("+ −", "Zoom timeline"),
             ("N", "Toggle snapping"),
             ("⌘B ⌘J", "Show or hide library, timeline"),
@@ -359,6 +399,21 @@ impl Editor {
                     ("Format".into(), format!("{} · {}", self.project.format_label(), self.project.aspect_key())),
                 ]))
                 .into_any_element(),
+            {
+                let on = crate::media::proxy::ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+                let ed = cx.entity();
+                group(Some("Proxies"), None, false)
+                    .child(field_row("Preview", segmented("proxies", &[(false, "Originals"), (true, "Proxies")], &on, |_| false, move |v, _, cx| ed.update(cx, |e, cx| {
+                        e.set_proxies(v);
+                        cx.notify();
+                    })), None))
+                    .child(button("all-proxies", Variant::Secondary, 30.).text_size(px(12.)).child("Make proxies for big videos").on_click(cx.listener(|this, _, _, cx| {
+                        this.make_all_proxies(cx);
+                        cx.notify();
+                    })))
+                    .child(micro("Videos above 1080p get a small editing copy when imported, so the preview stays smooth. Export always uses the originals."))
+                    .into_any_element()
+            },
             group(Some("Get started"), None, false)
                 .child(micro("Drag footage, music, overlays and text from the library onto a track. Click a clip to edit its timing, look and type here."))
                 .into_any_element(),
@@ -398,19 +453,29 @@ impl Editor {
             this.slider_field(label, format!("f-{label}"), value, min, max, step, fmt, Rc::new(move |e: &mut Editor, v| e.store.update_clip(&id, |c| *field(c) = v)), cx)
         };
         if c.visual() {
+            let (w, h) = (crate::model::time::W() as f64, crate::model::time::H() as f64);
+            let animated = ["x", "y", "scale", "rot", "opacity"].iter().filter(|p| c.keys.contains_key(**p)).count();
             out.push(
-                group(Some("Transform"), None, false)
-                    .child(num(self, "Position X", |c| &mut c.x, c.x, -(crate::model::time::W() as f64) / 2.0, crate::model::time::W() as f64 / 2.0, 1.0, |v| format!("{}", v.round()), cx))
-                    .child(num(self, "Position Y", |c| &mut c.y, c.y, -(crate::model::time::H() as f64) / 2.0, crate::model::time::H() as f64 / 2.0, 1.0, |v| format!("{}", v.round()), cx))
-                    .child(num(self, "Scale", |c| &mut c.scale, c.scale, 0.1, 3.0, 0.01, pct, cx))
-                    .child(num(self, "Rotation", |c| &mut c.rot, c.rot, -180.0, 180.0, 1.0, |v| format!("{v}°"), cx))
-                    .child(num(self, "Opacity", |c| &mut c.opacity, c.opacity, 0.0, 1.0, 0.01, pct, cx))
+                group(Some("Transform"), (animated > 0).then(|| "Animated".to_string()), false)
+                    .child(self.keyed_slider(c, "x", "Position X", -w / 2.0, w / 2.0, 1.0, |v| format!("{}", v.round()), None, cx))
+                    .child(self.keyed_slider(c, "y", "Position Y", -h / 2.0, h / 2.0, 1.0, |v| format!("{}", v.round()), None, cx))
+                    .child(self.keyed_slider(c, "scale", "Scale", 0.1, 3.0, 0.01, pct, None, cx))
+                    .child(self.keyed_slider(c, "rot", "Rotation", -180.0, 180.0, 1.0, |v| format!("{}°", v.round()), None, cx))
+                    .child(self.keyed_slider(c, "opacity", "Opacity", 0.0, 1.0, 0.01, pct, None, cx))
+                    .when(animated > 0, |d| d.child(micro("With keyframes, moving the slider or the picture sets a keyframe at the playhead.")))
                     .into_any_element(),
             );
+            out.push(self.blend_mask_group(c, cx).into_any_element());
+            if matches!(c.kind, AssetType::Video | AssetType::Scene | AssetType::Overlay) {
+                out.push(self.speed_group(c, cx).into_any_element());
+            }
+            if c.kind == AssetType::Video && asset(&c.asset).and_then(|a| a.media.as_ref().map(|m| m.has_audio)).unwrap_or(false) {
+                out.push(group(Some("Sound"), None, false).child(self.keyed_slider(c, "volume", "Volume", 0.0, MAX_VOLUME, 0.01, pct, None, cx)).children(self.sound_tools(c, cx)).into_any_element());
+            }
             out.push(self.transition_control(c, cx).into_any_element());
             out.push(self.effect_stack(c, window, cx).into_any_element());
         } else {
-            let mut g = group(Some("Audio"), None, false).child(num(self, "Volume", |c| &mut c.volume, c.volume, 0.0, 1.0, 0.01, pct, cx));
+            let mut g = group(Some("Audio"), None, false).child(self.keyed_slider(c, "volume", "Volume", 0.0, MAX_VOLUME, 0.01, pct, None, cx)).children(self.sound_tools(c, cx));
             if c.kind == AssetType::Music {
                 if let Some(a) = asset(&c.asset) {
                     g = g.child(micro(format!("{} · {} BPM. The track keeps playing for as long as you stretch the clip.", a.sub, a.bpm)));
@@ -445,6 +510,173 @@ impl Editor {
                             cx.notify();
                         })))
                         .child(button("i-del", Variant::Destructive, 32.).child(icon("trash-2", 14., coral())).child("Delete").on_click(cx.listener(|this, _, _, cx| {
+                            this.store.remove();
+                            cx.notify();
+                        }))),
+                )
+                .into_any_element(),
+        );
+        out
+    }
+
+    /// Speed for picture clips that run through time: constant speed, direction, freeze frames
+    /// and speed ramps (Speed keyframes).
+    fn speed_group(&self, c: &Clip, cx: &mut Context<Self>) -> Div {
+        let id = c.id.clone();
+        let (ramped, frozen) = (c.ramped(), c.frozen());
+        let rev = c.motion.as_ref().map(|m| m.reverse).unwrap_or(false);
+        let cur = c.speed();
+        let chips = div().flex().flex_wrap().gap(px(6.)).children([(0.25, "¼×"), (0.5, "½×"), (1.0, "1×"), (2.0, "2×"), (4.0, "4×")].into_iter().map(|(v, l)| {
+            let id = id.clone();
+            let on = !ramped && !frozen && (cur - v).abs() < 1e-3;
+            button(SharedString::from(format!("spd-{l}")), if on { Variant::Primary } else { Variant::Secondary }, 28.)
+                .text_size(px(12.))
+                .child(l)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.store.commit();
+                    this.store.set_speed(&id, v);
+                    this.restart_audio();
+                    cx.notify();
+                }))
+                .into_any_element()
+        }));
+        let sid = id.clone();
+        // Constant speed changes the clip's length to keep its footage; with a ramp, a keyframe.
+        let apply: Apply = Rc::new(move |e: &mut Editor, v| {
+            let ramp = e.store.clip(&sid).map(|c| c.ramped()).unwrap_or(false);
+            if ramp {
+                e.set_props_now(&sid, &[("speed", v)]);
+            } else {
+                e.store.set_speed(&sid, v);
+            }
+        });
+        let ed = cx.entity();
+        let rid = id.clone();
+        let direction = segmented(&format!("dir-{id}"), &[(false, "Forward"), (true, "Reverse")], &rev, |_| frozen, move |v, _, cx| {
+            let rid = rid.clone();
+            ed.update(cx, |e, cx| {
+                e.store.set_reverse(&rid, v);
+                e.restart_audio();
+                cx.notify();
+            })
+        });
+        let ramps = div().flex().flex_wrap().gap(px(6.)).children([("slowmo", "Slow-mo middle"), ("up", "Speed up"), ("down", "Slow down"), ("pulse", "Fast-slow-fast")].into_iter().map(|(k, l)| {
+            let id = id.clone();
+            button(SharedString::from(format!("ramp-{k}")), Variant::Secondary, 28.)
+                .text_size(px(12.))
+                .child(l)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.store.ramp_preset(&id, k);
+                    this.restart_audio();
+                    cx.notify();
+                }))
+                .into_any_element()
+        }));
+        let (fid, nid) = (id.clone(), id.clone());
+        let status = if frozen { Some("Freeze frame".to_string()) } else if ramped { Some("Ramp".to_string()) } else if (cur - 1.0).abs() > 1e-3 || rev { Some(format!("{}{:.2}×", if rev { "◀ " } else { "" }, cur)) } else { None };
+        let mut g = group(Some("Speed"), status, false);
+        if frozen {
+            return g.child(micro("This clip holds one frame. Trim it to hold for longer or shorter.")).child(
+                button("unfreeze", Variant::Secondary, 30.).text_size(px(12.)).child("Play normally").on_click(cx.listener(move |this, _, _, cx| {
+                    this.store.commit();
+                    this.store.update_clip(&nid, |c| {
+                        if let Some(m) = c.motion.as_mut() {
+                            m.freeze = false;
+                        }
+                    });
+                    cx.notify();
+                })),
+            );
+        }
+        g = g
+            .child(chips)
+            .child(self.keyed_slider(c, "speed", "Speed", 0.25, 4.0, 0.01, |v| format!("{v:.2}×"), Some(apply), cx))
+            .child(field_row("Direction", direction, None))
+            .child(div().flex().flex_col().gap_2().child(label("Speed ramp")).child(ramps))
+            .when(ramped, |d| {
+                let id = id.clone();
+                d.child(button("no-ramp", Variant::Ghost, 28.).text_size(px(12.)).child("Remove ramp").on_click(cx.listener(move |this, _, _, cx| {
+                    this.store.ramp_preset(&id, "none");
+                    cx.notify();
+                })))
+            })
+            .child(
+                button("freeze", Variant::Secondary, 30.).text_size(px(12.)).child(icon("pause", 13., ink())).child("Freeze frame at playhead").on_click(cx.listener(move |this, _, _, cx| {
+                    this.store.freeze_frame(&fid, 2.0);
+                    this.restart_audio();
+                    cx.notify();
+                })),
+            )
+            .child(micro(if ramped { "The ramp follows the Speed keyframes: move the playhead, set a speed, and the clip eases between them." } else { "Hold ⌥ and drag the clip's right edge on the timeline to stretch it to any speed." }));
+        g
+    }
+
+    /// Several clips selected: what they share, changed all at once.
+    fn multi_inspector(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let sel = self.store.selected_clips();
+        let Some(first) = sel.first().cloned() else { return vec![] };
+        let n = sel.len();
+        let start = sel.iter().map(|c| c.start).fold(f64::INFINITY, f64::min);
+        let end = sel.iter().map(|c| c.start + c.dur).fold(0.0, f64::max);
+        let visual = sel.iter().filter(|c| c.visual()).count();
+        let sound = sel.iter().filter(|c| matches!(c.kind, AssetType::Audio | AssetType::Music | AssetType::Video)).count();
+        let tracks: std::collections::BTreeSet<&str> = sel.iter().map(|c| c.track.as_str()).collect();
+        let all = |f: fn(&mut Clip, f64)| -> Apply { Rc::new(move |e: &mut Editor, v| e.store.update_selection(|c| f(c, v))) };
+        let max_fade = sel.iter().map(|c| c.dur / 2.0).fold(f64::INFINITY, f64::min).min(3.0).max(0.05);
+        let mut out = vec![group(None, None, false)
+            .child(type_label(div()).self_start().rounded(px(6.)).bg(surface3()).px_2().py_1().text_color(ink_muted()).child(format!("{n} CLIPS · {}", tracks.into_iter().collect::<Vec<_>>().join(" "))))
+            .child(type_headline(div()).child(format!("{n} clips selected")))
+            .child(kv(vec![("From".into(), tc(start)), ("To".into(), tc(end)), ("Spans".into(), tc(end - start))]))
+            .child(micro("Changes here apply to every selected clip. Drag any of them on the timeline to move them together."))
+            .into_any_element()];
+        let mut g = group(Some("Together"), None, false);
+        if visual > 0 {
+            let first_vis = sel.iter().find(|c| c.visual()).map(|c| c.opacity).unwrap_or(1.0);
+            g = g.child(self.slider_field("Opacity", "m-opacity", first_vis, 0.0, 1.0, 0.01, pct, all(|c, v| if c.visual() { c.opacity = v }), cx));
+        }
+        if sound > 0 {
+            let first_snd = sel.iter().find(|c| !c.visual() || c.kind == AssetType::Video).map(|c| c.volume).unwrap_or(1.0);
+            g = g.child(self.slider_field("Volume", "m-volume", first_snd, 0.0, 1.0, 0.01, pct, all(|c, v| if c.kind.is_audio() || c.kind == AssetType::Video { c.volume = v }), cx));
+        }
+        g = g
+            .child(self.slider_field("Fade in", "m-fadein", first.fade_in.min(max_fade), 0.0, max_fade, 0.05, |v| format!("{v:.2}s"), all(|c, v| c.fade_in = v), cx))
+            .child(self.slider_field("Fade out", "m-fadeout", first.fade_out.min(max_fade), 0.0, max_fade, 0.05, |v| format!("{v:.2}s"), all(|c, v| c.fade_out = v), cx));
+        let timed: Vec<String> = sel.iter().filter(|c| matches!(c.kind, AssetType::Video | AssetType::Scene | AssetType::Overlay | AssetType::Audio)).map(|c| c.id.clone()).collect();
+        if !timed.is_empty() {
+            let chips = div().flex().flex_wrap().gap(px(6.)).children([(0.5, "½×"), (1.0, "1×"), (2.0, "2×")].into_iter().map(|(v, l)| {
+                let ids = timed.clone();
+                button(SharedString::from(format!("mspd-{l}")), Variant::Secondary, 28.)
+                    .text_size(px(12.))
+                    .child(l)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.store.commit();
+                        for id in &ids {
+                            this.store.set_speed(id, v);
+                        }
+                        this.restart_audio();
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            }));
+            g = g.child(field_row("Speed", chips, None));
+        }
+        out.push(g.into_any_element());
+        out.push(
+            group(None, None, true)
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(6.))
+                        .child(button("m-split", Variant::Secondary, 32.).child(icon("scissors", 14., ink())).child("Split").on_click(cx.listener(|this, _, _, cx| {
+                            this.store.split();
+                            cx.notify();
+                        })))
+                        .child(button("m-dup", Variant::Secondary, 32.).child(icon("copy", 14., ink())).child("Duplicate").on_click(cx.listener(|this, _, _, cx| {
+                            this.store.duplicate();
+                            cx.notify();
+                        })))
+                        .child(button("m-del", Variant::Destructive, 32.).child(icon("trash-2", 14., coral())).child(format!("Delete {n}")).on_click(cx.listener(|this, _, _, cx| {
                             this.store.remove();
                             cx.notify();
                         }))),
@@ -497,6 +729,10 @@ impl Editor {
             .child(sl(self, "Bass boost", fx.bass, 0.0, 1.0, 0.01, pct, |f, v| f.bass = v, cx))
             .child(sl(self, "Muffle", fx.muffle, 0.0, 1.0, 0.01, pct, |f, v| f.muffle = v, cx))
             .child(sl(self, "8D", fx.pan8d, 0.0, 1.0, 0.01, pct, |f, v| f.pan8d = v, cx))
+            .child(label("EQ"))
+            .child(sl(self, "Low", fx.eq_low, -12.0, 12.0, 0.5, |v| format!("{v:+.1} dB"), |f, v| f.eq_low = v, cx))
+            .child(sl(self, "Mid", fx.eq_mid, -12.0, 12.0, 0.5, |v| format!("{v:+.1} dB"), |f, v| f.eq_mid = v, cx))
+            .child(sl(self, "High", fx.eq_high, -12.0, 12.0, 0.5, |v| format!("{v:+.1} dB"), |f, v| f.eq_high = v, cx))
             .child(micro("Slowing down makes the clip longer and speeding up makes it shorter. Reverb tails ring out to the clip's end."))
     }
 
@@ -722,21 +958,21 @@ impl Editor {
             .child(icon_button(SharedString::from(format!("fx-dn-{uid}")), "chevron-down", "Move down", None, 24., Variant::Ghost, act(|e, c, u| e.store.move_effect(c, u, 1))).when(last, |d| d.opacity(0.3)))
             .child(icon_button(SharedString::from(format!("fx-rm-{uid}")), "x", "Remove effect", None, 24., Variant::Ghost, act(|e, c, u| e.store.remove_effect(c, u))));
 
-        let mix = {
-            let (cid, uid) = (cid.clone(), uid.clone());
-            self.slider_field(
-                if matches!(def.engine, crate::fx::registry::Engine::Css | crate::fx::registry::Engine::Look) { "Strength" } else { "Mix" },
-                format!("fx-{uid}-amount"),
-                fx.amount,
-                0.0,
-                1.0,
-                0.01,
-                pct,
-                Rc::new(move |e: &mut Editor, v| e.store.update_effect(&cid, &uid, |x| x.amount = v)),
-                cx,
-            )
-        };
+        let mix = self.keyed_slider(
+            c,
+            &format!("fx.{uid}.amount"),
+            if matches!(def.engine, crate::fx::registry::Engine::Css | crate::fx::registry::Engine::Look) { "Strength" } else { "Mix" },
+            0.0,
+            1.0,
+            0.01,
+            pct,
+            None,
+            cx,
+        );
         let mut card = div().flex().flex_col().gap_3().rounded(px(10.)).bg(surface2()).p_3().when(!fx.enabled, |d| d.opacity(0.6)).child(header).child(mix);
+        if super::grade_ui::is_grade(fx) {
+            return card.children(self.grade_controls(c, fx, cx)).into_any_element();
+        }
         for p in &def.params {
             if p.key == "tint" && fx.params.get("color") != Some(&ParamValue::Str("tint".into())) {
                 continue;
@@ -750,15 +986,11 @@ impl Editor {
                 })
             };
             let el: AnyElement = match &p.kind {
+                ParamKind::File(ext) => self.file_param(c, fx, key, p.label, ext, cx),
                 ParamKind::Range { min, max, step, unit } => {
-                    let v = match fx.params.get(key) {
-                        Some(ParamValue::Num(n)) => *n,
-                        _ => *min,
-                    };
                     let unit = *unit;
-                    let s = setter.clone();
-                    self.slider_field(p.label, format!("fx-{}-{key}", fx.uid), v, *min, *max, *step, move |v| format!("{}{unit}", (v * 100.0).round() / 100.0), Rc::new(move |e: &mut Editor, v| s(ParamValue::Num(v))(e)), cx)
-                        .into_any_element()
+                    // A parameter never set yet shows its lowest value.
+                    self.keyed_slider(c, &format!("fx.{}.{key}", fx.uid), p.label, *min, *max, *step, move |v| format!("{}{unit}", (v * 100.0).round() / 100.0), None, cx).into_any_element()
                 }
                 ParamKind::Select(options) => {
                     let cur = match fx.params.get(key) {
@@ -839,3 +1071,21 @@ impl Editor {
 
 }
 
+
+/// The keyframe button's diamond: filled when there's a key at the playhead.
+fn key_glyph(color: gpui::Hsla, filled: bool) -> impl IntoElement {
+    gpui::canvas(|_, _, _| {}, move |b: gpui::Bounds<gpui::Pixels>, _, window, _| {
+        let (cx, cy) = (b.origin.x + b.size.width / 2.0, b.origin.y + b.size.height / 2.0);
+        let r = px(5.);
+        let mut pb = if filled { gpui::PathBuilder::fill() } else { gpui::PathBuilder::stroke(px(1.3)) };
+        pb.move_to(gpui::point(cx, cy - r));
+        pb.line_to(gpui::point(cx + r, cy));
+        pb.line_to(gpui::point(cx, cy + r));
+        pb.line_to(gpui::point(cx - r, cy));
+        pb.close();
+        if let Ok(p) = pb.build() {
+            window.paint_path(p, color);
+        }
+    })
+    .size_full()
+}

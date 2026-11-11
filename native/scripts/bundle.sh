@@ -44,6 +44,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSMicrophoneUsageDescription</key><string>Liemo records voice-overs and sounds from your microphone into your project.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Liemo listens to your edit's sound to write captions that follow it. It runs on this Mac where your language allows.</string>
   <key>NSHumanReadableCopyright</key><string>Liemo is open source.</string>
 </dict>
 </plist>

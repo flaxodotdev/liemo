@@ -48,16 +48,7 @@ pub fn draw_cover(c: &mut Canvas, src: &Pixmap, w: f32, h: f32) {
 fn draw_content(c: &mut Canvas, clip: &Clip, a: &Asset, t: f64, alpha: f32, frames: &mut dyn Frames) {
     let lt = t - clip.start;
     let st = clip.in_ + clip.src_offset(lt);
-    let m = motion_at(clip, lt);
-    c.translate(W() / 2.0 + clip.x as f32 + m.dx, H() / 2.0 + clip.y as f32 + m.dy);
-    c.rotate((clip.rot as f32 + m.rot).to_radians());
-    let (fx, fy) = match &clip.motion {
-        Some(mo) if a.kind != AssetType::Text => (if mo.flip_h { -1.0 } else { 1.0 }, if mo.flip_v { -1.0 } else { 1.0 }),
-        _ => (1.0, 1.0),
-    };
-    let k = clip.scale as f32 * m.scale;
-    c.scale(k * fx * m.sx, k * fy * m.sy);
-    c.translate(-W() / 2.0, -H() / 2.0);
+    place(c, clip, a.kind, lt);
     match a.kind {
         AssetType::Scene if a.shader.is_some() => {
             // Rendered at the layer's pixel size, then placed like any full frame.
@@ -100,6 +91,52 @@ fn draw_content(c: &mut Canvas, clip: &Clip, a: &Asset, t: f64, alpha: f32, fram
         }
         _ => {}
     }
+}
+
+/// Move the canvas into a clip's own space: its position, turn, scale and flips, with its motion
+/// at `lt` seconds in.
+fn place(c: &mut Canvas, clip: &Clip, kind: AssetType, lt: f64) {
+    let m = motion_at(clip, lt);
+    c.translate(W() / 2.0 + clip.x as f32 + m.dx, H() / 2.0 + clip.y as f32 + m.dy);
+    c.rotate((clip.rot as f32 + m.rot).to_radians());
+    let (fx, fy) = match &clip.motion {
+        Some(mo) if kind != AssetType::Text => (if mo.flip_h { -1.0 } else { 1.0 }, if mo.flip_v { -1.0 } else { 1.0 }),
+        _ => (1.0, 1.0),
+    };
+    let k = clip.scale as f32 * m.scale;
+    c.scale(k * fx * m.sx, k * fy * m.sy);
+    c.translate(-W() / 2.0, -H() / 2.0);
+}
+
+/// The clip's mask as alpha on a `cw`×`ch` frame: its shape in the clip's own space, softened by
+/// its feather, flipped when inverted.
+fn mask_alpha(clip: &Clip, kind: AssetType, m: &Mask, lt: f64, cw: u32, ch: u32) -> Pixmap {
+    let s = cw as f32 / W();
+    let mut mc = Canvas::from_pixmap(pixmap(cw, ch));
+    mc.set_transform(Transform::from_scale(s, s));
+    place(&mut mc, clip, kind, lt);
+    mc.translate(W() / 2.0 + m.x as f32, H() / 2.0 + m.y as f32);
+    mc.rotate((m.rot as f32).to_radians());
+    let (w, h) = (m.w.max(1.0) as f32, m.h.max(1.0) as f32);
+    mc.set_fill_color(super::canvas::rgb(255, 255, 255));
+    mc.begin_path();
+    if m.shape == "rect" {
+        mc.round_rect(-w / 2.0, -h / 2.0, w, h, (m.radius as f32).min(w.min(h) / 2.0));
+    } else {
+        mc.ellipse(0.0, 0.0, w / 2.0, h / 2.0, 0.0, 2.0 * PI, false);
+    }
+    mc.fill();
+    let mut pm = mc.into_pixmap();
+    if m.feather > 0.5 {
+        pm = crate::fx::engines::blur_of(&pm, (m.feather as f32 * s * clip.scale as f32 / 2.0).max(0.5));
+    }
+    if m.invert {
+        for p in pm.data_mut().chunks_exact_mut(4) {
+            let a = 255 - p[3];
+            p.copy_from_slice(&[a, a, a, a]);
+        }
+    }
+    pm
 }
 
 fn bounce_out(x: f32) -> f32 {
@@ -230,30 +267,45 @@ pub fn motion_at(clip: &Clip, lt: f64) -> MotionNow {
 /// Draw one clip onto `c` (any 16:9 size).
 pub fn draw_clip(c: &mut Canvas, clip: &Clip, t: f64, frames: &mut dyn Frames) {
     let Some(a) = asset(&clip.asset) else { return };
+    // Keyframed properties take their value at this moment.
+    let posed;
+    let clip = if clip.keys.is_empty() {
+        clip
+    } else {
+        posed = clip.posed(t);
+        &posed
+    };
     let alpha = (clip.opacity * clip_fade(clip, t)) as f32 * motion_at(clip, t - clip.start).alpha;
     let (cw, ch) = (c.width(), c.height());
     let s = cw as f32 / W();
     // The asset's blend, with the text style's own blend winning for text clips.
     let text = clip.text.as_ref().filter(|_| a.kind == AssetType::Text);
-    let blend = match text {
-        Some(tx) => super::textclip::text_blend(tx.blend),
-        None => a.blend.map(super::canvas::blend_named).unwrap_or(tiny_skia::BlendMode::SourceOver),
+    let blend = match (&clip.blend, text) {
+        (Some(b), _) => super::canvas::blend_named(b),
+        (None, Some(tx)) => super::textclip::text_blend(tx.blend),
+        (None, None) => a.blend.map(super::canvas::blend_named).unwrap_or(tiny_skia::BlendMode::SourceOver),
     };
     // A layer whenever effects run: the clip renders alone first, takes its effect stack, then
     // composites like any other clip. Blended text goes the same way even without effects, so the
     // blend applies to the composite (the picture on the canvas) rather than a transparent layer.
-    let layered = clip.effects.iter().any(|e| e.enabled) || text.is_some() && blend != tiny_skia::BlendMode::SourceOver;
+    let layered = clip.effects.iter().any(|e| e.enabled) || clip.mask.is_some() || (text.is_some() || clip.blend.is_some()) && blend != tiny_skia::BlendMode::SourceOver;
 
     if layered {
         // Render the clip alone, run its effect stack, then composite the result like any other clip.
         let mut layer = Canvas::from_pixmap(pixmap(cw, ch));
         layer.set_transform(Transform::from_scale(s, s));
         draw_content(&mut layer, clip, &a, t, 1.0, frames);
-        let out = if clip.effects.iter().any(|e| e.enabled) {
+        let mut out = if clip.effects.iter().any(|e| e.enabled) {
             run_effects(&layer.into_pixmap(), &clip.effects, (t - clip.start) as f32, clip.dur as f32, effects_on_object(clip))
         } else {
             layer.into_pixmap()
         };
+        if let Some(m) = &clip.mask {
+            let mask = mask_alpha(clip, a.kind, m, t - clip.start, cw, ch);
+            let mut mc = Canvas::from_pixmap(out);
+            mc.composite(&mask, 1.0, tiny_skia::BlendMode::DestinationIn);
+            out = mc.into_pixmap();
+        }
         c.save();
         c.reset_transform();
         c.composite(&out, alpha, blend);
@@ -450,7 +502,10 @@ pub fn render_frame(c: &mut Canvas, scene: &Scene, t: f64, frames: &mut dyn Fram
     main.sort_by(|a, b| a.start.total_cmp(&b.start));
     let zooms: Vec<(TransitionWindow, &Clip)> =
         if scene.hidden("V1") { vec![] } else { transition_windows(&main).into_iter().filter_map(|w| zoom_title(scene.clips, &w).map(|title| (w, title))).collect() };
-    for tid in ["V1", "V2", "T1"] {
+    // Picture tracks from the bottom of the list up: lower tracks are further back.
+    let order: Vec<&str> = scene.tracks.iter().rev().filter(|t| t.kind != TrackKind::Audio).map(|t| t.id.as_str()).collect();
+    let order = if order.is_empty() { vec!["V1", "V2", "T1"] } else { order };
+    for tid in order {
         if scene.hidden(tid) {
             continue;
         }

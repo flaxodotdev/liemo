@@ -1201,6 +1201,8 @@ pub fn run_effects(src: &Pixmap, stack: &[ClipEffect], t: f32, dur: f32, object:
             Engine::Adjust => adjust(&cur, &mut out, p, t),
             Engine::Extra => super::extra::run(def.id, &cur, &mut out, p, t, dur),
             Engine::Cutout => super::cutout::run(def.id, &cur, &mut out, p),
+            Engine::Lut => super::grade::lut(&cur, &mut out, p),
+            Engine::Grade => super::grade::grade(&cur, &mut out, p),
             Engine::Glitch => glitch(&cur, &mut out, p, t),
             Engine::Posterize => posterize(&cur, &mut out, p),
             Engine::Duotone => duotone(&cur, &mut out, p),

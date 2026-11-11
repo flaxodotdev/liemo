@@ -2,6 +2,7 @@ pub mod cutout;
 pub mod engines;
 pub mod extra;
 pub mod gpu;
+pub mod grade;
 pub mod looks;
 pub mod paper;
 pub mod registry;

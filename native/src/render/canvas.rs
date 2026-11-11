@@ -54,6 +54,15 @@ pub fn blend_named(name: &str) -> BlendMode {
         "copy" => BlendMode::Source,
         "source-in" => BlendMode::SourceIn,
         "saturation" => BlendMode::Saturation,
+        "darken" => BlendMode::Darken,
+        "lighten" => BlendMode::Lighten,
+        "color-dodge" => BlendMode::ColorDodge,
+        "color-burn" => BlendMode::ColorBurn,
+        "hard-light" => BlendMode::HardLight,
+        "soft-light" => BlendMode::SoftLight,
+        "hue" => BlendMode::Hue,
+        "color" => BlendMode::Color,
+        "luminosity" => BlendMode::Luminosity,
         _ => BlendMode::SourceOver,
     }
 }

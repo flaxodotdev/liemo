@@ -10,6 +10,8 @@ mod storage;
 mod update;
 #[cfg(target_os = "macos")]
 mod vision_mac;
+#[cfg(target_os = "macos")]
+mod speech_mac;
 mod agent;
 mod ui;
 mod model;

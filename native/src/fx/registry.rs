@@ -11,6 +11,8 @@ pub enum ParamKind {
     Select(Vec<(&'static str, &'static str)>),
     Color,
     Toggle,
+    /// A file on disk (the value is its path), with this extension.
+    File(&'static str),
 }
 #[derive(Clone, Debug)]
 pub struct ParamDef {
@@ -27,6 +29,10 @@ pub enum Engine {
     Extra,
     /// Remove background and chroma key (`fx::cutout`).
     Cutout,
+    /// A .cube colour lookup table (`fx::grade`).
+    Lut,
+    /// Lift / gamma / gain colour wheels (`fx::grade`).
+    Grade,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -374,6 +380,15 @@ pub fn effects() -> &'static Vec<EffectDef> {
                     range("sharpen", "Sharpen", 0.0, 100.0, 1.0, ""),
                 ],
             ),
+            def("grade", "Colour wheels", Color, En::Grade,
+                &[("lift_hue", n(200.0)), ("lift_amt", n(0.0)), ("lift_lum", n(0.0)), ("gamma_hue", n(40.0)), ("gamma_amt", n(0.0)), ("gamma_lum", n(0.0)), ("gain_hue", n(40.0)), ("gain_amt", n(0.0)), ("gain_lum", n(0.0)), ("saturation", n(0.0))],
+                vec![
+                    range("lift_hue", "Shadows hue", 0.0, 360.0, 1.0, "°"), range("lift_amt", "Shadows colour", 0.0, 1.0, 0.01, ""), range("lift_lum", "Shadows", -1.0, 1.0, 0.01, ""),
+                    range("gamma_hue", "Midtones hue", 0.0, 360.0, 1.0, "°"), range("gamma_amt", "Midtones colour", 0.0, 1.0, 0.01, ""), range("gamma_lum", "Midtones", -1.0, 1.0, 0.01, ""),
+                    range("gain_hue", "Highlights hue", 0.0, 360.0, 1.0, "°"), range("gain_amt", "Highlights colour", 0.0, 1.0, 0.01, ""), range("gain_lum", "Highlights", -1.0, 1.0, 0.01, ""),
+                    range("saturation", "Saturation", -100.0, 100.0, 1.0, ""),
+                ]),
+            def("lut", "LUT (.cube)", Color, En::Lut, &[("file", s(""))], vec![ParamDef { key: "file", label: "LUT file", kind: ParamKind::File("cube") }]),
             def("rgbsplit", "RGB split", Retro, En::RgbSplit, &[("offset", n(10.0)), ("jitter", b(false))], vec![range("offset", "Offset", 0.0, 60.0, 1.0, "px"), toggle("jitter", "Jitter")]),
             def("glitch", "Glitch", Retro, En::Glitch, &[("intensity", n(0.5)), ("slices", n(14.0)), ("speed", n(12.0))],
                 vec![range("intensity", "Intensity", 0.0, 1.0, 0.01, ""), range("slices", "Slices", 2.0, 40.0, 1.0, ""), range("speed", "Speed", 1.0, 30.0, 1.0, "/s")]),

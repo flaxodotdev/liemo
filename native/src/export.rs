@@ -50,6 +50,8 @@ pub enum RangeMode {
     All,
     Clip,
     Custom,
+    /// The timeline's in and out points.
+    InOut,
 }
 
 pub const RESOLUTIONS: [(u32, &str); 4] = [(720, "720p"), (1080, "1080p · Full HD"), (1440, "1440p · 2K"), (2160, "2160p · 4K")];
@@ -335,7 +337,7 @@ fn export_gif(job: &Job, start: f64, stop: f64, p: &Progress) -> Result<Outcome>
     Ok(Outcome { bytes: bytes_of(&job.path), path: job.path.clone(), with_audio: false, seconds: stop - start, size: Some((w, h)) })
 }
 
-fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
+pub fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
     use std::io::Write;
     let (ch, sr) = (2u16, crate::media::audio::RATE);
     let data_len = (samples.len() * 2) as u32;

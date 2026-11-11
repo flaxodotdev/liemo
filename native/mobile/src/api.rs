@@ -3,7 +3,7 @@
 // rendering frames and sound for the preview, playback and export.
 
 use crate::mcp::tools::{self, FileWorkspace, Workspace, R};
-use crate::model::store::{project_end, Store};
+use crate::model::store::Store;
 use crate::render::canvas::{to_straight, Canvas};
 use crate::storage::{self, ProjectRecord};
 use parking_lot::Mutex;
@@ -76,12 +76,7 @@ impl SessionWs<'_> {
 
 fn record_of(o: &Open) -> ProjectRecord {
     let mut rec = o.rec.clone();
-    rec.name = o.store.name.clone();
-    rec.clips = o.store.clips.clone();
-    rec.tracks = o.store.tracks.clone();
-    rec.pool = o.store.pool.clone();
-    rec.duration = project_end(&rec.clips);
-    rec.clip_count = rec.clips.len();
+    rec.take(&o.store);
     rec
 }
 
@@ -185,7 +180,7 @@ impl Engine {
         let Some(rec) = storage::get_project(&id) else { return ToolResult { ok: false, text: format!("No project with id {id}"), png: None } };
         crate::model::time::set_env(rec.env());
         tools::ensure_media(&rec, true);
-        let store = Store::new(rec.name.clone(), rec.clips.clone(), rec.tracks.clone(), rec.pool.clone());
+        let store = rec.store(rec.pool.clone());
         *self.open.lock() = Some(Open { rec, store });
         self.call("get_project".into(), format!("{{\"project\":\"{id}\"}}"))
     }
@@ -229,18 +224,34 @@ impl Engine {
 
     /// The open project's frame at `time`, its long side at most `max` px.
     pub fn render_frame(&self, time: f64, max: u32) -> Option<MediaFrame> {
-        let open = self.open.lock();
-        let o = open.as_ref()?;
-        let env = o.rec.env();
+        let (clips, tracks, env) = self.scene()?;
+        Some(render(&clips, &tracks, env, time, max))
+    }
+
+    /// The frame without one clip: what stays still while a finger moves that clip.
+    pub fn render_frame_without(&self, clip_id: String, time: f64, max: u32) -> Option<MediaFrame> {
+        let (mut clips, tracks, env) = self.scene()?;
+        clips.retain(|c| c.id != clip_id);
+        Some(render(&clips, &tracks, env, time, max))
+    }
+
+    /// The clip under a point on the picture (canvas units from its top-left), front-most first.
+    pub fn hit_test(&self, time: f64, x: f64, y: f64) -> Option<String> {
+        let (clips, tracks, env) = self.scene()?;
         crate::model::time::set_env(env);
-        // The compositor draws to whatever size the canvas is, so this serves the preview and
-        // export (1080p, 4K) alike.
-        let k = max as f32 / env.w.max(env.h);
-        let (w, h) = (((env.w * k).round() as u32).max(2), ((env.h * k).round() as u32).max(2));
-        let mut c = Canvas::from_pixmap(crate::render::canvas::pixmap(w, h));
-        let mut pool = crate::render::frames::DecoderPool::new(w.max(1280), h.max(720));
-        crate::render::compositor::render_frame(&mut c, &crate::render::compositor::Scene { clips: &o.store.clips, tracks: &o.store.tracks }, time, &mut pool);
-        Some(frame_of(&c.into_pixmap()))
+        let posed: Vec<crate::model::types::Clip> = clips.iter().map(|c| c.posed(time)).collect();
+        crate::geometry::hit_test(&posed, &tracks, x as f32, y as f32, time).map(|c| c.id.clone())
+    }
+
+    /// A clip's box on the picture at `time`, in canvas units: centre x, centre y, width, height,
+    /// rotation (degrees), and the point it scales and turns about (x, y). Empty when it isn't a
+    /// picture clip.
+    pub fn clip_box(&self, clip_id: String, time: f64) -> Vec<f64> {
+        let Some((clips, _, env)) = self.scene() else { return vec![] };
+        crate::model::time::set_env(env);
+        let Some(c) = clips.iter().find(|c| c.id == clip_id && c.visual()).map(|c| c.posed(time)) else { return vec![] };
+        let b = crate::geometry::clip_box(&c);
+        vec![b.cx as f64, b.cy as f64, b.w as f64, b.h as f64, b.rot as f64, env.w as f64 / 2.0 + c.x, env.h as f64 / 2.0 + c.y]
     }
 
     /// `frames` of the open project's sound from `start` seconds: 48 kHz interleaved stereo.
@@ -258,6 +269,15 @@ impl Engine {
         let open = self.open.lock();
         let Some(o) = open.as_ref() else { return vec![] };
         crate::audio::mix::render_range(&o.store.clips, &o.store.tracks, start, stop, &|| false).unwrap_or_default()
+    }
+
+    /// What's said, for captions: the sound of `start`..`stop` without the music (built-in tracks
+    /// and anything on the Music track), 48 kHz interleaved stereo. Music under a voice is what
+    /// most often makes speech recognition give up.
+    pub fn render_voice_range(&self, start: f64, stop: f64) -> Vec<f32> {
+        let Some((clips, tracks, env)) = self.scene() else { return vec![] };
+        crate::model::time::set_env(env);
+        crate::audio::mix::voice_range(&clips, &tracks, start, stop).unwrap_or_default()
     }
 
     pub fn delete_project(&self, id: String) -> bool {
@@ -296,10 +316,8 @@ impl Engine {
     /// One clip of the open project alone at `time` (its effects and motion, nothing else), on
     /// a transparent frame: freeze frames.
     pub fn render_clip(&self, clip_id: String, time: f64, max: u32) -> Option<MediaFrame> {
-        let open = self.open.lock();
-        let o = open.as_ref()?;
-        let clip = o.store.clips.iter().find(|c| c.id == clip_id)?.clone();
-        let env = o.rec.env();
+        let (clips, _, env) = self.scene()?;
+        let clip = clips.into_iter().find(|c| c.id == clip_id)?;
         crate::model::time::set_env(env);
         let k = max as f32 / env.w.max(env.h);
         let (w, h) = (((env.w * k).round() as u32).max(2), ((env.h * k).round() as u32).max(2));
@@ -352,3 +370,26 @@ impl Engine {
         env!("CARGO_PKG_VERSION").into()
     }
 }
+
+impl Engine {
+    /// The open project's clips, tracks and canvas, copied so rendering doesn't hold the lock
+    /// (edits from the UI would otherwise wait for every frame).
+    fn scene(&self) -> Option<(Vec<crate::model::types::Clip>, Vec<crate::model::types::Track>, crate::model::time::Env)> {
+        let open = self.open.lock();
+        let o = open.as_ref()?;
+        Some((o.store.clips.clone(), o.store.tracks.clone(), o.rec.env()))
+    }
+}
+
+fn render(clips: &[crate::model::types::Clip], tracks: &[crate::model::types::Track], env: crate::model::time::Env, time: f64, max: u32) -> MediaFrame {
+    crate::model::time::set_env(env);
+    // The compositor draws to whatever size the canvas is, so this serves the preview and
+    // export (1080p, 4K) alike.
+    let k = max as f32 / env.w.max(env.h);
+    let (w, h) = (((env.w * k).round() as u32).max(2), ((env.h * k).round() as u32).max(2));
+    let mut c = Canvas::from_pixmap(crate::render::canvas::pixmap(w, h));
+    let mut pool = crate::render::frames::DecoderPool::new(w.max(1280), h.max(720));
+    crate::render::compositor::render_frame(&mut c, &crate::render::compositor::Scene { clips, tracks }, time, &mut pool);
+    frame_of(&c.into_pixmap())
+}
+

@@ -58,6 +58,12 @@ impl Editor {
         s.aspect = self.project.aspect_key();
         s.resolution = self.project.resolution;
         s.fps = self.project.fps;
+        // In and out points set on the ruler are what to export, unless changed here.
+        if self.store.in_out_range().is_some() {
+            s.range_mode = RangeMode::InOut;
+        } else if s.range_mode == RangeMode::InOut {
+            s.range_mode = RangeMode::All;
+        }
         let name = safe_name(&self.store.name);
         self.export_name.update(cx, |st, cx| st.set_value(name.clone(), window, cx));
         let support = export::probe(s.container);
@@ -93,6 +99,7 @@ impl Editor {
             },
             RangeMode::Custom => (e.custom[0].min(e.custom[1]), e.custom[0].max(e.custom[1])),
             RangeMode::All => (0.0, dur),
+            RangeMode::InOut => self.store.in_out_range().unwrap_or((0.0, dur)),
         }
     }
 
@@ -267,14 +274,18 @@ impl Editor {
             }
         }
         if s.kind != Kind::Image {
-            let disabled = if selected.is_none() { vec!["clip".to_string()] } else { vec![] };
+            let mut disabled = if selected.is_none() { vec!["clip".to_string()] } else { vec![] };
+            if self.store.in_out_range().is_none() {
+                disabled.push("inout".to_string());
+            }
             fields.push(
                 field_row(
                     "Range",
-                    seg("ex-range", o(&[("all", "Whole video"), ("clip", "Selected clip"), ("custom", "Custom")]), format!("{:?}", s.range_mode).to_lowercase(), disabled, |s, v| {
+                    seg("ex-range", o(&[("all", "Whole video"), ("inout", "In to out"), ("clip", "Selected clip"), ("custom", "Custom")]), format!("{:?}", s.range_mode).to_lowercase(), disabled, |s, v| {
                         s.range_mode = match v {
                             "clip" => RangeMode::Clip,
                             "custom" => RangeMode::Custom,
+                            "inout" => RangeMode::InOut,
                             _ => RangeMode::All,
                         }
                     }),
