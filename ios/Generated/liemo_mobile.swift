@@ -636,6 +636,13 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func canUndo()  -> Bool
     
     /**
+     * A clip's box on the picture at `time`, in canvas units: centre x, centre y, width, height,
+     * rotation (degrees), and the point it scales and turns about (x, y). Empty when it isn't a
+     * picture clip.
+     */
+    func clipBox(clipId: String, time: Double)  -> [Double]
+    
+    /**
      * Save, refresh the project's thumbnail and close it.
      */
     func closeProject() 
@@ -650,6 +657,11 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func effectThumb(id: String)  -> MediaFrame
     
     func endGesture() 
+    
+    /**
+     * The clip under a point on the picture (canvas units from its top-left), front-most first.
+     */
+    func hitTest(time: Double, x: Double, y: Double)  -> String?
     
     /**
      * Installed font families on this device.
@@ -692,6 +704,18 @@ public protocol EngineProtocol: AnyObject, Sendable {
      * The open project's frame at `time`, its long side at most `max` px.
      */
     func renderFrame(time: Double, max: UInt32)  -> MediaFrame?
+    
+    /**
+     * The frame without one clip: what stays still while a finger moves that clip.
+     */
+    func renderFrameWithout(clipId: String, time: Double, max: UInt32)  -> MediaFrame?
+    
+    /**
+     * What's said, for captions: the sound of `start`..`stop` without the music (built-in tracks
+     * and anything on the Music track), 48 kHz interleaved stereo. Music under a voice is what
+     * most often makes speech recognition give up.
+     */
+    func renderVoiceRange(start: Double, stop: Double)  -> [Float]
     
     /**
      * A text style drawn on a dark card (`props_json`: the text fields as get_project shows
@@ -848,6 +872,22 @@ open func canUndo() -> Bool  {
 }
     
     /**
+     * A clip's box on the picture at `time`, in canvas units: centre x, centre y, width, height,
+     * rotation (degrees), and the point it scales and turns about (x, y). Empty when it isn't a
+     * picture clip.
+     */
+open func clipBox(clipId: String, time: Double) -> [Double]  {
+    return try!  FfiConverterSequenceDouble.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_clip_box(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(clipId),
+        FfiConverterDouble.lower(time),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Save, refresh the project's thumbnail and close it.
      */
 open func closeProject()  {try! rustCall() {
@@ -897,6 +937,21 @@ open func endGesture()  {try! rustCall() {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * The clip under a point on the picture (canvas units from its top-left), front-most first.
+     */
+open func hitTest(time: Double, x: Double, y: Double) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_hit_test(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(time),
+        FfiConverterDouble.lower(x),
+        FfiConverterDouble.lower(y),uniffiCallStatus
+    )
+})
 }
     
     /**
@@ -1004,6 +1059,37 @@ open func renderFrame(time: Double, max: UInt32) -> MediaFrame?  {
             self.uniffiCloneHandle(),
         FfiConverterDouble.lower(time),
         FfiConverterUInt32.lower(max),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * The frame without one clip: what stays still while a finger moves that clip.
+     */
+open func renderFrameWithout(clipId: String, time: Double, max: UInt32) -> MediaFrame?  {
+    return try!  FfiConverterOptionTypeMediaFrame.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_render_frame_without(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(clipId),
+        FfiConverterDouble.lower(time),
+        FfiConverterUInt32.lower(max),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * What's said, for captions: the sound of `start`..`stop` without the music (built-in tracks
+     * and anything on the Music track), 48 kHz interleaved stereo. Music under a voice is what
+     * most often makes speech recognition give up.
+     */
+open func renderVoiceRange(start: Double, stop: Double) -> [Float]  {
+    return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_render_voice_range(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(start),
+        FfiConverterDouble.lower(stop),uniffiCallStatus
     )
 })
 }
@@ -1840,6 +1926,31 @@ fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceDouble: FfiConverterRustBuffer {
+    typealias SwiftType = [Double]
+
+    public static func write(_ value: [Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterDouble.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Double] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Double]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterDouble.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -1895,6 +2006,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_liemo_mobile_checksum_method_engine_can_undo() != 55976) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_liemo_mobile_checksum_method_engine_clip_box() != 10040) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_liemo_mobile_checksum_method_engine_close_project() != 17825) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1908,6 +2022,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_end_gesture() != 7829) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_hit_test() != 55389) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_installed_fonts() != 15054) {
@@ -1932,6 +2049,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_render_frame() != 54305) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_render_frame_without() != 41448) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_render_voice_range() != 56830) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_text_preview() != 38441) {

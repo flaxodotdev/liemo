@@ -336,6 +336,11 @@ int8_t uniffi_liemo_mobile_fn_method_engine_can_redo(uint64_t ptr, RustCallStatu
 int8_t uniffi_liemo_mobile_fn_method_engine_can_undo(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CLIP_BOX
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CLIP_BOX
+RustBuffer uniffi_liemo_mobile_fn_method_engine_clip_box(uint64_t ptr, RustBuffer clip_id, double time, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CLOSE_PROJECT
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_CLOSE_PROJECT
 void uniffi_liemo_mobile_fn_method_engine_close_project(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -359,6 +364,11 @@ RustBuffer uniffi_liemo_mobile_fn_method_engine_effect_thumb(uint64_t ptr, RustB
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_END_GESTURE
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_END_GESTURE
 void uniffi_liemo_mobile_fn_method_engine_end_gesture(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_HIT_TEST
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_HIT_TEST
+RustBuffer uniffi_liemo_mobile_fn_method_engine_hit_test(uint64_t ptr, double time, double x, double y, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_INSTALLED_FONTS
@@ -399,6 +409,16 @@ RustBuffer uniffi_liemo_mobile_fn_method_engine_render_clip(uint64_t ptr, RustBu
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_FRAME
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_FRAME
 RustBuffer uniffi_liemo_mobile_fn_method_engine_render_frame(uint64_t ptr, double time, uint32_t max, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_FRAME_WITHOUT
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_FRAME_WITHOUT
+RustBuffer uniffi_liemo_mobile_fn_method_engine_render_frame_without(uint64_t ptr, RustBuffer clip_id, double time, uint32_t max, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_VOICE_RANGE
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_VOICE_RANGE
+RustBuffer uniffi_liemo_mobile_fn_method_engine_render_voice_range(uint64_t ptr, double start, double stop, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_TEXT_PREVIEW
@@ -757,6 +777,12 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_can_undo(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CLIP_BOX
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CLIP_BOX
+uint16_t uniffi_liemo_mobile_checksum_method_engine_clip_box(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CLOSE_PROJECT
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_CLOSE_PROJECT
 uint16_t uniffi_liemo_mobile_checksum_method_engine_close_project(void
@@ -784,6 +810,12 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_effect_thumb(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_END_GESTURE
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_END_GESTURE
 uint16_t uniffi_liemo_mobile_checksum_method_engine_end_gesture(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_HIT_TEST
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_HIT_TEST
+uint16_t uniffi_liemo_mobile_checksum_method_engine_hit_test(void
     
 );
 #endif
@@ -832,6 +864,18 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_render_clip(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_FRAME
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_FRAME
 uint16_t uniffi_liemo_mobile_checksum_method_engine_render_frame(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_FRAME_WITHOUT
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_FRAME_WITHOUT
+uint16_t uniffi_liemo_mobile_checksum_method_engine_render_frame_without(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_VOICE_RANGE
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_VOICE_RANGE
+uint16_t uniffi_liemo_mobile_checksum_method_engine_render_voice_range(void
     
 );
 #endif

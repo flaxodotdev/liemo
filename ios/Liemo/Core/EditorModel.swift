@@ -15,6 +15,8 @@ final class EditorModel {
     private(set) var playing = false
     var selected: String?
     private(set) var frame: CGImage?
+    /// Which version of the edit (`rev`) the frame on screen was drawn from.
+    private(set) var frameRev = -1
     private(set) var canUndo = false
     private(set) var canRedo = false
     var error: String?
@@ -133,6 +135,14 @@ final class EditorModel {
         gestureSent = now
         update(clip, fields)
     }
+    /// An edit during a gesture that only the moving clip's own picture needs to show: the engine
+    /// takes it, but the project isn't re-read (that waits for the gesture's end).
+    func liveUpdate(_ clip: String, _ fields: [String: Any]) {
+        var f = fields
+        f["clip"] = clip
+        f["project"] = id
+        _ = core.call("update_clip", f)
+    }
     func endGesture() {
         core.engine.endGesture()
         canUndo = core.engine.canUndo()
@@ -198,11 +208,12 @@ final class EditorModel {
     func requestFrame() {
         if rendering { pending = true; return }
         rendering = true
-        let (t, max, engine) = (time, previewMax, core.engine)
+        let (t, max, engine, r) = (time, previewMax, core.engine, rev)
         Task.detached(priority: .userInitiated) {
             let img = engine.renderFrame(time: t, max: max)?.cgImage
             await MainActor.run {
                 if let img { self.frame = img }
+                self.frameRev = r
                 self.rendering = false
                 if self.pending {
                     self.pending = false

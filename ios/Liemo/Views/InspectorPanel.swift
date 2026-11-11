@@ -189,6 +189,14 @@ private struct TextSection: View {
                 }
                 .font(.system(size: 14))
             }
+            // On the button itself: a modifier on the Section would be copied onto every row,
+            // giving several font sheets on one switch.
+            .sheet(isPresented: $fonts) {
+                FontPicker(current: text.font) { f in
+                    fonts = false
+                    if let f { set(["font": f]) }
+                }
+            }
             SliderRow(label: "Size", value: text.size, range: 12...300, fmt: { "\(Int($0))" }) { set(["size": $0]) }
             Picker("Weight", selection: Binding(get: { Int(text.weight) }, set: { set(["weight": $0]) })) {
                 ForEach([400, 500, 600, 700, 800], id: \.self) { Text("\($0)").tag($0) }
@@ -217,12 +225,6 @@ private struct TextSection: View {
         }
         .onChange(of: text.content) { _, new in
             if new != content && pending == nil { content = new }
-        }
-        .sheet(isPresented: $fonts) {
-            FontPicker(current: text.font) { f in
-                fonts = false
-                if let f { set(["font": f]) }
-            }
         }
     }
 
@@ -274,19 +276,21 @@ private struct FontPicker: View {
     }
 
     private func row(_ f: String) -> some View {
-        // Some fonts (Zapfino, script faces) draw far outside their line; kept to their own row,
-        // what you see in a row is what that row picks.
+        // One plain button per row, its tap area exactly its own row. Some fonts (Zapfino,
+        // script faces) draw far outside their line, so the name is clipped to the row too.
         Button { done(f) } label: {
             HStack {
                 Text(f).font(.custom(f, size: 17)).foregroundStyle(Theme.ink)
                     .lineLimit(1).minimumScaleFactor(0.6)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .clipped()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if f == current { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
             }
             .frame(height: 34)
+            .clipped()
             .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .id(f)
     }
 }
 

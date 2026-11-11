@@ -199,11 +199,16 @@ struct CaptionsPanel: View {
                 guard await withCheckedContinuation({ c in SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0 == .authorized) } }) else {
                     throw CoreError(message: "Allow speech recognition for Liemo in Settings to make captions.")
                 }
-                let url = try await Task.detached { try Self.writeMix(engine.renderAudioRange(start: 0, stop: duration)) }.value
-                status = "Writing captions…"
-                let segments = try await Self.transcribe(url)
-                try? FileManager.default.removeItem(at: url)
-                guard !segments.isEmpty else { throw CoreError(message: "No speech found in this edit.") }
+                // The voice without the music, in pieces short enough for the recogniser.
+                let chunks = try await Task.detached { try Self.writeChunks(engine.renderVoiceRange(start: 0, stop: duration)) }.value
+                var segments: [(String, Double, Double)] = []
+                for (i, c) in chunks.enumerated() {
+                    status = chunks.count > 1 ? "Writing captions… \(i + 1) of \(chunks.count)" : "Writing captions…"
+                    let words = try await Self.transcribe(c.url)
+                    segments += words.map { ($0.0, $0.1 + c.offset, $0.2 + c.offset) }
+                    try? FileManager.default.removeItem(at: c.url)
+                }
+                guard !segments.isEmpty else { throw CoreError(message: "No speech found. Captions listen to voice clips and video sound; music is left out.") }
                 for chunk in Self.group(segments) { add(chunk) }
                 status = nil
                 done()
@@ -246,27 +251,70 @@ struct CaptionsPanel: View {
         return out
     }
 
-    private static func writeMix(_ samples: [Float]) throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("captions-\(UUID().uuidString).caf")
-        let fmt = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
-        let file = try AVAudioFile(forWriting: url, settings: fmt.settings)
+    /// 48 kHz stereo → 16 kHz mono 16-bit WAV files of at most 50 s (the recogniser's sweet
+    /// spot), each with where it starts in the edit. Silent pieces are left out.
+    nonisolated private static func writeChunks(_ samples: [Float]) throws -> [(url: URL, offset: Double)] {
         let n = samples.count / 2
-        guard n > 0, let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else { throw CoreError(message: "This edit has no sound.") }
-        buf.frameLength = AVAudioFrameCount(n)
-        for i in 0..<n {
-            buf.floatChannelData![0][i] = samples[i * 2]
-            buf.floatChannelData![1][i] = samples[i * 2 + 1]
+        guard n > 0 else { throw CoreError(message: "This edit has no voice or video sound to caption.") }
+        // Average each 3 stereo frames into one mono sample.
+        var mono = [Int16](repeating: 0, count: n / 3)
+        for i in 0..<mono.count {
+            var acc: Float = 0
+            for j in 0..<3 { acc += samples[(i * 3 + j) * 2] + samples[(i * 3 + j) * 2 + 1] }
+            mono[i] = Int16((acc / 6).clamped(-1, 1) * 32767)
         }
-        try file.write(from: buf)
-        return url
+        let rate = 16000, piece = 50 * rate
+        var out: [(URL, Double)] = []
+        var start = 0
+        while start < mono.count {
+            let end = min(mono.count, start + piece)
+            let part = mono[start..<end]
+            if part.contains(where: { abs(Int($0)) > 300 }) {
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("captions-\(UUID().uuidString).wav")
+                try wav(Array(part), rate: rate).write(to: url)
+                out.append((url, Double(start) / Double(rate)))
+            }
+            start = end
+        }
+        return out
     }
 
+    nonisolated private static func wav(_ s: [Int16], rate: Int) -> Data {
+        var d = Data()
+        func u32(_ v: Int) { var x = UInt32(v).littleEndian; d.append(Data(bytes: &x, count: 4)) }
+        func u16(_ v: Int) { var x = UInt16(v).littleEndian; d.append(Data(bytes: &x, count: 2)) }
+        d.append("RIFF".data(using: .ascii)!); u32(36 + s.count * 2)
+        d.append("WAVEfmt ".data(using: .ascii)!); u32(16); u16(1); u16(1); u32(rate); u32(rate * 2); u16(2); u16(16)
+        d.append("data".data(using: .ascii)!); u32(s.count * 2)
+        s.withUnsafeBufferPointer { d.append(Data(buffer: $0)) }
+        return d
+    }
+
+    /// Words with their times in one piece of sound. On the device first; if that can't hear
+    /// anything, Apple's servers (the language may lack an on-device model). Hearing nothing is an
+    /// empty result, not a failure.
     private static func transcribe(_ url: URL) async throws -> [(String, Double, Double)] {
         guard let rec = SFSpeechRecognizer(), rec.isAvailable else { throw CoreError(message: "Speech recognition isn't available for this language.") }
+        if rec.supportsOnDeviceRecognition, let words = try? await recognise(rec, url, onDevice: true), !words.isEmpty {
+            return words
+        }
+        do {
+            return try await recognise(rec, url, onDevice: false)
+        } catch {
+            let ns = error as NSError
+            // "No speech detected" / "Empty recognition": nothing said in this piece.
+            if ns.domain == "kAFAssistantErrorDomain" || ns.localizedDescription.lowercased().contains("speech") || ns.localizedDescription.lowercased().contains("empty") {
+                return []
+            }
+            throw error
+        }
+    }
+
+    private static func recognise(_ rec: SFSpeechRecognizer, _ url: URL, onDevice: Bool) async throws -> [(String, Double, Double)] {
         let req = SFSpeechURLRecognitionRequest(url: url)
         req.shouldReportPartialResults = false
         req.addsPunctuation = true
-        if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        req.requiresOnDeviceRecognition = onDevice
         return try await withCheckedThrowingContinuation { c in
             var finished = false
             rec.recognitionTask(with: req) { result, error in

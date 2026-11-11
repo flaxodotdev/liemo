@@ -33,7 +33,7 @@ struct EditorView: View {
                 let room = max(160, g.size.height - (48 + 52 + 18 + 64 + 200))
                 VStack(spacing: 0) {
                     topBar
-                    PreviewStage(model: model)
+                    PreviewStage(model: model, editText: { show(.inspector) })
                         .frame(height: wide ? nil : min(previewHeight, room))
                         .frame(maxHeight: wide ? .infinity : nil)
                     transport
@@ -256,6 +256,8 @@ struct EditorView: View {
 
 struct PreviewStage: View {
     let model: EditorModel
+    /// Tapping a title that's already selected opens its text settings.
+    var editText: () -> Void = {}
     @Environment(\.displayScale) private var scale
 
     var body: some View {
@@ -264,11 +266,27 @@ struct PreviewStage: View {
             let fit = geo.size.width / geo.size.height > a
                 ? CGSize(width: geo.size.height * a, height: geo.size.height)
                 : CGSize(width: geo.size.width, height: geo.size.width / a)
+            let k = fit.width / (model.doc?.canvas.width ?? 1280)
             ZStack {
                 Color.black
-                if let f = model.frame { Image(decorative: f, scale: 1).resizable().interpolation(.high) }
+                if let l = live, let bg = l.bg {
+                    Image(decorative: bg, scale: 1).resizable().interpolation(.high)
+                } else if let f = model.frame {
+                    Image(decorative: f, scale: 1).resizable().interpolation(.high)
+                }
+                // While a finger moves a clip, the clip alone moves over a still background.
+                if let l = live, let layer = l.layer {
+                    Image(decorative: layer, scale: 1).resizable().interpolation(.high)
+                        .scaleEffect(l.scale, anchor: anchor(l, fit))
+                        .rotationEffect(l.rot, anchor: anchor(l, fit))
+                        .offset(l.offset)
+                        .allowsHitTesting(false)
+                }
+                selectionBox(fit: fit, k: k)
             }
             .frame(width: fit.width, height: fit.height)
+            .coordinateSpace(.named("stage"))
+            .clipped()
             .overlay(Rectangle().stroke(Theme.border, lineWidth: 1))
             .overlay(alignment: .topTrailing) {
                 if model.selectedClip?.type == "text" {
@@ -283,97 +301,228 @@ struct PreviewStage: View {
                 }
             }
             .contentShape(Rectangle())
-            .gesture(moveOrTilt(fit), including: model.selectedClip?.isVisual == true ? .all : .subviews)
-            .simultaneousGesture(pinch, including: model.selectedClip?.isVisual == true ? .all : .subviews)
-            .simultaneousGesture(twist, including: model.selectedClip?.isVisual == true ? .all : .subviews)
+            .onTapGesture(coordinateSpace: .local) { p in tapped(p, k: k) }
+            .gesture(moveOrTilt(fit: fit, k: k))
+            .simultaneousGesture(pinch(fit: fit))
+            .simultaneousGesture(twist(fit: fit))
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
             .onAppear { setMax(fit) }
             .onChange(of: fit) { _, f in setMax(f) }
-            .onTapGesture { model.togglePlay() }
         }
         .padding(12)
+        .task(id: boxKey) { refreshBox() }
+        .onChange(of: model.frameRev) { _, r in
+            // Hand back to the engine's frame once it shows the committed edit (no flash between).
+            if let c = live?.committed, r >= c { live = nil }
+        }
+    }
+
+    // MARK: Selecting
+
+    private func tapped(_ p: CGPoint, k: CGFloat) {
+        let hit = Core.shared.engine.hitTest(time: model.time, x: Double(p.x / k), y: Double(p.y / k))
+        if let hit {
+            if hit == model.selected, model.selectedClip?.type == "text" { editText() }
+            model.selected = hit
+        } else if model.selected != nil {
+            model.selected = nil
+        } else {
+            model.togglePlay()
+        }
+    }
+
+    private var boxKey: String { "\(model.selected ?? "")|\(model.rev)|\(model.time)" }
+    @State private var box: [Double] = []
+    private func refreshBox() {
+        guard let s = model.selected else { box = []; return }
+        box = Core.shared.engine.clipBox(clipId: s, time: model.time)
+    }
+
+    /// The selected clip's outline and a corner handle to resize it with one finger. It follows the
+    /// moving layer during a gesture.
+    @ViewBuilder
+    private func selectionBox(fit: CGSize, k: CGFloat) -> some View {
+        if box.count == 7, let c = model.selectedClip, model.time >= c.start, model.time < c.end {
+            let (cx, cy, w, h) = (box[0] * k, box[1] * k, box[2] * k, box[3] * k)
+            let rot = Angle.degrees(box[4])
+            // Follows the moving layer only while fingers are down: once the edit lands, the box
+            // is already where the clip is.
+            let l = live?.committed == nil ? live : nil
+            ZStack {
+                Rectangle().stroke(Color.white.opacity(0.9), lineWidth: 1.5)
+                    .frame(width: w, height: h)
+                    .position(x: cx, y: cy)
+                    .rotationEffect(rot, anchor: UnitPoint(x: cx / fit.width, y: cy / fit.height))
+                // Bottom-right corner, turned with the clip.
+                let corner = CGPoint(x: cx + (w / 2) * cos(rot.radians) - (h / 2) * sin(rot.radians),
+                                     y: cy + (w / 2) * sin(rot.radians) + (h / 2) * cos(rot.radians))
+                Circle().fill(Color.white).frame(width: 18, height: 18)
+                    .overlay(Circle().stroke(Color.black.opacity(0.4), lineWidth: 1))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+                    .position(corner)
+                    .highPriorityGesture(resize(fit: fit, k: k))
+                    .accessibilityLabel("Resize")
+            }
+            .scaleEffect(l?.scale ?? 1, anchor: l.map { anchor($0, fit) } ?? .center)
+            .rotationEffect(l?.rot ?? .zero, anchor: l.map { anchor($0, fit) } ?? .center)
+            .offset(l?.offset ?? .zero)
+        }
     }
 
     // MARK: Moving the selected clip with fingers
 
-    /// Drag moves the selected clip (or, with 3D on, tilts its text); pinch scales; twist rotates.
-    /// Each gesture is one undo step.
+    /// What a gesture shows while it runs: the frame without the clip, the clip alone, and how far
+    /// it has moved, grown and turned (or, for 3D text, the text re-drawn as it tilts).
+    struct Live {
+        var clip: String
+        var anchor: CGPoint
+        var bg: CGImage?
+        var layer: CGImage?
+        var offset: CGSize = .zero
+        var scale: CGFloat = 1
+        var rot: Angle = .zero
+        var tilt: (x: Double, y: Double)?
+        /// The edit version that holds the result, once committed.
+        var committed: Int?
+    }
+    @State private var live: Live?
     @State private var tilt = false
     @State private var start: (x: Double, y: Double, scale: Double, rot: Double, tx: Double, ty: Double)?
-    @State private var active = 0
+    /// Which gestures are under way (drag, pinch, twist, handle); the edit lands when all end.
+    @State private var fingers: Set<String> = []
+    @State private var layerBusy = false
+    @State private var pointsPerUnit: CGFloat = 1
+    @State private var handleFrom: CGFloat?
 
-    private func began(_ c: Clip) {
-        if active == 0 {
+    private func anchor(_ l: Live, _ fit: CGSize) -> UnitPoint {
+        UnitPoint(x: l.anchor.x / fit.width, y: l.anchor.y / fit.height)
+    }
+
+    /// The clip a new gesture works on: the one under the finger, else the selected one.
+    private func target(at p: CGPoint?, k: CGFloat) -> Clip? {
+        if let p, let hit = Core.shared.engine.hitTest(time: model.time, x: Double(p.x / k), y: Double(p.y / k)), hit != model.selected {
+            model.selected = hit
+        }
+        return model.selectedClip
+    }
+
+    /// A gesture joins: the first one sets up the still background and the clip's own layer.
+    private func join(_ g: String, at p: CGPoint?, fit: CGSize) -> Bool {
+        if fingers.contains(g) { return live?.committed == nil }
+        let k = fit.width / (model.doc?.canvas.width ?? 1280)
+        if fingers.isEmpty {
+            guard live == nil || live?.committed != nil, let c = target(at: p, k: k), c.isVisual,
+                  model.time >= c.start, model.time < c.end else { return false }
+            model.pause()
             model.beginGesture()
+            pointsPerUnit = k
             start = (c.x, c.y, c.scale, c.rot, c.text?.tiltX ?? 0, c.text?.tiltY ?? 0)
+            let fresh = Core.shared.engine.clipBox(clipId: c.id, time: model.time)
+            let (w, h) = (model.doc?.canvas.width ?? 1280, model.doc?.canvas.height ?? 720)
+            let au = fresh.count == 7 ? CGPoint(x: fresh[5], y: fresh[6]) : CGPoint(x: w / 2 + c.x, y: h / 2 + c.y)
+            live = Live(clip: c.id, anchor: CGPoint(x: au.x * k, y: au.y * k))
+            let (id, t, max, engine) = (c.id, model.time, model.previewMax, Core.shared.engine)
+            Task.detached(priority: .userInitiated) {
+                let bg = engine.renderFrameWithout(clipId: id, time: t, max: max)?.cgImage
+                let layer = engine.renderClip(clipId: id, time: t, max: max)?.cgImage
+                await MainActor.run {
+                    guard self.live?.clip == id, self.live?.committed == nil else { return }
+                    self.live?.bg = bg
+                    if self.live?.layer == nil { self.live?.layer = layer }
+                }
+            }
         }
-        active += 1
-    }
-    private func ended() {
-        active = max(0, active - 1)
-        if active == 0 {
-            model.endGesture()
-            start = nil
-        }
+        fingers.insert(g)
+        return true
     }
 
-    private func moveOrTilt(_ fit: CGSize) -> some Gesture {
+    /// A gesture ends; when it's the last, one edit with where the clip ended up.
+    private func leave(_ g: String) {
+        guard fingers.remove(g) != nil, fingers.isEmpty else { return }
+        defer { start = nil }
+        guard let l = live, let s = start, let c = model.selectedClip, c.id == l.clip else {
+            model.endGesture()
+            live = nil
+            return
+        }
+        var f: [String: Any] = [:]
+        if let t = l.tilt { f["text"] = ["tiltX": t.x, "tiltY": t.y] }
+        if l.offset != .zero {
+            f["x"] = s.x + Double(l.offset.width / pointsPerUnit)
+            f["y"] = s.y + Double(l.offset.height / pointsPerUnit)
+        }
+        if abs(l.scale - 1) > 0.001 { f["scale"] = (s.scale * Double(l.scale)).clamped(0.05, 8) }
+        if abs(l.rot.degrees) > 0.01 { f["rotation"] = s.rot + l.rot.degrees }
+        if !f.isEmpty { model.update(c.id, f) }
+        model.endGesture()
+        if f.isEmpty { live = nil } else { live?.committed = model.rev }
+    }
+
+    private func moveOrTilt(fit: CGSize, k: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { v in
-                guard let c = model.selectedClip, c.isVisual else { return }
-                if start == nil || active == 0 { began(c) }
-                guard let s = start else { return }
-                if tilt && c.type == "text" {
-                    model.gestureUpdate(c.id, ["text": ["tiltY": (s.ty + v.translation.width * 0.35).clamped(-70, 70),
-                                                        "tiltX": (s.tx - v.translation.height * 0.35).clamped(-70, 70)]])
+                guard join("drag", at: v.startLocation, fit: fit), let s = start, var l = live else { return }
+                if tilt && model.selectedClip?.type == "text" {
+                    let t = ((s.tx - v.translation.height * 0.35).clamped(-70, 70), (s.ty + v.translation.width * 0.35).clamped(-70, 70))
+                    l.tilt = t
+                    live = l
+                    redrawLayer(l.clip, tilt: t)
                 } else {
-                    // Screen points to canvas units.
-                    let k = (model.doc?.canvas.width ?? 1280) / Double(fit.width)
-                    model.gestureUpdate(c.id, ["x": s.x + v.translation.width * k, "y": s.y + v.translation.height * k])
+                    l.offset = v.translation
+                    live = l
                 }
             }
-            .onEnded { v in
-                guard let c = model.selectedClip, let s = start else { ended(); return }
-                if tilt && c.type == "text" {
-                    model.gestureUpdate(c.id, ["text": ["tiltY": (s.ty + v.translation.width * 0.35).clamped(-70, 70),
-                                                        "tiltX": (s.tx - v.translation.height * 0.35).clamped(-70, 70)]], final: true)
-                } else {
-                    let k = (model.doc?.canvas.width ?? 1280) / Double(fit.width)
-                    model.gestureUpdate(c.id, ["x": s.x + v.translation.width * k, "y": s.y + v.translation.height * k], final: true)
-                }
-                ended()
-            }
+            .onEnded { _ in leave("drag") }
     }
 
-    private var pinch: some Gesture {
+    /// 3D tilt changes how the text itself is drawn: the engine re-draws just that clip.
+    private func redrawLayer(_ id: String, tilt t: (x: Double, y: Double)) {
+        guard !layerBusy else { return }
+        layerBusy = true
+        model.liveUpdate(id, ["text": ["tiltX": t.x, "tiltY": t.y]])
+        let (time, max, engine) = (model.time, model.previewMax, Core.shared.engine)
+        Task.detached(priority: .userInitiated) {
+            let layer = engine.renderClip(clipId: id, time: time, max: max)?.cgImage
+            await MainActor.run {
+                self.layerBusy = false
+                if self.live?.clip == id, self.live?.committed == nil, let layer { self.live?.layer = layer }
+                // Catch up with where the finger went meanwhile.
+                if let l = self.live, let lt = l.tilt, l.committed == nil, lt.x != t.x || lt.y != t.y { self.redrawLayer(id, tilt: lt) }
+            }
+        }
+    }
+
+    private func pinch(fit: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { v in
-                guard let c = model.selectedClip, c.isVisual else { return }
-                if start == nil || active == 0 { began(c) }
-                guard let s = start else { return }
-                model.gestureUpdate(c.id, ["scale": (s.scale * v.magnification).clamped(0.05, 8)])
+                guard join("pinch", at: nil, fit: fit) else { return }
+                live?.scale = v.magnification
             }
-            .onEnded { v in
-                if let c = model.selectedClip, let s = start {
-                    model.gestureUpdate(c.id, ["scale": (s.scale * v.magnification).clamped(0.05, 8)], final: true)
-                }
-                ended()
-            }
+            .onEnded { _ in leave("pinch") }
     }
 
-    private var twist: some Gesture {
+    private func twist(fit: CGSize) -> some Gesture {
         RotateGesture()
             .onChanged { v in
-                guard let c = model.selectedClip, c.isVisual else { return }
-                if start == nil || active == 0 { began(c) }
-                guard let s = start else { return }
-                model.gestureUpdate(c.id, ["rotation": s.rot + v.rotation.degrees])
+                guard join("twist", at: nil, fit: fit) else { return }
+                live?.rot = v.rotation
             }
-            .onEnded { v in
-                if let c = model.selectedClip, let s = start {
-                    model.gestureUpdate(c.id, ["rotation": s.rot + v.rotation.degrees], final: true)
-                }
-                ended()
+            .onEnded { _ in leave("twist") }
+    }
+
+    /// The corner handle: the clip grows or shrinks about its anchor as the finger moves away
+    /// from it or towards it.
+    private func resize(fit: CGSize, k: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named("stage"))
+            .onChanged { v in
+                guard join("handle", at: nil, fit: fit), let l = live else { return }
+                let d = { (p: CGPoint) in hypot(p.x - l.anchor.x, p.y - l.anchor.y) }
+                if handleFrom == nil { handleFrom = max(8, d(v.startLocation)) }
+                live?.scale = max(0.05, d(v.location) / (handleFrom ?? 1))
+            }
+            .onEnded { _ in
+                handleFrom = nil
+                leave("handle")
             }
     }
 

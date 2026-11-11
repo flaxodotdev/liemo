@@ -16,6 +16,11 @@ struct TimelineView: View {
     @State private var pps: CGFloat = 60
     @State private var zoomStart: CGFloat?
     @State private var scrubStart: Double?
+    /// How far the lanes are scrolled up (to reach layers above the visible ones), and whether the
+    /// current drag scrolls them rather than scrubbing.
+    @State private var vScroll: CGFloat = 0
+    @State private var vStart: CGFloat?
+    @State private var dragAxis: Axis?
 
     private let ruler: CGFloat = 30
     private let gap: CGFloat = 6
@@ -30,17 +35,28 @@ struct TimelineView: View {
         var id: String { track }
     }
 
-    private func lanes(_ doc: ProjectDoc, height: CGFloat) -> [Lane] {
+    /// Bottom-up: the main video, every sound track, then picture layers and titles, each only
+    /// when it has clips (tracks added on the Mac included). `scroll` lifts them all.
+    private func lanes(_ doc: ProjectDoc, height: CGFloat, scroll: CGFloat = 0) -> [Lane] {
         let used = Set(doc.clips.map(\.track))
         var stack = [Lane(track: "V1", height: 58)]
-        if used.contains("A1") || !used.contains("A2") { stack.append(Lane(track: "A1", height: 34)) }
-        if used.contains("A2") { stack.append(Lane(track: "A2", height: 34)) }
-        if used.contains("V2") { stack.append(Lane(track: "V2", height: 30)) }
-        if used.contains("T1") {
-            let n = stackRows(doc.clips.filter { $0.track == "T1" }).count
-            stack.append(Lane(track: "T1", height: CGFloat(n) * 30 + CGFloat(n - 1) * 4, rows: n))
+        let audio = doc.tracks.filter { $0.kind == "audio" }.map(\.id)
+        let sounding = audio.filter { used.contains($0) }
+        if sounding.isEmpty {
+            stack.append(Lane(track: "A1", height: 34))
+        } else {
+            stack += sounding.map { Lane(track: $0, height: 34) }
         }
-        var y = height - 18
+        // Picture layers from the back up (the track list runs front to back), then titles.
+        for t in doc.tracks.reversed() where t.id != "V1" && t.kind != "audio" && used.contains(t.id) {
+            if t.kind == "text" {
+                let n = max(1, stackRows(doc.clips.filter { $0.track == t.id }).count)
+                stack.append(Lane(track: t.id, height: CGFloat(n) * 30 + CGFloat(n - 1) * 4, rows: n))
+            } else {
+                stack.append(Lane(track: t.id, height: 30))
+            }
+        }
+        var y = height - 18 + scroll
         for i in stack.indices {
             y -= stack[i].height
             stack[i].y = y
@@ -48,13 +64,20 @@ struct TimelineView: View {
         }
         return stack
     }
+    /// How far the lanes can scroll: the stack's height beyond the room under the ruler.
+    private func maxScroll(_ doc: ProjectDoc?, height: CGFloat) -> CGFloat {
+        guard let doc, let top = lanes(doc, height: height).last else { return 0 }
+        return max(0, ruler + 6 - top.y)
+    }
 
     var body: some View {
         GeometryReader { geo in
             let mid = geo.size.width / 2
             let origin = mid - CGFloat(model.time) * pps
             let doc = model.doc
-            let laneList = doc.map { lanes($0, height: geo.size.height) } ?? []
+            let scrollMax = maxScroll(doc, height: geo.size.height)
+            let lift = min(vScroll, scrollMax)
+            let laneList = doc.map { lanes($0, height: geo.size.height, scroll: lift) } ?? []
             let noSound = doc.map { d in !d.clips.contains { $0.track == "A1" || $0.track == "A2" } } ?? false
             ZStack(alignment: .topLeading) {
                 Theme.bg
@@ -73,6 +96,17 @@ struct TimelineView: View {
                 TrackContent(model: model, pps: pps, lanes: laneList)
                     .equatable()
                     .offset(x: origin)
+                    // Lanes scrolled up pass under the ruler, not over it.
+                    .mask(VStack(spacing: 0) { Color.clear.frame(height: ruler); Color.black })
+                if scrollMax > 0 {
+                    // A thin bar on the right says there's more above or below.
+                    let room = geo.size.height - ruler
+                    let barH = max(24, room * room / (room + scrollMax))
+                    Capsule().fill(Color.white.opacity(0.35))
+                        .frame(width: 3, height: barH)
+                        .offset(x: geo.size.width - 5, y: ruler + (room - barH) * (1 - lift / scrollMax))
+                        .allowsHitTesting(false)
+                }
                 // The playhead.
                 Rectangle().fill(Color.white).frame(width: 2).offset(x: mid - 1)
                     .allowsHitTesting(false)
@@ -92,12 +126,26 @@ struct TimelineView: View {
             .gesture(
                 DragGesture(minimumDistance: 2)
                     .onChanged { v in
+                        // Mostly up or down (with lanes to scroll): scroll them. Otherwise scrub.
+                        if dragAxis == nil {
+                            dragAxis = abs(v.translation.height) > abs(v.translation.width) && scrollMax > 0 ? .vertical : .horizontal
+                        }
+                        if dragAxis == .vertical {
+                            let s = vStart ?? lift
+                            vStart = s
+                            vScroll = (s + v.translation.height).clamped(0, scrollMax)
+                            return
+                        }
                         if model.playing { model.pause() }
                         let s = scrubStart ?? model.time
                         scrubStart = s
                         model.time = (s - Double(v.translation.width / pps)).clamped(0, max(model.duration, 0))
                     }
-                    .onEnded { _ in scrubStart = nil }
+                    .onEnded { _ in
+                        scrubStart = nil
+                        vStart = nil
+                        dragAxis = nil
+                    }
             )
             .simultaneousGesture(
                 MagnifyGesture()
@@ -212,7 +260,7 @@ private struct ClipView: View {
         ZStack(alignment: .leading) {
             switch lane.track {
             case "V1": Filmstrip(model: model, clip: c, width: w, height: lane.height, pps: pps)
-            case "A1", "A2": waveform(width: w)
+            case _ where clip.type == "music" || clip.type == "audio": waveform(width: w)
             default: layer(width: w)
             }
             if selected {
