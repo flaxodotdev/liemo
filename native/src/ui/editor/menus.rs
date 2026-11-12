@@ -1,7 +1,7 @@
 // Right-click menus: clips (on the timeline and the stage), empty track space, track headers,
 // keyframes and library items. Each is built when it opens, from the edit as it is then.
 
-use super::{captions_ui, Editor};
+use super::Editor;
 use crate::model::assets::asset;
 use crate::model::keys::{self, Ease};
 use crate::model::types::*;
@@ -46,7 +46,12 @@ pub fn clip_menu(mut menu: PopupMenu, ed: &Entity<Editor>, window: &mut Window, 
         .item(act(ed, "Duplicate", |e, _, _| e.store.duplicate()))
         .item(act(ed, if n > 1 { "Delete clips" } else { "Delete" }, |e, _, _| e.store.remove()))
         .separator()
-        .item(act(ed, "Split at playhead", |e, _, _| e.store.split()).disabled(!under));
+        .item(act(ed, "Split at playhead", |e, _, _| e.store.split()).disabled(!under))
+        .item(act(ed, "Add to AI chat", |e, window, cx| e.mention_selection(window, cx)))
+        .item(act(ed, "Save as component", |e, _, cx| e.save_component(cx)));
+    if c.kind == AssetType::Text && !crate::model::brand::load().is_empty() {
+        menu = menu.item(act(ed, "Apply brand", |e, _, _| e.apply_brand()));
+    }
 
     if n == 1 && timed(&c) {
         let cur = c.speed();
@@ -259,14 +264,42 @@ pub fn asset_menu(menu: PopupMenu, ed: &Entity<Editor>, asset_id: String) -> Pop
 }
 
 /// The timeline's Captions button.
-pub fn captions_menu(mut menu: PopupMenu, ed: &Entity<Editor>, cx: &mut Context<PopupMenu>) -> PopupMenu {
+pub fn captions_menu(mut menu: PopupMenu, ed: &Entity<Editor>, window: &mut Window, cx: &mut Context<PopupMenu>) -> PopupMenu {
     let e = ed.read(cx);
     let busy = e.captioning;
     let any = e.store.clips.iter().any(|c| c.kind == AssetType::Text);
     let mac = cfg!(target_os = "macos");
     menu = menu.label(if busy { "Listening to the edit…" } else if mac { "Auto captions from the sound" } else { "Auto captions (Mac only)" });
-    for (key, l) in captions_ui::STYLES {
+    // The everyday styles up front; the whole caption library one level down.
+    for key in ["pop", "clean", "boxed"] {
+        let l = crate::model::captions::caption_style(key).map(|s| s.name).unwrap_or(key);
         menu = menu.item(act(ed, l, move |e, _, cx| e.auto_captions(key, cx)).disabled(busy || !mac));
+    }
+    if mac && !busy {
+        let ed2 = ed.clone();
+        menu = menu.submenu("More styles", window, cx, move |mut m, _, _| {
+            for s in crate::model::captions::CAPTION_STYLES.iter().filter(|s| !matches!(s.id, "pop" | "clean" | "boxed")) {
+                let key = s.id;
+                m = m.item(act(&ed2, s.name, move |e, _, cx| e.auto_captions(key, cx)));
+            }
+            m
+        });
+    }
+    if any {
+        let ed2 = ed.clone();
+        menu = menu.separator().submenu("Restyle captions", window, cx, move |mut m, _, _| {
+            m = m.label("The selected text, or every caption");
+            for s in crate::model::captions::CAPTION_STYLES.iter() {
+                let key = s.id;
+                m = m.item(act(&ed2, s.name, move |e, _, _| {
+                    let n = e.store.restyle_captions(key);
+                    if n == 0 {
+                        e.store.toast("No captions to restyle");
+                    }
+                }));
+            }
+            m
+        });
     }
     menu.separator()
         .item(act(ed, "Import SRT or VTT…", |e, window, cx| e.pick_subtitles(window, cx)))

@@ -174,10 +174,18 @@ struct AnimatePanel: View {
         ("none", "None", "nosign"), ("breathe", "Breathe", "lungs"), ("float", "Float", "cloud"), ("wiggle", "Wiggle", "scribble"),
         ("pulse", "Pulse", "heart"), ("spin", "Spin", "arrow.trianglehead.clockwise"), ("shake", "Shake", "waveform.path"), ("sway", "Sway", "wind"),
     ]
-    private static let textAnims: [(String, String, String)] = [
+    static let textAnims: [(String, String, String)] = [
         ("none", "None", "nosign"), ("fade", "Fade", "circle.lefthalf.filled"), ("rise", "Rise", "arrow.up"), ("slide", "Slide", "arrow.right"),
-        ("type", "Type", "character.cursor.ibeam"), ("pop", "Pop", "burst"), ("bounce", "Bounce", "arrow.down.to.line"), ("zoom", "Zoom", "plus.magnifyingglass"), ("blur", "Blur", "aqi.medium"),
-        ("wave", "Wave", "water.waves"), ("glitch", "Glitch", "tv"), ("flicker", "Flicker", "lightbulb"),
+        ("descend", "Descend", "arrow.down"), ("type", "Type", "character.cursor.ibeam"), ("caret", "Typewriter", "keyboard"),
+        ("pop", "Pop", "burst"), ("bounce", "Bounce", "arrow.down.to.line"), ("zoom", "Zoom", "plus.magnifyingglass"),
+        ("settle", "Settle", "minus.magnifyingglass"), ("squeeze", "Squeeze", "arrow.right.and.line.vertical.and.arrow.left"),
+        ("stretch", "Stretch", "arrow.left.and.right"), ("blur", "Blur", "aqi.medium"), ("fog", "Fog", "cloud.fog"),
+        ("reveal", "Mask reveal", "rectangle.bottomhalf.filled"), ("wipe", "Wipe", "rectangle.lefthalf.filled"), ("echo", "Echo", "square.stack"),
+        ("wave", "Wave", "water.waves"), ("drop", "Letter drop", "arrow.down.to.line.compact"), ("spring", "Letter spring", "arrow.up.and.down"),
+        ("flip", "Rolodex", "rectangle.split.1x2"), ("tracking", "Tracking in", "arrow.right.and.line.vertical.and.arrow.left"),
+        ("scramble", "Decode", "number"), ("words", "Word by word", "text.word.spacing"), ("wordrise", "Word rise", "text.alignleft"),
+        ("wordpop", "Word pop", "text.bubble"), ("marker", "Marker", "highlighter"), ("underline", "Underline", "underline"),
+        ("shimmer", "Shimmer", "sparkles"), ("count", "Count up", "textformat.123"), ("glitch", "Glitch", "tv"), ("flicker", "Flicker", "lightbulb"),
     ]
 
     var body: some View {

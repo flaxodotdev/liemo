@@ -40,6 +40,9 @@ muffle (low-pass) and pan8d (sound circling the listener). Changing speed change
 read get_project afterwards. These sound effects don't apply to the sound of video clips or to built-in music. \
 record_audio records from the microphone into A2 while Liemo has the project open.
 
+Connected accounts (the user's own, set up in Liemo with ⌘K > Connect): search_stock and download_stock find Pexels photos \
+and video for b-roll or a moodboard; generate_sound makes sound effects or music with ElevenLabs (paid, so Liemo asks the \
+user each time). import_media the files they return.
 Checking: render_frame shows the picture only; you can't hear audio, so describe sound changes in words. export makes \
 video, gif, a still or an audio file (kind audio).";
 
@@ -74,7 +77,8 @@ pub fn to_mcp(r: Result<ToolOut, String>) -> Value {
 fn via_app(name: &str, args: &Value) -> Option<Value> {
     let stream = connect(&socket_path()).ok()?;
     let mut w = stream.try_clone().ok()?;
-    let line = serde_json::to_string(&json!({ "tool": name, "args": args })).ok()?;
+    let agent = FROM_AGENT.load(std::sync::atomic::Ordering::Relaxed);
+    let line = serde_json::to_string(&json!({ "tool": name, "args": args, "agent": agent })).ok()?;
     w.write_all(line.as_bytes()).ok()?;
     w.write_all(b"\n").ok()?;
     let mut reply = String::new();
@@ -82,8 +86,13 @@ fn via_app(name: &str, args: &Value) -> Option<Value> {
     serde_json::from_str(&reply).ok()
 }
 
+/// Set when Liemo's own AI chat started this server (`liemo mcp --agent`), so the app applies the
+/// chat's mode (Plan, Ask, Auto) to its calls.
+static FROM_AGENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The stdio server loop.
-pub fn serve_stdio() {
+pub fn serve_stdio(agent: bool) {
+    FROM_AGENT.store(agent, std::sync::atomic::Ordering::Relaxed);
     crate::media::init();
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
@@ -136,7 +145,14 @@ fn handle(m: &Value) -> Option<Value> {
         "tools/call" => {
             let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            Ok(via_app(&name, &args).unwrap_or_else(|| to_mcp(call(&name, &args, &mut FileWorkspace))))
+            Ok(via_app(&name, &args).unwrap_or_else(|| {
+                // Liemo's own chat only works through the app, which applies its mode (Plan, Ask);
+                // with the app gone, nothing may edit around that.
+                if FROM_AGENT.load(std::sync::atomic::Ordering::Relaxed) {
+                    return to_mcp(Err("Liemo isn't answering (it may have closed), so nothing was changed.".into()));
+                }
+                to_mcp(call(&name, &args, &mut FileWorkspace))
+            }))
         }
         "resources/list" => Ok(json!({ "resources": [] })),
         "prompts/list" => Ok(json!({ "prompts": [] })),
@@ -150,7 +166,7 @@ fn handle(m: &Value) -> Option<Value> {
 
 /// In the app: accept tool calls from `rayna mcp` processes. Each request is handed to `run`
 /// (which gets it onto the UI thread) and its reply written back.
-pub fn listen(run: impl Fn(String, Value) -> Value + Send + Sync + 'static) {
+pub fn listen(run: impl Fn(String, Value, bool) -> Value + Send + Sync + 'static) {
     let path = socket_path();
     let _ = std::fs::create_dir_all(path.parent().unwrap());
     // A previous run may have left the socket behind; if nothing answers on it, take it over.
@@ -176,7 +192,8 @@ pub fn listen(run: impl Fn(String, Value) -> Value + Send + Sync + 'static) {
                     let reply = match serde_json::from_str::<Value>(&line) {
                         Ok(req) => {
                             let name = req.get("tool").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            run(name, req.get("args").cloned().unwrap_or(json!({})))
+                            let agent = req.get("agent").and_then(|v| v.as_bool()).unwrap_or(false);
+                            run(name, req.get("args").cloned().unwrap_or(json!({})), agent)
                         }
                         Err(e) => to_mcp(Err(e.to_string())),
                     };

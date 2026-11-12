@@ -6,8 +6,6 @@ use crate::model::captions::{self, Cue};
 use gpui::{AppContext, Context, Window};
 use std::path::{Path, PathBuf};
 
-pub const STYLES: [(&str, &str); 3] = [("pop", "Pop"), ("clean", "Clean"), ("boxed", "Boxed")];
-
 impl Editor {
     /// Listen to the whole edit's sound and caption it in `style`.
     pub fn auto_captions(&mut self, style: &'static str, cx: &mut Context<Self>) {

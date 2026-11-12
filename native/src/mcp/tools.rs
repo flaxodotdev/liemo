@@ -9,7 +9,7 @@ use crate::fx::looks::look_def;
 use crate::fx::registry::{effect_def, effects, ParamKind, EFFECT_GROUPS};
 use crate::fx::transitions::{transition_def, TRANSITIONS};
 use crate::media::import::{self, kind_of, new_media_id};
-use crate::model::assets::{asset, font_def, images, music, overlays, scenes, shaders, text_presets, FONTS};
+use crate::model::assets::{asset, font_def, images, music, overlays, scenes, shaders, text_anim_id, text_presets, FONTS, TEXT_ANIMS};
 use crate::model::format::FORMATS;
 use crate::model::store::{project_end, Store};
 use crate::model::types::*;
@@ -42,6 +42,11 @@ pub trait Workspace {
     /// Whether edits show up in a running app.
     fn live(&self) -> bool {
         false
+    }
+    /// Ask the person at the computer to allow something (a paid request). Without the app, the AI
+    /// harness's own tool approval is the check.
+    fn approve(&mut self, _question: &str, _detail: &str) -> bool {
+        true
     }
     /// Record from the microphone into the open editor: "start", "stop" or "status".
     fn record_audio(&mut self, _project: &str, _action: &str, _args: &Value) -> R<Value> {
@@ -240,7 +245,7 @@ fn all_definitions() -> Vec<Value> {
         "blend": { "type": "string", "enum": ["normal", "invert", "exclusion"], "description": "Invert flips each colour channel to the opposite of what's underneath, so the text stays readable on any footage; exclusion is the softer version of the same idea" },
         "align": { "type": "string", "enum": ["left", "center", "right"] },
         "y": { "type": "number", "description": "Vertical offset from the centre, in canvas units (negative is up)" },
-        "animation": { "type": "string", "enum": ["none", "fade", "rise", "slide", "type", "pop", "bounce", "zoom", "blur", "wave", "glitch", "flicker"] },
+        "animation": { "type": "string", "enum": TEXT_ANIMS.iter().map(|(a, _)| text_anim_id(*a)).collect::<Vec<_>>(), "description": "Entrance. Letters: wave, drop, spring, flip, tracking, scramble (decode). Words: words, wordrise, wordpop. Whole: fade, rise, slide, descend, type, caret (typewriter), pop, bounce, zoom, settle, squeeze, stretch, blur, fog, reveal (mask), wipe, echo. Accents: marker (highlight swipe), underline, shimmer, count (numbers count up), glitch, flicker." },
         "box": { "type": "boolean", "description": "Dark rounded backing behind the text" },
         "outline": { "type": "string", "description": "Outline colour #rrggbb, or \"none\"" },
         "outlineWidth": { "type": "number", "description": "Outline thickness, 1–24 (default 6)" },
@@ -376,12 +381,12 @@ fn all_definitions() -> Vec<Value> {
             }), &["project", "clip", "property", "keys"]),
         tool("transcribe", "Transcribe the sound", "Listen to the project's sound (voice, music, video audio as mixed) with Apple's speech recognition on the Mac and return what's said as short caption cues with timeline times. Pass them to add_captions (fix wording first if needed). The user may be asked to allow speech recognition. Mac app only.",
             json!({ "project": project_prop() }), &["project"]),
-        tool("add_captions", "Add captions", "Put captions on the Titles track as text clips, from an SRT or WebVTT file (path) or from cues (e.g. from transcribe). Styles: subtitle (the Caption text style), pop (big bold words that pop in), clean, boxed.",
+        tool("add_captions", "Add captions", "Put captions on the Titles track as text clips, from an SRT or WebVTT file (path) or from cues (e.g. from transcribe). Styles: subtitle (the Caption text style), pop, clean, boxed, and looks after remocn's caption library: word-pop, active-pop, bounce-in, blur-in, rise, drop, words, sweep, highlight-box, marker, underline, outline, knockout, handwrite, typewriter, label-maker, scramble, split-flap, slot, slice, stamp, stack, cube, teleprompter, speaker, weight, echo, neon, glitch, fog. Every part stays editable with update_clip.",
             json!({
                 "project": project_prop(),
                 "path": { "type": "string", "description": "Absolute path to a .srt or .vtt file" },
                 "cues": { "type": "array", "items": { "type": "object", "properties": { "start": { "type": "number" }, "end": { "type": "number" }, "text": { "type": "string" } }, "required": ["start", "end", "text"] } },
-                "style": { "type": "string", "enum": ["subtitle", "pop", "clean", "boxed"], "description": "Default subtitle" },
+                "style": { "type": "string", "enum": crate::model::captions::CAPTION_STYLES.iter().map(|c| c.id).collect::<Vec<_>>(), "description": "Default subtitle" },
             }), &["project"]),
         tool("export_captions", "Export captions", "Write the project's titles and captions as a subtitle file (SRT or WebVTT) for upload alongside the video.",
             json!({ "project": project_prop(), "path": { "type": "string", "description": "Where to write, ending .srt or .vtt; default ~/Downloads/<name>.srt" } }), &["project"]),
@@ -410,16 +415,35 @@ fn all_definitions() -> Vec<Value> {
                 "at": { "type": "number", "description": "start: timeline seconds the take starts at; default the playhead" },
                 "playAlong": { "type": "boolean", "description": "start: play the timeline during the take (headphones advised). Default: the user's setting" },
             }), &["project", "action"]),
+        #[cfg(not(liemo_mobile))]
+        tool("write_doc", "Write a pipeline document", "Write (replace) one stage's document for a project: analysis, brand, script, motion, build, choreography or review, as Markdown. The user sees which stages are done in the chat and can open and edit them.",
+            json!({ "project": project_prop(), "stage": { "type": "string", "enum": crate::pipeline::STAGES.map(|s| s.0) }, "content": { "type": "string" } }), &["project", "stage", "content"]),
+        #[cfg(not(liemo_mobile))]
+        tool("read_docs", "Read pipeline documents", "Read a project's stage documents (all of them, or one stage). The user may have edited them; what they say wins.",
+            json!({ "project": project_prop(), "stage": { "type": "string", "enum": crate::pipeline::STAGES.map(|s| s.0) } }), &["project"]),
+        #[cfg(not(liemo_mobile))]
+        tool("design_check", "Check the design", "Measure the edit for problems: text too fast to read, too small, low contrast with the picture behind it, outside the title-safe area or overlapping other text; black gaps and flash frames; sound that clips; music that stops dead. Returns each issue with its time and clip id. Run it before calling a video done.",
+            json!({ "project": project_prop() }), &["project"]),
+        #[cfg(not(liemo_mobile))]
+        tool("search_stock", "Search stock photos and video", "Search Pexels (the user's own connected account) for free stock photos or video clips. Returns each result's id, size, photographer, page, a preview image URL and the url to pass to download_stock. Useful for b-roll, backgrounds, or a moodboard: look at previews, pick a palette and type from them, then build the video. Credit photographers when the user asks for credits.",
+            json!({ "query": { "type": "string" }, "kind": { "type": "string", "enum": ["photo", "video"], "description": "Default photo" }, "count": { "type": "integer", "description": "1–40, default 12" }, "orientation": { "type": "string", "enum": ["landscape", "portrait", "square"] } }), &["query"]),
+        #[cfg(not(liemo_mobile))]
+        tool("download_stock", "Download a stock file", "Download a photo or video from search_stock (its url) into Liemo's stock folder and return the file path. Then import_media the path to use it.",
+            json!({ "url": { "type": "string" }, "name": { "type": "string", "description": "A short file name, e.g. the subject" } }), &["url"]),
+        #[cfg(not(liemo_mobile))]
+        tool("generate_sound", "Generate a sound effect or music", "Make a sound effect (up to 22 s) or a music track (10 s to 5 min) from a description with ElevenLabs, on the user's own connected account. Each call uses their ElevenLabs credits, so the user is asked to allow every one; ask for several sounds in one go only when they're all needed. Returns an MP3 path: import_media it onto A2 (sound effects) or A1 (music).",
+            json!({ "prompt": { "type": "string", "description": "What it sounds like, e.g. \"a soft whoosh, airy, short tail\" or \"warm lo-fi beat, 85 bpm, mellow keys\"" }, "kind": { "type": "string", "enum": ["sfx", "music"], "description": "Default sfx" }, "seconds": { "type": "number" } }), &["prompt"]),
         tool("undo", "Undo", "Undo the last edit in the open editor (needs Liemo running with the project open).", json!({ "project": project_prop() }), &["project"]),
         tool("redo", "Redo", "Redo in the open editor.", json!({ "project": project_prop() }), &["project"]),
-        tool("render_frame", "Look at a frame", "Render the edit at a time and return it as a PNG, so you can check what it looks like.",
-            json!({ "project": project_prop(), "time": { "type": "number", "description": "Seconds" }, "width": { "type": "integer", "description": "Long side in pixels, default 768" } }), &["project", "time"]),
+        tool("render_frame", "Look at a frame", "Render the edit at a time and return it as a PNG, so you can check what it looks like. With region, only that part of the frame (e.g. a Snapshot the user dragged out in the chat), in close-up.",
+            json!({ "project": project_prop(), "time": { "type": "number", "description": "Seconds" }, "width": { "type": "integer", "description": "Long side in pixels, default 768" },
+                "region": { "type": "object", "description": "Part of the frame in canvas units (get_project's width × height, origin top-left)", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "w": { "type": "number" }, "h": { "type": "number" } }, "required": ["x", "y", "w", "h"] } }), &["project", "time"]),
         tool("export", "Export", "Render the project to a file: video (mp4/webm), gif, a still image, or audio. Returns the file path. Runs to completion.",
             json!({
                 "project": project_prop(),
                 "kind": { "type": "string", "enum": ["video", "gif", "image", "audio"], "description": "Default video" },
                 "path": { "type": "string", "description": "Where to write; default ~/Downloads/<name>.<ext>" },
-                "container": { "type": "string", "enum": ["mp4", "webm"] },
+                "container": { "type": "string", "enum": ["mp4", "webm", "mov"], "description": "mov is Apple ProRes (LT, 422, HQ or 4444 by quality) with PCM sound" },
                 "resolution": { "type": "integer", "enum": [720, 1080, 1440, 2160] },
                 "aspect": { "type": "string", "description": "Output shape, e.g. 9:16; default the project's" },
                 "framing": { "type": "string", "enum": ["crop", "blur", "bars"], "description": "When the output shape differs" },
@@ -438,7 +462,7 @@ fn all_definitions() -> Vec<Value> {
 /// Tools that read a snapshot and do heavy work (rendering, encoding): in the app these run off
 /// the UI thread.
 pub fn is_heavy(name: &str) -> bool {
-    matches!(name, "render_frame" | "export" | "transcribe")
+    matches!(name, "render_frame" | "export" | "transcribe" | "search_stock" | "download_stock" | "generate_sound" | "design_check")
 }
 
 // ---------- Executor ----------
@@ -1276,8 +1300,60 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
             let rec = ws.record(&id)?;
             let t = f(a, "time").unwrap_or(0.0);
             let long = f(a, "width").unwrap_or(768.0).clamp(64.0, 2048.0) as u32;
-            let png = render_png(&rec, t, long)?;
+            let region = a.get("region").and_then(|r| Some((f(r, "x")? as f32, f(r, "y")? as f32, f(r, "w")? as f32, f(r, "h")? as f32))).filter(|r| r.2 >= 1.0 && r.3 >= 1.0);
+            let png = render_png(&rec, t, long, region)?;
             Ok(ToolOut { text: serde_json::to_string(&json!({ "project": rec.id, "time": t, "duration": project_end(&rec.clips) })).unwrap(), png: Some(png) })
+        }
+        #[cfg(not(liemo_mobile))]
+        "write_doc" => {
+            let id = resolve(a)?;
+            let stage = s(a, "stage").ok_or("Give a stage")?;
+            let p = crate::pipeline::write(&id, stage, s(a, "content").unwrap_or("")).map_err(|e| e.to_string())?;
+            out(json!({ "path": p, "done": crate::pipeline::STAGES.iter().zip(crate::pipeline::done(&id)).filter(|(_, d)| *d).map(|(s, _)| s.0).collect::<Vec<_>>() }))
+        }
+        #[cfg(not(liemo_mobile))]
+        "read_docs" => {
+            let id = resolve(a)?;
+            let docs: Map<String, Value> = crate::pipeline::STAGES
+                .iter()
+                .filter(|st| s(a, "stage").is_none_or(|w| w == st.0))
+                .filter_map(|st| crate::pipeline::read(&id, st.0).map(|c| (st.0.to_string(), Value::String(c))))
+                .collect();
+            out(json!({ "docs": docs, "folder": crate::pipeline::dir(&id) }))
+        }
+        #[cfg(not(liemo_mobile))]
+        "design_check" => {
+            let id = resolve(a)?;
+            let rec = ws.record(&id)?;
+            let issues = crate::check::check_record(&rec);
+            out(json!({ "issues": issues, "count": issues.len(), "note": if issues.is_empty() { "No problems found." } else { "Fix each issue, or say in review why it stays." } }))
+        }
+        #[cfg(not(liemo_mobile))]
+        "search_stock" => {
+            let q = s(a, "query").ok_or("Give a query")?;
+            let video = s(a, "kind") == Some("video");
+            let count = f(a, "count").unwrap_or(12.0) as u32;
+            let list = crate::integrations::search_stock(q, video, count, s(a, "orientation")).map_err(|e| e.to_string())?;
+            out(json!({ "results": list, "note": "Photos and videos provided by Pexels." }))
+        }
+        #[cfg(not(liemo_mobile))]
+        "download_stock" => {
+            let url = s(a, "url").ok_or("Give the url from search_stock")?;
+            let p = crate::integrations::download_stock(url, s(a, "name").unwrap_or("Stock")).map_err(|e| e.to_string())?;
+            out(json!({ "path": p, "note": "import_media this path to use it." }))
+        }
+        #[cfg(not(liemo_mobile))]
+        "generate_sound" => {
+            let prompt = s(a, "prompt").ok_or("Describe the sound")?;
+            let music = s(a, "kind") == Some("music");
+            let secs = f(a, "seconds");
+            let what = if music { "music" } else { "a sound effect" };
+            let length = secs.map(|s| format!(", {s:.0} s")).unwrap_or_default();
+            if !ws.approve(&format!("Generate {what} with ElevenLabs?"), &format!("\"{prompt}\"{length}. This uses your ElevenLabs credits.")) {
+                return Err("The user declined this ElevenLabs request. Ask before trying again.".into());
+            }
+            let p = crate::integrations::generate_sound(prompt, music, secs).map_err(|e| e.to_string())?;
+            out(json!({ "path": p, "note": format!("import_media this path onto {} to use it.", if music { "A1" } else { "A2" }) }))
         }
         #[cfg(not(liemo_mobile))]
         "export" => {
@@ -1339,20 +1415,7 @@ fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
             t.y = v;
         }
         if let Some(v) = s(&a, "animation") {
-            t.anim = match v {
-                "fade" => TextAnim::Fade,
-                "rise" => TextAnim::Rise,
-                "slide" => TextAnim::Slide,
-                "type" => TextAnim::Type,
-                "pop" => TextAnim::Pop,
-                "bounce" => TextAnim::Bounce,
-                "zoom" => TextAnim::Zoom,
-                "blur" => TextAnim::Blur,
-                "wave" => TextAnim::Wave,
-                "glitch" => TextAnim::Glitch,
-                "flicker" => TextAnim::Flicker,
-                _ => TextAnim::None,
-            };
+            t.anim = serde_json::from_value(json!(v)).unwrap_or(TextAnim::None);
         }
         if let Some(v) = s(&a, "blend") {
             t.blend = match v {
@@ -1392,7 +1455,7 @@ fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
 }
 
 /// Render one frame of a project to PNG bytes, long side `long` px.
-pub fn render_png(rec: &ProjectRecord, t: f64, long: u32) -> R<Vec<u8>> {
+pub fn render_png(rec: &ProjectRecord, t: f64, long: u32, region: Option<(f32, f32, f32, f32)>) -> R<Vec<u8>> {
     let old = crate::model::time::env();
     let env = rec.env();
     crate::model::time::set_env(env);
@@ -1401,9 +1464,17 @@ pub fn render_png(rec: &ProjectRecord, t: f64, long: u32) -> R<Vec<u8>> {
     let mut pool = crate::render::frames::DecoderPool::new(1920, 1920);
     crate::render::compositor::render_frame(&mut c, &crate::render::compositor::Scene { clips: &rec.clips, tracks: &rec.tracks }, t, &mut pool);
     crate::model::time::set_env(old);
-    let pm = c.into_pixmap();
-    let k = long as f32 / env.w.max(env.h);
-    let pm = crate::render::canvas::resample_area(&pm, ((env.w * k).round() as u32).max(1), ((env.h * k).round() as u32).max(1));
+    let mut pm = c.into_pixmap();
+    let (mut w, mut h) = (env.w, env.h);
+    if let Some((x, y, rw, rh)) = region {
+        let (x, y) = (x.clamp(0.0, env.w - 1.0), y.clamp(0.0, env.h - 1.0));
+        let (rw, rh) = (rw.min(env.w - x), rh.min(env.h - y));
+        pm = crate::render::canvas::crop(&pm, x, y, rw, rh);
+        (w, h) = (pm.width() as f32, pm.height() as f32);
+    }
+    // A close-up is never blown up past twice its size.
+    let k = (long as f32 / w.max(h)).min(if region.is_some() { 2.0 } else { f32::MAX });
+    let pm = crate::render::canvas::resample_area(&pm, ((w * k).round() as u32).max(1), ((h * k).round() as u32).max(1));
     let rgba = crate::render::canvas::to_straight(&pm);
     let mut bytes = vec![];
     image::codecs::png::PngEncoder::new(&mut bytes)
@@ -1443,7 +1514,7 @@ fn run_export(rec: &ProjectRecord, a: &Value) -> R<Value> {
         _ => Kind::Video,
     };
     if let Some(v) = s(a, "container") {
-        st.container = if v == "webm" { Container::Webm } else { Container::Mp4 };
+        st.container = Container::from_id(v);
     }
     if let Some(v) = f(a, "resolution") {
         st.resolution = v as u32;

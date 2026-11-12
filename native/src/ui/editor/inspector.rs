@@ -802,6 +802,10 @@ impl Editor {
                 e.store.update_text(&tid3, move |t| t.color = col);
             }
         });
+        // The brand's colours lead the swatches.
+        let mut brand_cols: Vec<String> = crate::model::brand::load().colors;
+        let rest: Vec<String> = TEXT_COLORS.iter().map(|c| c.to_string()).filter(|c| !brand_cols.iter().any(|b| b.eq_ignore_ascii_case(c))).collect();
+        brand_cols.extend(rest);
         let tcol_picker = color_picker(&mut self.pickers, &format!("tcol-{}", c.id), &t.color, tcol_apply, window, cx);
         vec![
             group(Some("Text"), None, false)
@@ -810,7 +814,7 @@ impl Editor {
                 .child(field_row("Weight", self.select("f-weight", weight_label, weight_entries, cx), None))
                 .child(self.slider_field("Size", "f-tsize", t.size, 16.0, 240.0, 1.0, |v| format!("{v}px"), Rc::new(move |e: &mut Editor, v| e.store.update_text(&tid, |t| t.size = v)), cx))
                 .child(self.slider_field("Height", "f-ty", t.y, -320.0, 320.0, 1.0, |v| format!("{}", v.round()), Rc::new(move |e: &mut Editor, v| e.store.update_text(&tid2, |t| t.y = v)), cx))
-                .child(swatches("tcol", &TEXT_COLORS, &t.color, 18., Some(tcol_picker), move |col, w, cx| (s_col(Box::new(move |t: &mut TextProps| t.color = col.clone())))(w, cx)))
+                .child(swatches("tcol", &brand_cols.iter().map(String::as_str).collect::<Vec<_>>(), &t.color, 18., Some(tcol_picker), move |col, w, cx| (s_col(Box::new(move |t: &mut TextProps| t.color = col.clone())))(w, cx)))
                 .child(field_row(
                     "Style",
                     segmented(

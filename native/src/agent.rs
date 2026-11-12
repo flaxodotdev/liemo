@@ -233,6 +233,73 @@ impl Run {
     }
 }
 
+/// How far the chat may go on its own. Plan: it looks and writes documents but can't change the
+/// edit. Ask: each change waits for the person's yes. Auto: it edits straight away (everything
+/// can still be undone). There's no mode without these checks for paid requests.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Auto,
+    Ask,
+    Plan,
+}
+pub const MODES: [(Mode, &str, &str); 3] = [
+    (Mode::Auto, "Auto", "Edits straight away; undo anything"),
+    (Mode::Ask, "Ask first", "Each change waits for your yes"),
+    (Mode::Plan, "Plan", "Looks and plans, changes nothing"),
+];
+static MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+impl Mode {
+    pub fn id(self) -> &'static str {
+        match self {
+            Mode::Auto => "auto",
+            Mode::Ask => "ask",
+            Mode::Plan => "plan",
+        }
+    }
+    pub fn from_id(s: &str) -> Mode {
+        match s {
+            "ask" => Mode::Ask,
+            "plan" => Mode::Plan,
+            _ => Mode::Auto,
+        }
+    }
+}
+pub fn mode() -> Mode {
+    match MODE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => Mode::Ask,
+        2 => Mode::Plan,
+        _ => Mode::Auto,
+    }
+}
+pub fn set_mode(m: Mode) {
+    MODE.store(m as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Tools that only look (or write the plan's documents), allowed in every mode.
+pub fn read_only(tool: &str) -> bool {
+    matches!(
+        tool,
+        "render_frame" | "get_project" | "list_projects" | "list_library" | "list_effects" | "list_transitions" | "list_formats"
+            | "read_docs" | "write_doc" | "design_check" | "search_stock" | "transcribe" | "export_captions"
+    )
+}
+
+/// One line saying what a tool call would do, for an approval prompt.
+pub fn describe_call(tool: &str, args: &Value) -> String {
+    let s = summary(args);
+    let what = tool.replace('_', " ");
+    if s.is_empty() { what } else { format!("{what}: {s}") }
+}
+
+/// The note that goes with each message in a mode other than Auto.
+pub fn mode_note(m: Mode) -> Option<&'static str> {
+    match m {
+        Mode::Auto => None,
+        Mode::Ask => Some("[Ask mode: each change you make waits for the user's approval; if one is declined, don't retry it, ask what they'd like instead.]"),
+        Mode::Plan => Some("[Plan mode: look (get_project, render_frame, read_docs, design_check, search_stock) and plan, but don't change the edit; tools that edit are refused. Write the plan into the pipeline documents with write_doc, or reply with it, then stop. The user switches to Auto to carry it out.]"),
+    }
+}
+
 pub struct Turn {
     pub provider: Provider,
     pub model: String,
@@ -244,12 +311,15 @@ pub struct Turn {
 }
 
 fn context(t: &Turn) -> String {
+    let brand = crate::model::brand::load().describe().map(|b| format!("\n\n{b}")).unwrap_or_default();
     format!(
         "You are the editing assistant inside Liemo, a video editor. The user has the project \"{}\" (id {}) open, \
          and your Liemo tool calls change it live in their editor; they can undo anything. Work on that project unless \
          they ask otherwise. Use only the liemo tools. Check results with render_frame when the look matters. Keep \
-         replies short: say what you changed.\n\nWhat Liemo can do:\n{}",
-        t.project_name, t.project_id, crate::mcp::INSTRUCTIONS
+         replies short: say what you changed.\n\n{}\n\nThe user may point at things: [video \"…\" · id …] names a clip by id; \
+         [Frame · … · time t] and [Snapshot · … · region x y w h] are what they see at time t, so look with render_frame \
+         (time t, and that region) before answering.{}\n\nWhat Liemo can do:\n{}",
+        t.project_name, t.project_id, crate::pipeline::describe(), brand, crate::mcp::INSTRUCTIONS
     )
 }
 
@@ -286,7 +356,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
     c.current_dir(dir).env("PATH", shell_path());
     match t.provider {
         Provider::Claude => {
-            let mcp = json!({ "mcpServers": { "liemo": { "command": exe, "args": ["mcp"] } } }).to_string();
+            let mcp = json!({ "mcpServers": { "liemo": { "command": exe, "args": ["mcp", "--agent"] } } }).to_string();
             c.args(["-p", &t.prompt, "--output-format", "stream-json", "--verbose", "--mcp-config", &mcp, "--strict-mcp-config", "--tools", "", "--allowedTools", "mcp__liemo"]);
             c.args(["--append-system-prompt", &context(t)]);
             if let Some(s) = &t.session {
@@ -298,7 +368,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
         }
         Provider::Codex => {
             // An inline table replaces the user's own MCP servers for this run.
-            let servers = format!("mcp_servers={{liemo={{command={},args=[\"mcp\"]}}}}", toml_str(&exe));
+            let servers = format!("mcp_servers={{liemo={{command={},args=[\"mcp\",\"--agent\"]}}}}", toml_str(&exe));
             c.arg("exec");
             if let Some(s) = &t.session {
                 c.args(["resume", s]);
@@ -311,7 +381,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
         }
         Provider::Gemini => {
             let settings = json!({
-                "mcpServers": { "liemo": { "command": exe, "args": ["mcp"], "trust": true } },
+                "mcpServers": { "liemo": { "command": exe, "args": ["mcp", "--agent"], "trust": true } },
                 "tools": { "exclude": GEMINI_BUILTINS },
             });
             std::fs::create_dir_all(dir.join(".gemini"))?;
@@ -327,7 +397,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
         Provider::OpenCode => {
             let cfg = json!({
                 "$schema": "https://opencode.ai/config.json",
-                "mcp": { "liemo": { "type": "local", "command": [exe, "mcp"], "enabled": true } },
+                "mcp": { "liemo": { "type": "local", "command": [exe, "mcp", "--agent"], "enabled": true } },
                 "permission": { "edit": "deny", "bash": "deny", "webfetch": "deny" },
             });
             std::fs::write(dir.join("opencode.json"), serde_json::to_vec_pretty(&cfg)?)?;
@@ -344,7 +414,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
             // Cursor reads MCP servers from the workspace; --approve-mcps keeps headless runs from
             // stopping to ask about them.
             std::fs::create_dir_all(dir.join(".cursor"))?;
-            std::fs::write(dir.join(".cursor/mcp.json"), serde_json::to_vec_pretty(&json!({ "mcpServers": { "liemo": { "command": exe, "args": ["mcp"] } } }))?)?;
+            std::fs::write(dir.join(".cursor/mcp.json"), serde_json::to_vec_pretty(&json!({ "mcpServers": { "liemo": { "command": exe, "args": ["mcp", "--agent"] } } }))?)?;
             c.args(["-p", "--output-format", "stream-json", "--trust", "--approve-mcps"]);
             if let Some(s) = &t.session {
                 c.args(["--resume", s]);
@@ -355,7 +425,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
             c.arg(&prompt_with_context);
         }
         Provider::Copilot => {
-            let mcp = json!({ "mcpServers": { "liemo": { "type": "local", "command": exe, "args": ["mcp"], "tools": ["*"] } } }).to_string();
+            let mcp = json!({ "mcpServers": { "liemo": { "type": "local", "command": exe, "args": ["mcp", "--agent"], "tools": ["*"] } } }).to_string();
             c.args(["-p", &prompt_with_context, "--output-format", "json", "--additional-mcp-config", &mcp, "--allow-tool", "liemo", "--deny-tool", "shell", "--deny-tool", "write"]);
             if let Some(s) = &t.session {
                 c.args(["--resume", s]);
@@ -366,7 +436,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
         }
         Provider::Qwen => {
             let settings = json!({
-                "mcpServers": { "liemo": { "command": exe, "args": ["mcp"], "trust": true } },
+                "mcpServers": { "liemo": { "command": exe, "args": ["mcp", "--agent"], "trust": true } },
                 "tools": { "exclude": GEMINI_BUILTINS },
             });
             std::fs::create_dir_all(dir.join(".qwen"))?;
@@ -380,7 +450,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
             }
         }
         Provider::Amp => {
-            let mcp = json!({ "liemo": { "command": exe, "args": ["mcp"] } }).to_string();
+            let mcp = json!({ "liemo": { "command": exe, "args": ["mcp", "--agent"] } }).to_string();
             c.arg("-x");
             if let Some(s) = &t.session {
                 c.args(["threads", "continue", s]);
@@ -389,7 +459,7 @@ fn command(t: &Turn, bin: &PathBuf, dir: &PathBuf) -> std::io::Result<Command> {
         }
         Provider::Grok => {
             std::fs::create_dir_all(dir.join(".grok"))?;
-            std::fs::write(dir.join(".grok/config.toml"), format!("[mcp_servers.liemo]\ncommand = {}\nargs = [\"mcp\"]\nenabled = true\n", toml_str(&exe)))?;
+            std::fs::write(dir.join(".grok/config.toml"), format!("[mcp_servers.liemo]\ncommand = {}\nargs = [\"mcp\", \"--agent\"]\nenabled = true\n", toml_str(&exe)))?;
             c.args(["-p", &prompt_with_context, "--output-format", "streaming-json", "--trust", "--allow", "mcp__liemo", "--disallowed-tools", GROK_BUILTINS, "--disable-web-search"]);
             if let Some(s) = &t.session {
                 c.args(["--resume", s]);

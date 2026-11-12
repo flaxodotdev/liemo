@@ -9,6 +9,8 @@ use crate::ui::theme::*;
 use futures::StreamExt;
 use gpui::prelude::*;
 use gpui::{anchored, deferred, div, px, Animation, AnimationExt, AnyElement, Context, Entity, FontStyle, FontWeight, HighlightStyle, ScrollHandle, StyledText, Window};
+use gpui_component::button::ButtonVariants;
+use gpui_component::menu::DropdownMenu;
 use gpui_component::input::{Input, InputState, Textarea, TextareaState};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -46,6 +48,7 @@ impl AgentChat {
     pub fn new(window: &mut Window, cx: &mut Context<Editor>) -> Self {
         let input = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 8).placeholder("Ask for an edit…"));
         let picker_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search agents and models"));
+        agent::set_mode(agent::Mode::from_id(&prefs::get_str("agent_mode").unwrap_or_default()));
         AgentChat {
             open: prefs::get_str("agent_open").as_deref() == Some("1") || std::env::var("RAYNA_TAB").as_deref() == Ok("agent"),
             provider: prefs::get_str("agent_provider").and_then(|p| Provider::from_id(&p)),
@@ -209,6 +212,104 @@ pub fn agent_logo(p: Provider, size: f32) -> AnyElement {
 }
 
 impl Editor {
+    /// Put a reference into the message box (opening the chat), to go with the next message.
+    pub fn mention_in_chat(&mut self, mention: String, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.agent.open {
+            self.toggle_agent(cx);
+        }
+        self.agent.input.update(cx, |s, cx| {
+            let cur = s.value().to_string();
+            let sep = if cur.is_empty() || cur.ends_with(char::is_whitespace) { "" } else { " " };
+            s.set_value(format!("{cur}{sep}{mention} "), window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// The selected clips, as references the agent can act on.
+    pub fn mention_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let refs: Vec<String> = self
+            .store
+            .selected_clips()
+            .iter()
+            .map(|c| {
+                let kind = format!("{:?}", c.kind).to_lowercase();
+                format!("[{kind} \"{}\" · id {} · {} · {:.2}–{:.2} s]", c.name, c.id, self.store.track(&c.track).name, c.start, c.start + c.dur)
+            })
+            .collect();
+        if refs.is_empty() {
+            self.store.toast("Select a clip to add it to the chat");
+            return;
+        }
+        self.mention_in_chat(refs.join(" "), window, cx);
+    }
+
+    /// A part of the frame at the playhead (or all of it), as a reference the agent looks at with
+    /// render_frame.
+    pub fn snapshot_to_chat(&mut self, region: Option<(f32, f32, f32, f32)>, window: &mut Window, cx: &mut Context<Self>) {
+        let t = self.store.time;
+        let m = match region {
+            Some((x, y, w, h)) => format!("[Snapshot · {} · time {t:.2} s · region x {} y {} w {} h {}]", crate::model::time::tc(t), x.round(), y.round(), w.round(), h.round()),
+            None => format!("[Frame · {} · time {t:.2} s]", crate::model::time::tc(t)),
+        };
+        self.mention_in_chat(m, window, cx);
+    }
+
+    pub fn set_agent_mode(&mut self, m: agent::Mode) {
+        agent::set_mode(m);
+        prefs::set("agent_mode", serde_json::Value::String(m.id().into()));
+    }
+
+    /// The pipeline's seven stages for this project: done ones open their document.
+    fn stage_strip(&self, running: bool, _cx: &mut Context<Self>) -> Option<AnyElement> {
+        let done = crate::pipeline::done(&self.project.id);
+        let n = done.iter().filter(|d| **d).count();
+        if n == 0 {
+            return None;
+        }
+        // The stage under way: the one after the last finished.
+        let at = done.iter().rposition(|d| *d).map(|i| i + 1).unwrap_or(0);
+        let label = if running && at < 7 { format!("{}…", crate::pipeline::STAGES[at].2) } else { format!("{n} of 7 stages written") };
+        let mut row = div().flex().gap(px(3.));
+        for (i, (id, name, _, _)) in crate::pipeline::STAGES.iter().enumerate() {
+            let path = crate::pipeline::path(&self.project.id, id);
+            let on = done[i];
+            let current = running && i == at;
+            row = row.child(
+                div()
+                    .id(("stage", i))
+                    .flex_1()
+                    .h(px(5.))
+                    .rounded_full()
+                    .bg(if on { ink() } else if current { alpha(ink(), 0.45) } else { surface3() })
+                    .when(on, |d| d.cursor_pointer().on_click(move |_, _, cx| cx.open_with_system(&path)))
+                    .tooltip({
+                        let t = format!("{}. {name}{}", i + 1, if on { " · open the document" } else { "" });
+                        move |w, cx| gpui_component::tooltip::Tooltip::new(t.clone()).build(w, cx)
+                    }),
+            );
+        }
+        let dir = crate::pipeline::dir(&self.project.id);
+        Some(
+            div()
+                .px_4()
+                .pb_2()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(type_caption(div()).flex_1().text_color(ink_muted()).child(label))
+                        .child(icon_button("stage-docs", "folder-open", "Show the documents", None, 22., Variant::Ghost, move |_, _, cx| cx.reveal_path(&dir))),
+                )
+                .child(row)
+                .into_any_element(),
+        )
+    }
+
     pub(super) fn toggle_agent(&mut self, cx: &mut Context<Self>) {
         self.agent.open = !self.agent.open;
         prefs::set("agent_open", serde_json::Value::String(if self.agent.open { "1" } else { "0" }.into()));
@@ -231,7 +332,11 @@ impl Editor {
         let turn = agent::Turn {
             provider,
             model,
-            prompt: text,
+            // Outside Auto, every message carries the mode, so each tool keeps to it.
+            prompt: match agent::mode_note(agent::mode()) {
+                Some(n) => format!("{n}\n\n{text}"),
+                None => text,
+            },
             session: self.agent.sessions.get(&provider).cloned(),
             project_id: self.project.id.clone(),
             project_name: self.store.name.clone(),
@@ -653,6 +758,41 @@ impl Editor {
                 }
                 cx.notify();
             }));
+        // How far the chat may go on its own.
+        let mode = agent::mode();
+        let mode_btn = {
+            let ed = cx.entity();
+            gpui_component::button::Button::new("agent-mode")
+                .label(agent::MODES.iter().find(|m| m.0 == mode).map(|m| m.1).unwrap_or("Auto"))
+                .ghost()
+                .dropdown_caret(true)
+                .h(px(28.))
+                .text_size(px(12.))
+                .tooltip("Auto edits straight away, Ask first waits for your yes on each change, Plan only looks and plans")
+                .dropdown_menu(move |mut menu, _, _| {
+                    for (m, l, d) in agent::MODES {
+                        let ed = ed.clone();
+                        menu = menu.item(gpui_component::menu::PopupMenuItem::new(format!("{l} · {d}")).checked(m == agent::mode()).on_click(move |_, _, cx| {
+                            ed.update(cx, |e, cx| {
+                                e.set_agent_mode(m);
+                                cx.notify();
+                            })
+                        }));
+                    }
+                    menu
+                })
+        };
+        // After a plan, one click carries it out.
+        let plan_done = mode == agent::Mode::Plan && !running && matches!(self.agent.msgs.last(), Some(Msg::Reply(_)));
+        if plan_done {
+            body = body.child(
+                div().flex().child(button("agent-run-plan", Variant::Primary, 32.).child("Carry out the plan").on_click(cx.listener(|this, _, window, cx| {
+                    this.set_agent_mode(agent::Mode::Auto);
+                    this.agent_send("Go ahead and carry out the plan.".into(), window, cx);
+                }))),
+            );
+        }
+        let strip = self.stage_strip(running, cx);
         let composer = div().px_3().pb_3().pt_1().child(
             div()
                 .relative()
@@ -675,7 +815,7 @@ impl Editor {
                     }
                 }))
                 .child(div().relative().ml(px(-3.)).pr_2().pt_1().child(self.track_bounds("input:agent")).child(Textarea::new(&self.agent.input).appearance(false).px_0().text_size(px(13.)).aria_label("Message Liemo AI")))
-                .child(div().flex().items_center().gap_2().child(div().min_w_0().flex_shrink(1.).child(trigger)).child(div().flex_1()).child(action)),
+                .child(div().flex().items_center().gap_1().child(div().min_w_0().flex_shrink(1.).child(trigger)).child(mode_btn).child(div().flex_1()).child(action)),
         );
         let picker = self.agent.picker.then(|| self.agent_picker(current, cx));
 
@@ -685,6 +825,7 @@ impl Editor {
             .h_full()
             .child(header)
             .child(body)
+            .when_some(strip, |d, s| d.child(s))
             .when(!installed.is_empty(), |d| d.child(composer))
             .when_some(picker, |d, p| d.child(p))
             .into_any_element()

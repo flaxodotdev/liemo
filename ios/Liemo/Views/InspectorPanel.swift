@@ -215,7 +215,7 @@ private struct TextSection: View {
                 Text("Animation").font(.system(size: 14))
                 Spacer()
                 Picker("Animation", selection: Binding(get: { text.anim }, set: { set(["animation": $0]) })) {
-                    ForEach(["none", "fade", "rise", "slide", "type", "pop", "bounce", "zoom", "blur", "wave", "glitch", "flicker"], id: \.self) { Text($0.capitalized).tag($0) }
+                    ForEach(AnimatePanel.textAnims, id: \.0) { Text($0.1).tag($0.0) }
                 }
             }
             Toggle("Backing box", isOn: Binding(get: { text.box }, set: { set(["box": $0]) })).font(.system(size: 14))

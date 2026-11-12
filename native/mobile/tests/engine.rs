@@ -355,3 +355,46 @@ fn tracks_markers_masks_and_grading() {
     assert!(e.render_frame(1.0, 320).is_some());
     e.close_project();
 }
+
+#[test]
+fn ported_text_animations_captions_and_overlays_render() {
+    let dir = std::env::temp_dir().join(format!("liemo-mobile-port-{}", std::process::id()));
+    let e = Engine::new(dir.display().to_string(), Arc::new(NoMedia));
+    let made = e.call("create_project".into(), r#"{"template":"sample"}"#.into());
+    let id = serde_json::from_str::<serde_json::Value>(&made.text).unwrap()["id"].as_str().unwrap().to_string();
+    e.open_project(id.clone());
+    let title = clip_of(&e, &id, "text");
+    let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap();
+    let start = doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == title.as_str()).unwrap()["start"].as_f64().unwrap();
+    let anims = [
+        "descend", "caret", "settle", "squeeze", "stretch", "fog", "reveal", "wipe", "echo", "drop", "spring", "flip", "tracking", "scramble",
+        "words", "wordrise", "wordpop", "marker", "underline", "shimmer", "count",
+    ];
+    for anim in anims {
+        let r = e.call("update_clip".into(), format!(r#"{{"project":"{id}","clip":"{title}","text":{{"animation":"{anim}","content":"Ship 2,400 videos"}}}}"#));
+        assert!(r.ok, "{anim}: {}", r.text);
+        let doc: serde_json::Value = serde_json::from_str(&e.call("get_project".into(), format!(r#"{{"project":"{id}"}}"#)).text).unwrap();
+        let got = &doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == title.as_str()).unwrap()["text"];
+        assert_eq!(got["animation"].as_str().or(got["anim"].as_str()), Some(anim), "{anim} not kept: {got}");
+        let (early, late) = (e.render_frame(start + 0.03, 240).unwrap().rgba, e.render_frame(start + 1.8, 240).unwrap().rgba);
+        if !matches!(anim, "marker" | "underline" | "shimmer") {
+            assert!(early != late, "{anim} shows no entrance");
+        }
+    }
+    let caps = ["word-pop", "highlight-box", "typewriter", "split-flap", "cube", "neon", "speaker", "knockout"];
+    for style in caps {
+        let r = e.call("add_captions".into(), format!(r#"{{"project":"{id}","style":"{style}","cues":[{{"start":4,"end":5.5,"text":"Two words"}}]}}"#));
+        assert!(r.ok, "{style}: {}", r.text);
+        let _ = e.render_frame(4.3, 240);
+    }
+    let plain = e.render_frame(9.5, 240).unwrap().rgba;
+    for ov in ["ov-confetti", "ov-burst", "ov-scribble", "ov-arrow", "ov-cursor", "ov-keys"] {
+        let r = e.call("add_clip".into(), format!(r#"{{"project":"{id}","asset":"{ov}","track":"V2","start":9}}"#));
+        assert!(r.ok, "{ov}: {}", r.text);
+        let cid = serde_json::from_str::<serde_json::Value>(&r.text).unwrap()["clip"]["id"].as_str().map(String::from)
+            .or_else(|| serde_json::from_str::<serde_json::Value>(&r.text).unwrap()["id"].as_str().map(String::from)).unwrap();
+        let shown = [0.0, 0.3, 0.6, 1.1].iter().any(|d| e.render_frame(9.2 + d, 240).unwrap().rgba != plain);
+        assert!(shown, "{ov} draws nothing");
+        assert!(e.call("remove_clip".into(), format!(r#"{{"project":"{id}","clip":"{cid}"}}"#)).ok);
+    }
+}

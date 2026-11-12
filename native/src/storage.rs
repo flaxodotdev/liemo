@@ -183,7 +183,7 @@ pub fn new_id() -> String {
 }
 
 /// Write via a temporary file and rename, so a crash never leaves half a project.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }

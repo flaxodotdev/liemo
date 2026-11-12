@@ -1,7 +1,7 @@
 // Captions: subtitle files in and out (SubRip .srt and WebVTT .vtt), and recognised words grouped
 // into short on-screen captions. Captions live on the timeline as ordinary text clips on Titles.
 
-use super::types::{AssetType, Clip};
+use super::types::{AssetType, Clip, TextAlign, TextAnim, TextBlend, TextProps};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cue {
@@ -140,4 +140,97 @@ mod tests {
         assert_eq!(g[0].end, 0.65);
         assert_eq!(g[1].end, 0.8);
     }
+}
+
+/// A caption look, after remocn's caption library, made of ordinary text properties so every part
+/// stays editable in the inspector. Sizes are for a 1280-wide frame.
+pub struct CaptionStyle {
+    pub id: &'static str,
+    pub name: &'static str,
+    font: &'static str,
+    weight: f64,
+    size: f64,
+    color: &'static str,
+    anim: TextAnim,
+    boxed: bool,
+    outline: Option<&'static str>,
+    shadow: Option<&'static str>,
+    glow: Option<&'static str>,
+    highlight: Option<&'static str>,
+    blend: TextBlend,
+    left: bool,
+    tilt: f64,
+    /// Sits in the middle of the frame instead of the lower part.
+    middle: bool,
+}
+
+const fn cs(id: &'static str, name: &'static str, font: &'static str, weight: f64, size: f64, color: &'static str, anim: TextAnim) -> CaptionStyle {
+    CaptionStyle { id, name, font, weight, size, color, anim, boxed: false, outline: None, shadow: Some("#000000"), glow: None, highlight: None, blend: TextBlend::Normal, left: false, tilt: 0.0, middle: false }
+}
+const MONA: &str = "Mona Sans";
+const MONO: &str = "JetBrains Mono";
+const BLACK: Option<&str> = Some("#000000");
+const YELLOW: Option<&str> = Some("#facc15");
+
+/// "subtitle" keeps the Caption text style as it is.
+pub const CAPTION_STYLES: [CaptionStyle; 34] = [
+    CaptionStyle { shadow: None, ..cs("subtitle", "Subtitle", "Inter", 500.0, 36.0, "#ffffff", TextAnim::Fade) },
+    CaptionStyle { outline: BLACK, shadow: None, ..cs("pop", "Pop", MONA, 800.0, 76.0, "#ffffff", TextAnim::Pop) },
+    cs("clean", "Clean", "Inter", 600.0, 52.0, "#ffffff", TextAnim::Fade),
+    CaptionStyle { boxed: true, shadow: None, ..cs("boxed", "Boxed", "Inter", 700.0, 48.0, "#ffffff", TextAnim::None) },
+    cs("word-pop", "Word pop", MONA, 800.0, 72.0, "#ffffff", TextAnim::WordPop),
+    CaptionStyle { outline: BLACK, shadow: None, ..cs("active-pop", "Active pop", MONA, 900.0, 84.0, "#facc15", TextAnim::Pop) },
+    cs("bounce-in", "Bounce in", MONA, 800.0, 72.0, "#ffffff", TextAnim::Bounce),
+    cs("blur-in", "Blur in", "Inter", 700.0, 56.0, "#ffffff", TextAnim::Blur),
+    cs("rise", "Rise", "Inter", 700.0, 56.0, "#ffffff", TextAnim::WordRise),
+    cs("drop", "Drop", MONA, 800.0, 64.0, "#ffffff", TextAnim::Drop),
+    cs("words", "Word by word", "Inter", 700.0, 56.0, "#ffffff", TextAnim::Words),
+    cs("sweep", "Sweep", MONA, 800.0, 64.0, "#facc15", TextAnim::Wipe),
+    CaptionStyle { highlight: YELLOW, shadow: None, ..cs("highlight-box", "Highlight box", MONA, 800.0, 60.0, "#111111", TextAnim::WordPop) },
+    CaptionStyle { highlight: YELLOW, shadow: None, ..cs("marker", "Marker", "Inter", 700.0, 56.0, "#111111", TextAnim::Marker) },
+    CaptionStyle { highlight: YELLOW, ..cs("underline", "Underline", "Inter", 700.0, 56.0, "#ffffff", TextAnim::Underline) },
+    CaptionStyle { outline: BLACK, shadow: None, ..cs("outline", "Outline", MONA, 900.0, 80.0, "#facc15", TextAnim::Rise) },
+    CaptionStyle { blend: TextBlend::Invert, shadow: None, ..cs("knockout", "Knockout", "Bebas Neue", 400.0, 104.0, "#ffffff", TextAnim::Fade) },
+    cs("handwrite", "Handwrite", "Caveat", 700.0, 76.0, "#ffffff", TextAnim::Wipe),
+    CaptionStyle { boxed: true, shadow: None, ..cs("typewriter", "Typewriter", MONO, 500.0, 44.0, "#ffffff", TextAnim::Caret) },
+    CaptionStyle { highlight: Some("#f5f5f4"), shadow: None, ..cs("label-maker", "Label maker", MONO, 700.0, 40.0, "#111111", TextAnim::Type) },
+    cs("scramble", "Decode", MONO, 600.0, 48.0, "#22c55e", TextAnim::Scramble),
+    CaptionStyle { highlight: Some("#1c1c1e"), shadow: None, ..cs("split-flap", "Split-flap", MONO, 700.0, 52.0, "#ffffff", TextAnim::Flip) },
+    cs("slot", "Slot", "Bebas Neue", 400.0, 96.0, "#ffffff", TextAnim::Flip),
+    cs("slice", "Slice", MONA, 800.0, 72.0, "#ffffff", TextAnim::Reveal),
+    cs("stamp", "Stamp", "Bebas Neue", 400.0, 120.0, "#ef4444", TextAnim::Zoom),
+    cs("stack", "Stack", "Bebas Neue", 400.0, 110.0, "#ffffff", TextAnim::WordRise),
+    CaptionStyle { tilt: 18.0, ..cs("cube", "Cube", MONA, 800.0, 72.0, "#ffffff", TextAnim::Flip) },
+    CaptionStyle { middle: true, ..cs("teleprompter", "Teleprompter", "Instrument Serif", 400.0, 68.0, "#ffffff", TextAnim::Descend) },
+    CaptionStyle { boxed: true, left: true, shadow: None, ..cs("speaker", "Speaker", "Inter", 700.0, 40.0, "#ffffff", TextAnim::Slide) },
+    cs("weight", "Spring", MONA, 900.0, 76.0, "#ffffff", TextAnim::Spring),
+    cs("echo", "Echo", MONA, 800.0, 68.0, "#ffffff", TextAnim::Echo),
+    CaptionStyle { glow: Some("#d44df0"), shadow: None, ..cs("neon", "Neon", MONA, 800.0, 68.0, "#ffffff", TextAnim::Flicker) },
+    cs("glitch", "Glitch", MONA, 800.0, 68.0, "#ffffff", TextAnim::Glitch),
+    CaptionStyle { middle: true, ..cs("fog", "Fog", "Instrument Serif", 400.0, 72.0, "#ffffff", TextAnim::Fog) },
+];
+
+pub fn caption_style(id: &str) -> Option<&'static CaptionStyle> {
+    CAPTION_STYLES.iter().find(|s| s.id == id)
+}
+
+/// Dress a caption's text in a style, for a `w`×`h` frame. "subtitle" and unknown ids leave it.
+pub fn apply_caption_style(t: &mut TextProps, id: &str, w: f32, h: f32) {
+    let Some(s) = caption_style(id).filter(|s| s.id != "subtitle") else { return };
+    let k = (w / 1280.0).sqrt().min(1.0) as f64;
+    t.font = s.font.into();
+    t.weight = s.weight;
+    t.size = (s.size * k).round();
+    t.color = s.color.into();
+    t.anim = s.anim;
+    t.boxed = s.boxed;
+    t.outline = s.outline.map(String::from);
+    t.shadow = s.shadow.map(String::from);
+    t.glow = s.glow.map(String::from);
+    t.highlight = s.highlight.map(String::from);
+    t.blend = s.blend;
+    t.tilt_x = s.tilt;
+    t.tilt_y = 0.0;
+    t.align = if s.left { TextAlign::Left } else { TextAlign::Center };
+    t.y = if s.middle { 0.0 } else { (260.0 * h as f64 / 720.0).round() };
 }

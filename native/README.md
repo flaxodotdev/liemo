@@ -98,4 +98,8 @@ cargo run --release -- --media-test <file> <dir>    # import, decode, and every 
 
 Launch hooks for screenshots and testing: `RAYNA_MUTE=1` (no audio output), `RAYNA_OPEN=sample`,
 `RAYNA_TIME=<s>`, `RAYNA_SELECT=<n>`, `RAYNA_TAB=effects|transitions|text|music`, `RAYNA_EXPORT=1`,
-`RAYNA_SCOPE=waveform|parade|vector|histogram`, `RAYNA_PV_ZOOM=<1–8>`.
+`RAYNA_SCOPE=waveform|parade|vector|histogram`, `RAYNA_PV_ZOOM=<1–8>`,
+`RAYNA_OPEN_UI=palette:<query>|brand|connect|check|stock|snap|rulers` (opens that screen),
+`RAYNA_RUN="select 6;Apply brand to the selected text;…"` (runs ⌘K commands in order and logs each to stderr).
+`--text-test <dir>` renders every text animation and overlay as PNG strips (`RAYNA_SETTLE=1` also maps
+where a settled animation differs from plain text).

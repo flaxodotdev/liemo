@@ -1,4 +1,4 @@
-// Export: video (MP4/WebM), animated GIF, a still frame, or audio only. Video is rendered frame by
+// Export: video (MP4/WebM/ProRes), animated GIF, a still frame, or audio only. Video is rendered frame by
 // frame, audio is mixed offline, and both are encoded with FFmpeg. Nothing plays aloud and every
 // frame is exact.
 
@@ -28,6 +28,31 @@ pub enum Kind {
 pub enum Container {
     Mp4,
     Webm,
+    /// Apple ProRes in a QuickTime .mov, with uncompressed sound: for handing on to an editor.
+    Mov,
+}
+impl Container {
+    pub fn label(self) -> &'static str {
+        match self {
+            Container::Mp4 => "MP4",
+            Container::Webm => "WebM",
+            Container::Mov => "ProRes",
+        }
+    }
+    pub fn ext(self) -> &'static str {
+        match self {
+            Container::Mp4 => "mp4",
+            Container::Webm => "webm",
+            Container::Mov => "mov",
+        }
+    }
+    pub fn from_id(id: &str) -> Container {
+        match id {
+            "webm" => Container::Webm,
+            "mov" | "prores" => Container::Mov,
+            _ => Container::Mp4,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -131,12 +156,14 @@ fn video_candidates(c: Container) -> &'static [&'static str] {
     match c {
         Container::Mp4 => &["libx264", "h264_videotoolbox", "libx265", "hevc_videotoolbox", "mpeg4"],
         Container::Webm => &["libvpx-vp9", "libvpx"],
+        Container::Mov => &["prores_ks", "prores_aw", "prores"],
     }
 }
 fn audio_candidates(c: Container) -> &'static [&'static str] {
     match c {
         Container::Mp4 => &["aac", "aac_at"],
         Container::Webm => &["libopus", "opus", "libvorbis"],
+        Container::Mov => &["pcm_s16le"],
     }
 }
 fn label(name: &str) -> &'static str {
@@ -146,6 +173,8 @@ fn label(name: &str) -> &'static str {
         "libvpx-vp9" => "VP9",
         "libvpx" => "VP8",
         "mpeg4" => "MPEG-4",
+        "prores_ks" | "prores_aw" | "prores" => "ProRes",
+        "pcm_s16le" => "PCM",
         "aac" | "aac_at" => "AAC",
         "libopus" | "opus" => "OPUS",
         "libvorbis" => "VORBIS",
@@ -199,7 +228,7 @@ impl std::error::Error for CancelledError {}
 
 pub fn extension(s: &Settings) -> &'static str {
     match s.kind {
-        Kind::Video => if s.container == Container::Mp4 { "mp4" } else { "webm" },
+        Kind::Video => s.container.ext(),
         Kind::Gif => "gif",
         Kind::Image => if s.image_png { "png" } else { "jpg" },
         Kind::Audio => if s.audio_wav { "wav" } else { "m4a" },
@@ -519,6 +548,14 @@ fn video_opts(name: &str, q: Quality, w: u32, h: u32, fps: u32) -> (Dictionary<'
             d.set("crf", pick("30", "26", "21", "17"));
             (d, None)
         }
+        // ProRes picks its flavour by profile: LT, 422, 422 HQ, 4444.
+        "prores_ks" | "prores_aw" | "prores" => {
+            d.set("profile", pick("1", "2", "3", "4"));
+            if name == "prores_ks" {
+                d.set("vendor", "apl0");
+            }
+            (d, Some(0))
+        }
         "libvpx-vp9" | "libvpx" => {
             d.set("crf", pick("40", "34", "30", "24"));
             d.set("deadline", "good");
@@ -546,26 +583,32 @@ fn export_video(job: &Job, start: f64, stop: f64, p: &Progress) -> Result<Outcom
     let fps = s.fps.max(1);
     (p.report)(0.0, "Checking encoders".into());
     let support = probe(s.container);
-    let vname = support.video.ok_or_else(|| anyhow!("This build can't encode {} video. Try the other format.", if s.container == Container::Mp4 { "MP4" } else { "WebM" }))?;
+    let vname = support.video.ok_or_else(|| anyhow!("This build can't encode {} video. Try another format.", s.container.label()))?;
 
     (p.report)(0.01, "Mixing audio".into());
     let audio = if s.audio && support.audio.is_some() { render_range(&job.clips, &job.tracks, start, stop, &|| p.cancel.load(Ordering::Relaxed)) } else { None };
     check(p)?;
 
     crate::media::init();
-    let mut octx = format::output_as(&job.path, if s.container == Container::Mp4 { "mp4" } else { "webm" })?;
+    let mut octx = format::output_as(&job.path, s.container.ext())?;
     let global = octx.format().flags().contains(format::Flags::GLOBAL_HEADER);
     let codec = encoder::find_by_name(vname).ok_or_else(|| anyhow!("video encoder missing"))?;
     let mut ost = octx.add_stream(codec)?;
     let vstream = ost.index();
     let mut enc = codec::context::Context::new_with_codec(codec).encoder().video()?;
-    let pix = if vname.contains("videotoolbox") { Pixel::NV12 } else { Pixel::YUV420P };
+    let pix = if vname.contains("videotoolbox") {
+        Pixel::NV12
+    } else if s.container == Container::Mov {
+        if s.quality == Quality::Best { Pixel::YUV444P10LE } else { Pixel::YUV422P10LE }
+    } else {
+        Pixel::YUV420P
+    };
     enc.set_width(w);
     enc.set_height(h);
     enc.set_format(pix);
     enc.set_time_base(Rational(1, fps as i32));
     enc.set_frame_rate(Some(Rational(fps as i32, 1)));
-    enc.set_gop(fps * 2);
+    enc.set_gop(if s.container == Container::Mov { 1 } else { fps * 2 });
     if global {
         enc.set_flags(codec::Flags::GLOBAL_HEADER);
     }

@@ -13,9 +13,14 @@ mod vision_mac;
 #[cfg(target_os = "macos")]
 mod speech_mac;
 mod agent;
+mod check;
+mod pipeline;
+mod integrations;
 mod ui;
 mod model;
 mod render;
+#[cfg(test)]
+mod feature_tests;
 
 use model::store::{default_tracks, sample_clips};
 use render::canvas::Canvas;
@@ -59,7 +64,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     fx::cutout::set_segmenter(Box::new(vision_mac::segment));
     if args.get(1).map(String::as_str) == Some("mcp") {
-        mcp::serve_stdio();
+        mcp::serve_stdio(args.get(2).map(String::as_str) == Some("--agent"));
         return;
     }
     if args.get(1).map(String::as_str) == Some("--version") {
@@ -106,6 +111,63 @@ fn main() {
     }
     if args.len() <= 1 || !args[1].starts_with("--") {
         run_app();
+        return;
+    }
+    if args.get(1).map(String::as_str) == Some("--text-test") {
+        // Every text animation as a strip of four moments, one PNG each.
+        let dir = args.get(2).cloned().unwrap_or_else(|| ".".into());
+        let mut t = model::assets::asset("tx-title").and_then(|a| a.text.clone()).unwrap();
+        t.content = "Ship 2,400 videos\nwithout a timeline".into();
+        t.size = 96.0;
+        for (anim, _) in model::assets::TEXT_ANIMS {
+            t.anim = anim;
+            let mut c = Canvas::new(1280, 720);
+            c.fill_all(render::canvas::hex("#101012"));
+            for (i, lt) in [0.08f32, 0.25, 0.5, 1.6].iter().enumerate() {
+                c.save();
+                c.translate((i % 2) as f32 * 640.0, (i / 2) as f32 * 360.0);
+                c.scale(0.5, 0.5);
+                render::textclip::draw_text(&mut c, &t, *lt, 1.0);
+                c.restore();
+            }
+            save_png(&c.into_pixmap(), &format!("{dir}/text-{}.png", model::assets::text_anim_id(anim)));
+        }
+        if std::env::var("RAYNA_SETTLE").is_ok() {
+            // The settled picture of each animation over the plain text: red where they differ.
+            t.content = "Ship 2,400 videos\nwithout a timeline".into();
+            for (anim, _) in model::assets::TEXT_ANIMS {
+                t.anim = model::types::TextAnim::None;
+                let mut a = Canvas::new(1280, 720);
+                render::textclip::draw_text(&mut a, &t, 6.0, 1.0);
+                t.anim = anim;
+                let mut b = Canvas::new(1280, 720);
+                render::textclip::draw_text(&mut b, &t, 6.0, 1.0);
+                let (pa, mut pb) = (a.into_pixmap(), b.into_pixmap());
+                let mut n = 0;
+                for (x, y) in pa.data().chunks(4).zip(pb.data_mut().chunks_mut(4)) {
+                    if (x[3] as i32 - y[3] as i32).abs() > 24 {
+                        n += 1;
+                        y.copy_from_slice(&[255, 0, 0, 255]);
+                    }
+                }
+                if n > 0 {
+                    println!("{:?}: {n} px differ", anim);
+                    save_png(&pb, &format!("{dir}/settle-{}.png", model::assets::text_anim_id(anim)));
+                }
+            }
+        }
+        for o in model::assets::overlays() {
+            let mut c = Canvas::new(1280, 720);
+            c.fill_all(render::canvas::hex("#2a2f3a"));
+            for (i, lt) in [0.2f32, 0.5, 0.9, 1.4].iter().enumerate() {
+                c.save();
+                c.translate((i % 2) as f32 * 640.0, (i / 2) as f32 * 360.0);
+                c.scale(0.5, 0.5);
+                (o.draw.unwrap())(&mut c, *lt);
+                c.restore();
+            }
+            save_png(&c.into_pixmap(), &format!("{dir}/overlay-{}.png", o.id));
+        }
         return;
     }
     if args.get(1).map(String::as_str) == Some("--render-test") {
@@ -285,6 +347,7 @@ fn media_test(file: &str, dir: &str) {
     for (name, kind, container, ext, extra) in [
         ("mp4", export::Kind::Video, export::Container::Mp4, "mp4", ""),
         ("webm", export::Kind::Video, export::Container::Webm, "webm", ""),
+        ("prores", export::Kind::Video, export::Container::Mov, "mov", ""),
         ("vertical", export::Kind::Video, export::Container::Mp4, "mp4", "9:16"),
         ("gif", export::Kind::Gif, export::Container::Mp4, "gif", ""),
         ("png", export::Kind::Image, export::Container::Mp4, "png", ""),

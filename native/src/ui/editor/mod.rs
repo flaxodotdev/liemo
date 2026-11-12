@@ -2,10 +2,13 @@
 // every pointer drag. Panels are split across the files in this module.
 
 pub(crate) mod agent_ui;
+mod brand_ui;
 mod captions_ui;
+mod check_ui;
 mod export_ui;
 mod grade_ui;
 mod media_ui;
+mod palette_ui;
 pub mod geometry;
 mod inspector;
 pub mod layout;
@@ -155,6 +158,15 @@ pub struct Editor {
     /// highlighted row and list scroll.
     /// The AI sidebar's chat.
     pub agent: agent_ui::AgentChat,
+    /// The command palette (⌘K).
+    pub palette: palette_ui::Palette,
+    /// The brand kit dialog, while it's open.
+    pub brand_edit: Option<brand_ui::BrandEdit>,
+    /// The Connect dialog for a service's API key, while it's open.
+    pub connect_edit: Option<(crate::integrations::Service, Entity<InputState>)>,
+    /// The design check dialog and the stock search, while open.
+    pub check: Option<check_ui::CheckUi>,
+    pub stock: Option<check_ui::StockUi>,
     /// Panel sizes and which panels are open.
     pub layout: layout::Layout,
     pub combo: Option<SharedString>,
@@ -195,6 +207,8 @@ pub struct Editor {
     pub music_peaks: timeline::MusicPeaks,
     /// Preview zoom (1 = fit) and pan, in points.
     pub pv_zoom: f32,
+    /// Pixel rulers along the preview's top and left edges (⇧R).
+    pub rulers: bool,
     pub pv_pan: (f32, f32),
     /// The preview alone, filling the screen.
     pub cinema: bool,
@@ -217,6 +231,10 @@ pub struct Editor {
     pub lib_drag: Option<DragPayload>,
     // Preview overlay
     pub hover_clip: Option<String>,
+    /// Snapshot mode: a box dragged over the picture goes to the AI chat. The box being dragged,
+    /// in canvas units.
+    pub snap_mode: bool,
+    pub snap_drag: Option<((f32, f32), (f32, f32))>,
     pub stage_guides: Vec<(bool, f32)>,
     pub readout: Option<String>,
     // Saving
@@ -386,6 +404,11 @@ impl Editor {
             text_input,
             export_name,
             agent: agent,
+            palette: palette_ui::Palette::new(window, cx),
+            brand_edit: None,
+            connect_edit: None,
+            check: None,
+            stock: None,
             layout: layout::Layout::load(),
             combo: std::env::var("RAYNA_COMBO").ok().map(SharedString::from),
             combo_input,
@@ -418,6 +441,7 @@ impl Editor {
             renaming: None,
             rename_input,
             pv_zoom: 1.0,
+            rulers: crate::ui::prefs::get_str("rulers").as_deref() == Some("1"),
             pv_pan: (0.0, 0.0),
             cinema: false,
             cinema_went_fullscreen: false,
@@ -431,6 +455,8 @@ impl Editor {
             drop_target: None,
             lib_drag: None,
             hover_clip: None,
+            snap_mode: false,
+            snap_drag: None,
             stage_guides: vec![],
             readout: None,
             save_state: SaveState::Saved,
@@ -496,6 +522,58 @@ impl Editor {
         }
         if std::env::var("RAYNA_EXPORT").is_ok() {
             cx.defer_in(window, |this: &mut Editor, window, cx| this.open_export(window, cx));
+        }
+        // Test hook: RAYNA_RUN="label;label;…" runs palette commands in order, a moment apart, and
+        // prints what each did to stderr.
+        if let Ok(v) = std::env::var("RAYNA_RUN") {
+            let steps: Vec<String> = v.split(';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            cx.spawn_in(window, async move |this, cx| {
+                for step in steps {
+                    cx.background_executor().timer(Duration::from_millis(900)).await;
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        if let Some(sel) = step.strip_prefix("select ") {
+                            let ids: Vec<String> = sel.split(',').filter_map(|i| i.trim().parse::<usize>().ok()).filter_map(|i| this.store.clips.get(i).map(|c| c.id.clone())).collect();
+                            this.store.select_many(ids);
+                        } else {
+                            let ok = this.run_command(&step, window, cx);
+                            eprintln!("RUN {step}: {}", if ok { "ran" } else { "NOT FOUND" });
+                        }
+                        let toasts = this.store.toasts.clone();
+                        eprintln!("  clips={} selected={:?} toasts={:?} chat_input={:?}", this.store.clips.len(), this.store.selection().iter().filter_map(|id| this.store.clip(id).map(|c| c.name.clone())).collect::<Vec<_>>(), toasts, this.agent.input.read(cx).value().to_string());
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }
+        // Test hook: RAYNA_OPEN_UI=palette:<query>|brand|connect|check|stock|snap|rulers opens one of
+        // the newer screens (RAYNA_STOCK_QUERY then searches stock).
+        if let Ok(v) = std::env::var("RAYNA_OPEN_UI") {
+            cx.defer_in(window, move |this: &mut Editor, window, cx| {
+                match v.split_once(':').map(|(a, b)| (a, b.to_string())).unwrap_or((v.as_str(), String::new())) {
+                    ("palette", q) => {
+                        this.toggle_palette(window, cx);
+                        this.palette.input.update(cx, |s, cx| s.set_value(q, window, cx));
+                    }
+                    ("brand", _) => this.open_brand(window, cx),
+                    ("connect", _) => this.open_connect(crate::integrations::Service::ElevenLabs, window, cx),
+                    ("check", _) => this.run_design_check(cx),
+                    ("stock", _) => {
+                        this.open_stock(window, cx);
+                        if let (Ok(q), Some(st)) = (std::env::var("RAYNA_STOCK_QUERY"), this.stock.as_ref()) {
+                            st.input_entity().update(cx, |s, cx| s.set_value(q, window, cx));
+                            this.stock_search_now(cx);
+                        }
+                    }
+                    ("snap", _) => {
+                        this.snap_mode = true;
+                        this.snap_drag = Some(((300.0, 160.0), (820.0, 470.0)));
+                    }
+                    ("rulers", _) => this.rulers = true,
+                    _ => {}
+                }
+                cx.notify();
+            });
         }
         window.focus(&ed.focus, cx);
         ed
@@ -632,12 +710,26 @@ impl Editor {
             || self.combo_input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.agent.input.read(cx).focus_handle(cx).contains_focused(window, cx)
             || self.agent.picker_input.read(cx).focus_handle(cx).contains_focused(window, cx)
+            || self.palette.input.read(cx).focus_handle(cx).contains_focused(window, cx)
+            || self.brand_edit.as_ref().is_some_and(|b| b.focused(window, cx))
+            || self.connect_edit.as_ref().is_some_and(|(_, i)| i.read(cx).focus_handle(cx).contains_focused(window, cx))
+            || self.stock.as_ref().is_some_and(|s| s.focused(window, cx))
     }
 
     fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.export.is_some() {
             if ev.keystroke.key == "escape" && !self.export.as_ref().map(|e| e.running()).unwrap_or(false) {
                 self.export = None;
+                cx.notify();
+            }
+            return;
+        }
+        if self.brand_edit.is_some() || self.connect_edit.is_some() || self.check.is_some() || self.stock.is_some() {
+            if ev.keystroke.key == "escape" {
+                self.brand_edit = None;
+                self.connect_edit = None;
+                self.check = None;
+                self.stock = None;
                 cx.notify();
             }
             return;
@@ -652,6 +744,11 @@ impl Editor {
         let k = ev.keystroke.key.as_str();
         let m = ev.keystroke.modifiers;
         let cmd = m.platform || m.control;
+        if (cmd && k == "k") || (cmd && m.shift && k == "p") {
+            self.toggle_palette(window, cx);
+            cx.stop_propagation();
+            return;
+        }
         let s = &mut self.store;
         if k == "space" {
             self.toggle_play();
@@ -729,9 +826,16 @@ impl Editor {
                 "g" => s.guides = !s.guides,
                 "=" | "+" => self.zoom_by(1.25, None),
                 "-" => self.zoom_by(0.8, None),
+                "escape" if self.snap_mode => {
+                    self.snap_mode = false;
+                    self.snap_drag = None;
+                }
                 "escape" if self.cinema => self.toggle_cinema(window, cx),
                 "escape" => s.select(None),
                 "f" => self.toggle_cinema(window, cx),
+                "r" if m.shift => self.toggle_rulers(),
+                "2" if m.shift => self.zoom_to_selection(),
+                "@" => self.zoom_to_selection(),
                 _ => return,
             }
         }
@@ -1800,6 +1904,11 @@ impl Render for Editor {
                     )
                     .when(self.agent.open, |d| d.child(self.splitter(layout::Edge::Agent, cx)).child(self.render_agent(cx))),
             ))
+            .when(self.palette.open && self.export.is_none(), |d| d.child(self.render_palette(window, cx)))
+            .when(self.brand_edit.is_some(), |d| d.child(self.render_brand(cx)))
+            .when(self.check.is_some(), |d| d.child(self.render_check(cx)))
+            .when(self.stock.is_some(), |d| d.child(self.render_stock(cx)))
+            .when(self.connect_edit.is_some(), |d| d.child(self.render_connect(cx)))
             .when_some(self.export.is_some().then_some(()), |d, _| d.child(self.render_export(window, cx)))
             .when(dragging, |d| {
                 // While a pointer drag runs, follow the pointer anywhere in the window.

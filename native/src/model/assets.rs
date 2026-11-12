@@ -213,6 +213,189 @@ fn rec_frame(c: &mut Canvas, t: f32) {
     fill_text(c, &tc(t as f64), W() - m - 200.0, m + 43.0, &st, Align::Left, Baseline::Alphabetic, hex("#fff"));
 }
 
+// ---------- Effects: confetti, bursts, scribbles, a cursor and keys (after remocn's set) ----------
+fn ease_out(p: f32) -> f32 {
+    1.0 - (1.0 - p.clamp(0.0, 1.0)).powi(3)
+}
+/// Stroke the first `p` (0..1) of a polyline.
+fn stroke_part(c: &mut Canvas, pts: &[(f32, f32)], p: f32) {
+    if pts.len() < 2 || p <= 0.0 {
+        return;
+    }
+    let lens: Vec<f32> = pts.windows(2).map(|w| ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt()).collect();
+    let mut left = lens.iter().sum::<f32>() * p.min(1.0);
+    c.begin_path();
+    c.move_to(pts[0].0, pts[0].1);
+    for (i, l) in lens.iter().enumerate() {
+        if left >= *l {
+            c.line_to(pts[i + 1].0, pts[i + 1].1);
+            left -= l;
+        } else {
+            let k = left / l.max(1e-6);
+            c.line_to(pts[i].0 + (pts[i + 1].0 - pts[i].0) * k, pts[i].1 + (pts[i + 1].1 - pts[i].1) * k);
+            break;
+        }
+    }
+    c.stroke();
+}
+const PARTY: [&str; 6] = ["#facc15", "#ff5577", "#22c55e", "#0099ff", "#d44df0", "#ff7a3d"];
+fn confetti(c: &mut Canvas, t: f32) {
+    // Two cannons in the lower corners; pieces fly up and in, then flutter down.
+    let mut r = rng(11);
+    for i in 0..220 {
+        let left = i % 2 == 0;
+        let (x0, y0) = (if left { -20.0 } else { W() + 20.0 }, H() * 0.95);
+        let ang = (38.0 + r.next() * 47.0).to_radians();
+        let speed = H() * (0.9 + r.next() * 1.6);
+        let delay = r.next() * 0.3;
+        let tt = (t - delay).max(0.0);
+        if tt <= 0.0 {
+            continue;
+        }
+        let drag = (1.0 - (-tt * 1.6).exp()) / 1.6;
+        let x = x0 + if left { 1.0 } else { -1.0 } * ang.cos() * speed * drag + (tt * 3.0 + i as f32).sin() * 18.0;
+        let y = y0 - ang.sin() * speed * drag + 260.0 * tt * tt * 0.5;
+        if y > H() + 40.0 {
+            continue;
+        }
+        let spin = tt * (4.0 + r.next() * 8.0) + i as f32;
+        let (w, h) = (10.0 + r.next() * 10.0, 6.0 + r.next() * 7.0);
+        c.save();
+        c.translate(x, y);
+        c.rotate(spin);
+        c.scale(1.0, spin.cos().abs().max(0.15));
+        c.set_alpha((1.0 - (tt - 3.0).max(0.0)).clamp(0.0, 1.0));
+        c.fill_rect_color(-w / 2.0, -h / 2.0, w, h, hex(PARTY[i % PARTY.len()]));
+        c.restore();
+    }
+}
+fn radial_burst(c: &mut Canvas, t: f32) {
+    // Lines shoot out of the middle and fade, every two seconds.
+    let p = (t % 2.0) / 0.7;
+    if p >= 1.0 {
+        return;
+    }
+    let (cx, cy) = (W() / 2.0, H() / 2.0);
+    c.set_line_cap(tiny_skia::LineCap::Round);
+    c.set_line_width(6.0);
+    c.set_stroke_color(hex("#ffffff"));
+    c.set_alpha(1.0 - p);
+    for i in 0..12 {
+        let a = i as f32 / 12.0 * std::f32::consts::TAU;
+        let (r0, r1) = (60.0 + ease_out(p) * 120.0, 90.0 + ease_out(p * 1.4) * 170.0);
+        c.begin_path();
+        c.move_to(cx + a.cos() * r0, cy + a.sin() * r0);
+        c.line_to(cx + a.cos() * r1, cy + a.sin() * r1);
+        c.stroke();
+    }
+    c.set_alpha(1.0);
+}
+fn scribble(c: &mut Canvas, t: f32) {
+    // A loose ring, drawn round about one and a half times, as if with a marker.
+    let (cx, cy, rx, ry) = (W() / 2.0, H() / 2.0, W() * 0.2, H() * 0.18);
+    let pts: Vec<(f32, f32)> = (0..=120)
+        .map(|i| {
+            let k = i as f32 / 120.0;
+            let a = -2.2 + k * std::f32::consts::TAU * 1.15;
+            let wob = 1.0 + 0.05 * (k * 19.0).sin() + 0.06 * k;
+            (cx + a.cos() * rx * wob, cy + a.sin() * ry * wob * (1.0 - 0.04 * k))
+        })
+        .collect();
+    c.set_line_cap(tiny_skia::LineCap::Round);
+    c.set_line_width(9.0);
+    c.set_stroke_color(hex("#ff3b3b"));
+    stroke_part(c, &pts, ease_out(t / 0.8));
+}
+fn ink_arrow(c: &mut Canvas, t: f32) {
+    // A curved stroke from the lower left that ends in an arrowhead at the middle.
+    let (a, b, d) = ((W() * 0.18, H() * 0.82), (W() * 0.22, H() * 0.42), (W() * 0.44, H() * 0.48));
+    let pts: Vec<(f32, f32)> = (0..=60)
+        .map(|i| {
+            let k = i as f32 / 60.0;
+            let u = 1.0 - k;
+            (u * u * a.0 + 2.0 * u * k * b.0 + k * k * d.0, u * u * a.1 + 2.0 * u * k * b.1 + k * k * d.1)
+        })
+        .collect();
+    let p = ease_out(t / 0.7);
+    c.set_line_cap(tiny_skia::LineCap::Round);
+    c.set_line_width(8.0);
+    c.set_stroke_color(hex("#ffffff"));
+    stroke_part(c, &pts, p);
+    if p >= 0.98 {
+        let h = ease_out((t - 0.65) / 0.2);
+        let n = pts.len();
+        let (dx, dy) = (pts[n - 1].0 - pts[n - 4].0, pts[n - 1].1 - pts[n - 4].1);
+        let ang = dy.atan2(dx);
+        for s in [-1.0f32, 1.0] {
+            let a2 = ang + std::f32::consts::PI + s * 0.55;
+            c.begin_path();
+            c.move_to(d.0, d.1);
+            c.line_to(d.0 + a2.cos() * 34.0 * h, d.1 + a2.sin() * 34.0 * h);
+            c.stroke();
+        }
+    }
+}
+fn cursor_click(c: &mut Canvas, t: f32) {
+    // The pointer glides in, clicks in the middle (a ripple), rests, and does it again every 3 s.
+    let lt = t % 3.0;
+    let k = ease_out(lt / 1.0);
+    let (x0, y0, x1, y1) = (W() * 0.78, H() * 0.86, W() / 2.0, H() / 2.0);
+    let (x, y) = (x0 + (x1 - x0) * k, y0 + (y1 - y0) * k - (k * std::f32::consts::PI).sin() * 40.0);
+    if lt > 1.0 && lt < 1.8 {
+        let p = (lt - 1.0) / 0.8;
+        c.set_stroke_color(hex("#ffffff"));
+        c.set_line_width(3.0);
+        c.set_alpha(1.0 - p);
+        c.begin_path();
+        c.circle(x1, y1, 10.0 + p * 46.0);
+        c.stroke();
+        c.set_alpha(1.0);
+    }
+    let press = if lt > 1.0 && lt < 1.15 { 0.85 } else { 1.0 };
+    c.save();
+    c.translate(x, y);
+    c.scale(press * 2.6, press * 2.6);
+    let arrow = [(0.0, 0.0), (0.0, 22.0), (5.5, 17.0), (9.5, 26.0), (13.0, 24.5), (9.0, 15.5), (16.0, 15.5)];
+    c.begin_path();
+    c.move_to(arrow[0].0, arrow[0].1);
+    for p in &arrow[1..] {
+        c.line_to(p.0, p.1);
+    }
+    c.close_path();
+    c.set_fill_color(hex("#111111"));
+    c.fill();
+    c.set_stroke_color(hex("#ffffff"));
+    c.set_line_width(1.6);
+    c.stroke();
+    c.restore();
+}
+fn keystroke(c: &mut Canvas, t: f32) {
+    // Two key caps, ⌘ then K, pressed one after the other near the bottom.
+    let st = TextStyle { family: "Inter", weight: 600.0, size: 40.0, spacing: 0.0 };
+    for (i, key) in ["⌘", "K"].iter().enumerate() {
+        let appear = ease_out((t - i as f32 * 0.25) / 0.3);
+        if appear <= 0.0 {
+            continue;
+        }
+        let down = t > 0.6 + i as f32 * 0.12 && t < 0.85 + i as f32 * 0.12;
+        let (w, h) = (96.0, 96.0);
+        let x = W() / 2.0 - 104.0 + i as f32 * 112.0;
+        let y = H() * 0.78 + (1.0 - appear) * 40.0 + if down { 6.0 } else { 0.0 };
+        c.set_alpha(appear);
+        if !down {
+            c.set_fill_color(rgba(0, 0, 0, 0.5));
+            c.begin_path();
+            c.round_rect(x, y + 8.0, w, h, 18.0);
+            c.fill();
+        }
+        c.set_fill_color(if down { hex("#d9d9de") } else { hex("#f4f4f6") });
+        c.begin_path();
+        c.round_rect(x, y, w, h, 18.0);
+        c.fill();
+        fill_text(c, key, x + w / 2.0, y + h / 2.0, &st, Align::Center, Baseline::Middle, hex("#18181b"));
+    }
+    c.set_alpha(1.0);
+}
 // ---------- Sample footage: nature photographs (Unsplash licence) in slow camera moves ----------
 struct Shot {
     jpg: &'static [u8],
@@ -317,6 +500,12 @@ pub fn overlays() -> Vec<Asset> {
         o("ov-scan", "VHS scanlines", "Multiply", "multiply", scan),
         o("ov-dust", "Dust & scratches", "Screen blend", "screen", dust),
         o("ov-frame", "REC frame", "Camera HUD", "source-over", rec_frame),
+        o("ov-confetti", "Confetti", "Celebration burst", "source-over", confetti),
+        o("ov-burst", "Radial burst", "Emphasis lines", "source-over", radial_burst),
+        o("ov-scribble", "Scribble circle", "Hand-drawn ring", "source-over", scribble),
+        o("ov-arrow", "Ink arrow", "Points at the middle", "source-over", ink_arrow),
+        o("ov-cursor", "Cursor click", "Pointer and ripple", "source-over", cursor_click),
+        o("ov-keys", "Keystroke", "⌘ K pressed", "source-over", keystroke),
     ]
 }
 
@@ -374,8 +563,19 @@ pub fn text_presets() -> Vec<Asset> {
     ]
 }
 pub const TEXT_COLORS: [&str; 9] = ["#ffffff", "#000000", "#ffd9a0", "#ff7a3d", "#ff5577", "#d44df0", "#6a4cf5", "#0099ff", "#22c55e"];
-pub const TEXT_ANIMS: [(TextAnim, &str); 12] =
-    [(TextAnim::None, "None"), (TextAnim::Fade, "Fade"), (TextAnim::Rise, "Rise"), (TextAnim::Slide, "Slide"), (TextAnim::Type, "Type"), (TextAnim::Pop, "Pop"), (TextAnim::Bounce, "Bounce"), (TextAnim::Zoom, "Zoom"), (TextAnim::Blur, "Blur"), (TextAnim::Wave, "Wave"), (TextAnim::Glitch, "Glitch"), (TextAnim::Flicker, "Flicker")];
+pub const TEXT_ANIMS: [(TextAnim, &str); 33] = [
+    (TextAnim::None, "None"), (TextAnim::Fade, "Fade"), (TextAnim::Rise, "Rise"), (TextAnim::Slide, "Slide"), (TextAnim::Descend, "Descend"),
+    (TextAnim::Type, "Type"), (TextAnim::Caret, "Typewriter"), (TextAnim::Pop, "Pop"), (TextAnim::Bounce, "Bounce"), (TextAnim::Zoom, "Zoom"),
+    (TextAnim::Settle, "Settle"), (TextAnim::Squeeze, "Squeeze"), (TextAnim::Stretch, "Stretch"), (TextAnim::Blur, "Blur"), (TextAnim::Fog, "Fog"),
+    (TextAnim::Reveal, "Mask reveal"), (TextAnim::Wipe, "Wipe"), (TextAnim::Echo, "Echo"), (TextAnim::Wave, "Wave"), (TextAnim::Drop, "Letter drop"),
+    (TextAnim::Spring, "Letter spring"), (TextAnim::Flip, "Rolodex"), (TextAnim::Tracking, "Tracking in"), (TextAnim::Scramble, "Decode"),
+    (TextAnim::Words, "Word by word"), (TextAnim::WordRise, "Word rise"), (TextAnim::WordPop, "Word pop"), (TextAnim::Marker, "Marker"),
+    (TextAnim::Underline, "Underline"), (TextAnim::Shimmer, "Shimmer"), (TextAnim::Count, "Count up"), (TextAnim::Glitch, "Glitch"), (TextAnim::Flicker, "Flicker"),
+];
+/// A text animation's name in project JSON and the MCP tools ("wordrise").
+pub fn text_anim_id(a: TextAnim) -> String {
+    serde_json::to_value(a).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()
+}
 
 /// Fades listed with the transitions.
 pub const FADES: [(&str, &str, &str); 3] =

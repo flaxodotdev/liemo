@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod brand;
 pub mod captions;
 pub mod format;
 pub mod keys;

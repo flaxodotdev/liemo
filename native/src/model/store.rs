@@ -2,7 +2,7 @@
 // placement. Actions that want to tell the user something push to `toasts`; the UI shows them.
 
 use super::assets::{asset, has_asset};
-use super::captions::Cue;
+use super::captions::{self, Cue};
 use super::keys;
 use super::time::{snap_frame, tc, FPS, H, W};
 use super::types::*;
@@ -994,8 +994,8 @@ impl Store {
     }
 
     // ---------- Captions ----------
-    /// Put cues on the Titles track as text clips in a caption style: "subtitle" (the Caption
-    /// text style as it is), "pop", "clean" or "boxed". Returns how many were added.
+    /// Put cues on the Titles track as text clips in a caption style (`captions::CAPTION_STYLES`;
+    /// "subtitle" is the Caption text style as it is). Returns how many were added.
     pub fn add_captions(&mut self, cues: &[Cue], style: &str) -> usize {
         if cues.is_empty() || self.locked("T1") {
             return 0;
@@ -1008,46 +1008,39 @@ impl Store {
             c.name = cue.text.lines().next().unwrap_or("Caption").chars().take(32).collect();
             if let Some(t) = c.text.as_mut() {
                 t.content = cue.text.clone();
-                let k = (W() / 1280.0).sqrt().min(1.0) as f64;
-                let y = (260.0 * H() as f64 / 720.0).round();
-                match style {
-                    "pop" => {
-                        t.font = "Mona Sans".into();
-                        t.weight = 800.0;
-                        t.size = (76.0 * k).round();
-                        t.color = "#ffffff".into();
-                        t.anim = TextAnim::Pop;
-                        t.boxed = false;
-                        t.outline = Some("#000000".into());
-                        t.y = y;
-                    }
-                    "clean" => {
-                        t.font = "Inter".into();
-                        t.weight = 600.0;
-                        t.size = (52.0 * k).round();
-                        t.color = "#ffffff".into();
-                        t.anim = TextAnim::Fade;
-                        t.boxed = false;
-                        t.shadow = Some("#000000".into());
-                        t.y = y;
-                    }
-                    "boxed" => {
-                        t.font = "Inter".into();
-                        t.weight = 700.0;
-                        t.size = (48.0 * k).round();
-                        t.color = "#ffffff".into();
-                        t.anim = TextAnim::None;
-                        t.boxed = true;
-                        t.y = y;
-                    }
-                    _ => {}
-                }
-                t.align = TextAlign::Center;
+                captions::apply_caption_style(t, style, W(), H());
             }
             ids.push(c.id.clone());
             self.clips.push(c);
         }
         self.select_many(ids.clone());
+        self.changed();
+        ids.len()
+    }
+
+    /// Restyle the selected text clips (or every caption, if none is selected) in a caption style.
+    pub fn restyle_captions(&mut self, style: &str) -> usize {
+        let mut ids: Vec<String> = self.selection().into_iter().filter(|id| self.clip(id).is_some_and(|c| c.text.is_some())).collect();
+        if ids.is_empty() {
+            ids = self.clips.iter().filter(|c| c.text.is_some() && c.track == "T1").map(|c| c.id.clone()).collect();
+        }
+        if ids.is_empty() {
+            return 0;
+        }
+        self.push_past();
+        for id in &ids {
+            if let Some(t) = self.clips.iter_mut().find(|c| &c.id == id).and_then(|c| c.text.as_mut()) {
+                let content = t.content.clone();
+                if style == "subtitle" {
+                    if let Some(base) = super::assets::asset("tx-caption").and_then(|a| a.text.clone()) {
+                        *t = base;
+                    }
+                } else {
+                    captions::apply_caption_style(t, style, W(), H());
+                }
+                t.content = content;
+            }
+        }
         self.changed();
         ids.len()
     }

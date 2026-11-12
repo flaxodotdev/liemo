@@ -248,7 +248,7 @@ impl Editor {
         let mut fields: Vec<gpui::AnyElement> = vec![field_row("File name", div().relative().child(self.track_bounds("input:export")).child(Input::new(&self.export_name).small()), None).into_any_element()];
         match s.kind {
             Kind::Video => {
-                fields.push(field_row("Format", seg("ex-fmt", o(&[("mp4", "MP4"), ("webm", "WebM")]), if s.container == Container::Mp4 { "mp4".into() } else { "webm".into() }, vec![], |s, v| s.container = if v == "mp4" { Container::Mp4 } else { Container::Webm }), None).into_any_element());
+                fields.push(field_row("Format", seg("ex-fmt", o(&[("mp4", "MP4"), ("webm", "WebM"), ("mov", "ProRes")]), s.container.ext().into(), vec![], |s, v| s.container = Container::from_id(&v)), None).into_any_element());
                 fields.push(field_row("Resolution", sel(self, "ex-res", s.resolution.to_string(), RESOLUTIONS.iter().map(|(r, l)| (r.to_string(), l.to_string())).collect(), |s, v| s.resolution = v.parse().unwrap_or(1080), cx), None).into_any_element());
                 fields.extend(framing(self, cx));
                 fields.push(field_row("Frame rate", seg("ex-fps", o(&[("24", "24"), ("25", "25"), ("30", "30"), ("60", "60")]), s.fps.to_string(), vec![], |s, v| s.fps = v.parse().unwrap_or(30)), None).into_any_element());
@@ -322,7 +322,7 @@ impl Editor {
             warnings.push("Cropping cuts off the sides of the frame. Check that titles still fit.".into());
         }
         if s.kind == Kind::Video && e.support.video.is_some() && s.audio && e.support.audio.is_none() {
-            warnings.push(format!("This build can't encode audio for {}, so the file will be silent.", if s.container == Container::Mp4 { "MP4" } else { "WebM" }));
+            warnings.push(format!("This build can't encode audio for {}, so the file will be silent.", s.container.label()));
         }
         let codec = if s.kind == Kind::Video {
             Some(match e.support.video {
@@ -454,7 +454,7 @@ impl Editor {
                     "Try again".to_string()
                 } else {
                     match s.kind {
-                        Kind::Video => format!("Export {}", if s.container == Container::Mp4 { "MP4" } else { "WEBM" }),
+                        Kind::Video => format!("Export {}", s.container.label().to_uppercase()),
                         Kind::Gif => "Export GIF".into(),
                         Kind::Image => format!("Save {}", if s.image_png { "PNG" } else { "JPEG" }),
                         Kind::Audio => format!("Export {}", if s.audio_wav { "WAV" } else { "M4A" }),

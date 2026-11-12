@@ -166,6 +166,12 @@ impl Editor {
                         }),
                 )
             })
+            .child(icon_button("snapshot", "image", "Snapshot: drag a box over the picture to show it to the AI chat", None, 32., Variant::Ghost, cx.listener(|this, _, _, cx| {
+                this.snap_mode = !this.snap_mode;
+                this.snap_drag = None;
+                this.pause();
+                cx.notify();
+            })).when(self.snap_mode, |d| d.bg(surface3())))
             .child({
                 let ed = cx.entity();
                 let on = self.scope;
@@ -196,6 +202,8 @@ impl Editor {
                     .overflow_hidden()
                     .child(self.track_bounds("stage-wrap"))
                     .child(stage)
+                    .when(w > 0.0 && w / W() >= 4.0, |d| d.child(pixel_grid(pw0, ph0, (pw0 - w) / 2.0 + pan_x, (ph0 - h) / 2.0 + pan_y, w / W())))
+                    .when(self.rulers && w > 0.0, |d| d.child(self.rulers_overlay(pw0, ph0, (pw0 - w) / 2.0 + pan_x, (ph0 - h) / 2.0 + pan_y, w / W())))
                     .when_some(self.scope_panel(cx), |d, p| d.child(p))
                     .on_scroll(cx.listener(|this, ev: &gpui::ScrollEvent, _, cx| {
                         let d = ev.delta.pixel_delta(px(20.));
@@ -215,6 +223,88 @@ impl Editor {
                     })),
             )
             .child(transport)
+    }
+
+    pub fn toggle_rulers(&mut self) {
+        self.rulers = !self.rulers;
+        crate::ui::prefs::set("rulers", serde_json::Value::String(if self.rulers { "1" } else { "0" }.into()));
+    }
+
+    /// Zoom and pan so the selected clip fills most of the preview.
+    pub fn zoom_to_selection(&mut self) {
+        let Some(b) = self.bounds("stage-wrap") else { return };
+        let Some(c) = self.store.selected_clip().map(|c| c.posed(self.store.time)) else {
+            self.store.toast("Select something on the picture first");
+            return;
+        };
+        let bx = clip_box(&c);
+        let (pw, ph) = (f32::from(b.size.width), f32::from(b.size.height));
+        let ar = W() / H();
+        let (mut fw, mut fh) = (pw, pw / ar);
+        if fh > ph {
+            fh = ph;
+            fw = fh * ar;
+        }
+        let z = ((pw * 0.7) / (bx.w.max(1.0) / W() * fw)).min((ph * 0.7) / (bx.h.max(1.0) / H() * fh)).clamp(1.0, 8.0);
+        self.pv_zoom = z;
+        let (w, h) = (fw * z, fh * z);
+        let k = w / W();
+        // The stage's left edge sits at (pw - w) / 2 + pan; put the box's middle in the middle.
+        self.pv_pan = if z <= 1.0 { (0.0, 0.0) } else { (w / 2.0 - bx.cx * k, h / 2.0 - bx.cy * k) };
+    }
+
+    /// Rulers along the top and left of the preview, in the edit's own units, marking the
+    /// selected clip's extent.
+    fn rulers_overlay(&self, pw: f32, ph: f32, ox: f32, oy: f32, k: f32) -> impl IntoElement {
+        // The top ruler's height, and the left one's width (room for four digits).
+        const T: f32 = 18.0;
+        const L: f32 = 30.0;
+        let step = [5.0f32, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0].into_iter().find(|s| s * k >= 56.0).unwrap_or(2000.0);
+        let sel = self.store.selected_clip().map(|c| clip_box(&c.posed(self.store.time)));
+        let mut top = div().absolute().top_0().left_0().w(px(pw)).h(px(T)).bg(surface1()).border_b_1().border_color(hairline()).overflow_hidden();
+        let mut left = div().absolute().top_0().left_0().w(px(L)).h(px(ph)).bg(surface1()).border_r_1().border_color(hairline()).overflow_hidden();
+        if let Some(b) = sel {
+            let (x0, x1) = (ox + (b.cx - b.w / 2.0) * k, ox + (b.cx + b.w / 2.0) * k);
+            let (y0, y1) = (oy + (b.cy - b.h / 2.0) * k, oy + (b.cy + b.h / 2.0) * k);
+            top = top.child(div().absolute().top_0().h_full().left(px(x0)).w(px((x1 - x0).max(1.0))).bg(alpha(signal(), 0.25)));
+            left = left.child(div().absolute().left_0().w_full().top(px(y0)).h(px((y1 - y0).max(1.0))).bg(alpha(signal(), 0.25)));
+        }
+        let first = |o: f32, len: f32| (((-o) / k / step).floor() * step, ((len - o) / k / step).ceil() * step);
+        let (a, z) = first(ox, pw);
+        let mut v = a;
+        while v <= z {
+            let x = ox + v * k;
+            if x >= L && x <= pw {
+                top = top
+                    .child(div().absolute().left(px(x)).bottom_0().w(px(1.)).h(px(7.)).bg(ink_muted()))
+                    .child(type_timecode(div(), 9.).absolute().left(px(x + 3.)).top(px(1.)).whitespace_nowrap().text_color(ink_muted()).child(format!("{}", v as i32)));
+            }
+            for i in 1..5 {
+                let xm = x + step * k * i as f32 / 5.0;
+                if xm >= L && xm <= pw {
+                    top = top.child(div().absolute().left(px(xm)).bottom_0().w(px(1.)).h(px(3.)).bg(hairline()));
+                }
+            }
+            v += step;
+        }
+        let (a, z) = first(oy, ph);
+        let mut v = a;
+        while v <= z {
+            let y = oy + v * k;
+            if y >= T && y <= ph {
+                left = left
+                    .child(div().absolute().top(px(y)).right_0().h(px(1.)).w(px(7.)).bg(ink_muted()))
+                    .child(type_timecode(div(), 9.).absolute().top(px(y + 2.)).left(px(3.)).whitespace_nowrap().text_color(ink_muted()).child(format!("{}", v as i32)));
+            }
+            for i in 1..5 {
+                let ym = y + step * k * i as f32 / 5.0;
+                if ym >= T && ym <= ph {
+                    left = left.child(div().absolute().top(px(ym)).right_0().h(px(1.)).w(px(3.)).bg(hairline()));
+                }
+            }
+            v += step;
+        }
+        div().absolute().top_0().left_0().size_full().child(top).child(left).child(div().absolute().top_0().left_0().w(px(L)).h(px(T)).bg(surface1()).border_b_1().border_r_1().border_color(hairline()))
     }
 
     /// The scope over the picture's corner, with its kind switch.
@@ -296,7 +386,8 @@ impl Editor {
             .top_0()
             .left_0()
             .size_full()
-            .when(self.hover_clip.is_some() || bx.is_some(), |d| d.cursor_move())
+            .when(!self.snap_mode && (self.hover_clip.is_some() || bx.is_some()), |d| d.cursor_move())
+            .when(self.snap_mode, |d| d.cursor_crosshair())
             .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, window, cx| this.stage_mouse_down(ev, window, cx)))
             // Right-click a clip on the picture: its menu (the clip becomes the selection first).
             .on_mouse_down(MouseButton::Right, cx.listener(|this, ev: &MouseDownEvent, _, cx| {
@@ -310,9 +401,24 @@ impl Editor {
                 cx.notify();
             }))
             // A quick click releases before the window-wide drag listeners are drawn; end it here.
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| this.drag_end(cx)))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| {
+                if let Some((a, b)) = this.snap_drag.take() {
+                    let (x, y, w, h) = (a.0.min(b.0), a.1.min(b.1), (a.0 - b.0).abs(), (a.1 - b.1).abs());
+                    this.snap_mode = false;
+                    this.snapshot_to_chat(if w >= 8.0 && h >= 8.0 { Some((x, y, w, h)) } else { None }, window, cx);
+                    return;
+                }
+                this.drag_end(cx)
+            }))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
-                if this.drag.is_some() {
+                if let (Some(_), Some(p)) = (this.snap_drag, this.stage_point(ev.position)) {
+                    if let Some(d) = this.snap_drag.as_mut() {
+                        d.1 = (p.0.clamp(0.0, W()), p.1.clamp(0.0, H()));
+                    }
+                    cx.notify();
+                    return;
+                }
+                if this.drag.is_some() || this.snap_mode {
                     return;
                 }
                 let posed = this.posed_clips();
@@ -328,6 +434,17 @@ impl Editor {
                     cx.notify();
                 }
             }));
+        if let Some((a, b)) = self.snap_drag {
+            let (x, y, w, h) = (a.0.min(b.0) * k, a.1.min(b.1) * k, (a.0 - b.0).abs() * k, (a.1 - b.1).abs() * k);
+            layer = layer.child(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).border_1().border_color(signal()).bg(alpha(signal(), 0.12)));
+        }
+        if self.snap_mode {
+            layer = layer.child(
+                div().absolute().top(px(8.)).left_0().right_0().flex().justify_center().child(
+                    div().rounded_full().bg(black_overlay(0.75)).px_3().py(px(4.)).text_size(px(12.)).text_color(ink()).child("Drag a box to show the AI chat · click for the whole frame · Esc to cancel"),
+                ),
+            );
+        }
         for (vertical, at) in guides {
             layer = layer.child(if vertical {
                 div().absolute().top_0().bottom_0().left(px(at * k)).w(px(1.)).bg(signal())
@@ -463,6 +580,11 @@ impl Editor {
 
     fn stage_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let Some(p) = self.stage_point(ev.position) else { return };
+        if self.snap_mode {
+            self.snap_drag = Some((p, p));
+            cx.notify();
+            return;
+        }
         let t = self.store.time;
         // The topmost clip under the pointer, as you see it: clicking a title over a selected
         // background picks the title.
@@ -492,4 +614,39 @@ impl Editor {
         self.start_stage_gesture("move", ev.position, cx);
         let _: Point<Pixels> = ev.position;
     }
+}
+
+/// From 4 screen pixels per unit, a hairline grid marks every unit of the edit, over the picture
+/// only and only where it's on screen. It's never part of a render.
+fn pixel_grid(pw: f32, ph: f32, ox: f32, oy: f32, k: f32) -> impl IntoElement {
+    canvas(|_, _, _| {}, move |bounds: Bounds<Pixels>, _, window, _| {
+        let o = bounds.origin;
+        let (x0, x1) = (ox.max(0.0), (ox + W() * k).min(pw));
+        let (y0, y1) = (oy.max(0.0), (oy + H() * k).min(ph));
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        let mut pb = PathBuilder::stroke(px(1.));
+        let mut u = ((x0 - ox) / k).ceil();
+        while ox + u * k <= x1 {
+            let x = ox + u * k;
+            pb.move_to(point(o.x + px(x), o.y + px(y0)));
+            pb.line_to(point(o.x + px(x), o.y + px(y1)));
+            u += 1.0;
+        }
+        let mut u = ((y0 - oy) / k).ceil();
+        while oy + u * k <= y1 {
+            let y = oy + u * k;
+            pb.move_to(point(o.x + px(x0), o.y + px(y)));
+            pb.line_to(point(o.x + px(x1), o.y + px(y)));
+            u += 1.0;
+        }
+        if let Ok(p) = pb.build() {
+            window.paint_path(p, white_a(0.08));
+        }
+    })
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
 }

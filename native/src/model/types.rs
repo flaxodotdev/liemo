@@ -72,6 +72,48 @@ pub enum TextAnim {
     Glitch,
     /// Flickers on like a failing sign.
     Flicker,
+    /// Letters fall in from above, one after another.
+    Drop,
+    /// Letters gather in from wide spacing.
+    Tracking,
+    /// Letters cycle through random glyphs until they settle, left to right.
+    Scramble,
+    /// Letters flip open top to bottom like a rolodex.
+    Flip,
+    /// Letters spring up from nothing one after another.
+    Spring,
+    /// Words appear one at a time.
+    Words,
+    /// Words fade up one after another.
+    WordRise,
+    /// Words pop in one after another.
+    WordPop,
+    /// Grows out sideways from the middle.
+    Squeeze,
+    /// Settles in from wide, stretched letters.
+    Stretch,
+    /// Settles down from a little larger.
+    Settle,
+    /// Comes down a short way into place.
+    Descend,
+    /// Each line rises up from behind its own edge.
+    Reveal,
+    /// Wiped on from left to right.
+    Wipe,
+    /// A sheen sweeps across the letters, again and again.
+    Shimmer,
+    /// A marker highlight swipes in behind each line.
+    Marker,
+    /// An underline draws itself under each line.
+    Underline,
+    /// Numbers in the text count up to their value.
+    Count,
+    /// Typed out behind a blinking caret.
+    Caret,
+    /// Rises in trailing fading copies of itself.
+    Echo,
+    /// Lifts out of a blur, like fog clearing.
+    Fog,
 }
 
 /// How text blends into what's under it. Invert (difference) flips every channel to the opposite

@@ -127,7 +127,7 @@ impl Editor {
                     .dropdown_caret(true)
                     .h(px(32.))
                     .text_size(px(13.))
-                    .dropdown_menu(move |menu, _, cx| menus::captions_menu(menu.min_w(px(220.)), &ed, cx))
+                    .dropdown_menu(move |menu, window, cx| menus::captions_menu(menu.min_w(px(220.)), &ed, window, cx))
             })
             .child(spacer())
             .child(

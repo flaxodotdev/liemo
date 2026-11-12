@@ -72,7 +72,23 @@ impl RaynaApp {
     /// the socket thread from a snapshot, so the UI stays responsive.
     fn take_ai_edits(window: &mut Window, cx: &mut Context<Self>) {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<AiRequest>();
-        crate::mcp::listen(move |name, args| {
+        crate::mcp::listen(move |name, args, from_agent| {
+            // Liemo's own AI chat works within the mode the person chose for it.
+            if from_agent && !crate::agent::read_only(&name) {
+                match crate::agent::mode() {
+                    crate::agent::Mode::Plan => {
+                        return crate::mcp::to_mcp(Err(format!("Plan mode: {name} would change the edit, so it wasn't run. Finish the plan; the user switches to Auto to carry it out.")));
+                    }
+                    crate::agent::Mode::Ask => {
+                        let (rtx, rrx) = crossbeam_channel::bounded(1);
+                        let q = "Let the AI make this change?".to_string();
+                        if tx.unbounded_send(AiRequest::Ask(q, crate::agent::describe_call(&name, &args), rtx)).is_err() || !rrx.recv().unwrap_or(false) {
+                            return crate::mcp::to_mcp(Err("The user declined this change. Don't retry it; ask what they'd like instead.".into()));
+                        }
+                    }
+                    crate::agent::Mode::Auto => {}
+                }
+            }
             if tools::is_heavy(&name) {
                 let mut ws = Snapshot { tx: tx.clone() };
                 return crate::mcp::to_mcp(tools::call(&name, &args, &mut ws));
@@ -99,6 +115,13 @@ impl RaynaApp {
             _ => None,
         };
         match req {
+            AiRequest::Ask(q, detail, reply) => {
+                let answer = window.prompt(gpui::PromptLevel::Info, &q, Some(&detail), &["Allow", "Don't allow"], cx);
+                cx.spawn(async move |_, _| {
+                    let _ = reply.send(matches!(answer.await, Ok(0)));
+                })
+                .detach();
+            }
             AiRequest::Record(id, reply) => {
                 let r = match &editor {
                     Some(e) if e.read(cx).project.id == id => Ok(e.read(cx).record()),
@@ -144,6 +167,8 @@ impl Render for RaynaApp {
 
 enum AiRequest {
     Tool(String, Value, crossbeam_channel::Sender<Value>),
+    /// A question for the person (allow a paid request), answered yes or no.
+    Ask(String, String, crossbeam_channel::Sender<bool>),
     Record(String, crossbeam_channel::Sender<R<ProjectRecord>>),
 }
 
@@ -162,6 +187,13 @@ impl Workspace for Snapshot {
     }
     fn live(&self) -> bool {
         true
+    }
+    fn approve(&mut self, question: &str, detail: &str) -> bool {
+        let (rtx, rrx) = crossbeam_channel::bounded(1);
+        if self.tx.unbounded_send(AiRequest::Ask(question.into(), detail.into(), rtx)).is_err() {
+            return false;
+        }
+        rrx.recv().unwrap_or(false)
     }
 }
 
