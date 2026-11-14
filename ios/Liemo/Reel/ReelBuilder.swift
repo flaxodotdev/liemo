@@ -10,6 +10,93 @@ struct ReelPlan {
     var words = ""
     /// Synced lyrics, in the song's own time. Empty means fall back to `words`, spread on the beat.
     var lyrics: [LyricLine] = []
+    /// Captions on the reel at all: the song's lyrics when it has them, else `words`.
+    var captions = true
+    /// Words pop in one at a time (the song's stamps, or spread across the line) rather than
+    /// whole lines at once.
+    var wordByWord = true
+    /// The caption face and look.
+    var font = "Bebas Neue"
+    var style: CaptionStyle = .poster
+    /// Where the song starts in its own file: nil lets the drop detector pick.
+    var songStart: Double?
+    /// Where each piece of footage starts in its own file; a nil entry picks moments for you.
+    var videoStarts: [Double?] = []
+    /// How high on the frame the captions sit.
+    var placement: CaptionPlacement = .low
+    /// How captions line up horizontally.
+    var align: CaptionAlign = .center
+    /// How big the captions are.
+    var size: CaptionSize = .medium
+}
+
+/// Vertical placement of the captions.
+enum CaptionPlacement: String, CaseIterable, Identifiable {
+    case top, middle, low
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .top: "Top"
+        case .middle: "Middle"
+        case .low: "Low"
+        }
+    }
+    var y: Double {
+        switch self {
+        case .top: -250
+        case .middle: 0
+        case .low: 210
+        }
+    }
+}
+
+/// Horizontal alignment of the captions.
+enum CaptionAlign: String, CaseIterable, Identifiable {
+    case left, center, right
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .left: "Left"
+        case .center: "Center"
+        case .right: "Right"
+        }
+    }
+}
+
+/// Caption size: a factor on the size the layout picks for each line.
+enum CaptionSize: String, CaseIterable, Identifiable {
+    case small, medium, big
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .small: "Small"
+        case .medium: "Medium"
+        case .big: "Big"
+        }
+    }
+    var factor: Double {
+        switch self {
+        case .small: 0.72
+        case .medium: 0.88
+        case .big: 1.12
+        }
+    }
+}
+
+/// How the lyric captions look: a preset of face, colours and entrance.
+enum CaptionStyle: String, CaseIterable, Identifiable {
+    case poster, clean, neon, glass, invert, marker
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .poster: "Poster"
+        case .clean: "Clean"
+        case .neon: "Neon"
+        case .glass: "Liquid glass"
+        case .invert: "Invert"
+        case .marker: "Marker"
+        }
+    }
 }
 
 /// Builds a 9:16 reel from a plan with the engine's tools: the song reworked and cut to its drop,
@@ -22,10 +109,12 @@ final class ReelBuilder: @unchecked Sendable {
         guard let song = plan.song else { throw CoreError(message: "Pick a song.") }
         guard !plan.media.isEmpty else { throw CoreError(message: "Pick some photos or videos.") }
 
-        // 1. The song: find the drop, rework from there.
+        // 1. The song: find the drop, rework from there — unless the user picked the moment.
         step(plan.vibe == .original ? "Finding the drop…" : "Making it \(plan.vibe.name.lowercased())…")
         let raw = core.host.decodeAudio(path: song.path) ?? []
-        let start = SongFX.dropStart(raw, window: plan.length * plan.vibe.rate)
+        let rawDuration = Double(raw.count) / 2 / 48000
+        let window = plan.length * plan.vibe.rate
+        let start = plan.songStart.map { min($0, max(0, rawDuration - window)) } ?? SongFX.dropStart(raw, window: window)
         // Named for the timeline ("Hitman (sped up)"), in a folder of its own so names never clash.
         let folder = core.mediaDir.appendingPathComponent("reel-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -86,11 +175,19 @@ final class ReelBuilder: @unchecked Sendable {
             let m = visuals[k % visuals.count]
             var args: [String: Any] = ["project": id, "asset": m.id, "track": "V1", "start": a, "duration": b - a]
             if m.type == "video" {
-                let used = cursor[m.id] ?? 0
-                let room = max(0, m.duration - (b - a))
-                let inPoint = room > 0 ? (used + Double.random(in: 0...1.5)).truncatingRemainder(dividingBy: room) : 0
-                args["in"] = inPoint
-                cursor[m.id] = inPoint + (b - a)
+                // A start the user picked for this clip, else moments chosen for them.
+                let wanted = k < plan.videoStarts.count ? plan.videoStarts[k] ?? -1 : -1
+                if wanted >= 0 {
+                    let inPoint = min(wanted, max(0, m.duration - (b - a)))
+                    args["in"] = inPoint
+                    cursor[m.id] = inPoint + (b - a)
+                } else {
+                    let used = cursor[m.id] ?? 0
+                    let room = max(0, m.duration - (b - a))
+                    let inPoint = room > 0 ? (used + Double.random(in: 0...1.5)).truncatingRemainder(dividingBy: room) : 0
+                    args["in"] = inPoint
+                    cursor[m.id] = inPoint + (b - a)
+                }
             }
             let r = core.call("add_clip", args)
             guard r.ok, let cid = clipId(r.text) else { continue }
@@ -115,8 +212,9 @@ final class ReelBuilder: @unchecked Sendable {
         // 5. Words popping in on the beat. Synced lyrics go on their real moments (the song
         // starts at `start` and plays at the vibe's rate, so a line at time t lands at
         // (t - start) / rate); otherwise the words spread out, each held a whole number of beats.
-        if !plan.lyrics.isEmpty {
+        if !plan.lyrics.isEmpty && plan.captions {
             step("Adding the lyrics…")
+            let sizeF = sizeFactor(plan.font)
             let lines = plan.lyrics.map { l in
                 LyricLine(time: (l.time - start) / plan.vibe.rate, text: l.text,
                           words: l.words.map { ws in ws.map { LyricWord(time: ($0.time - start) / plan.vibe.rate, text: $0.text) } })
@@ -133,21 +231,23 @@ final class ReelBuilder: @unchecked Sendable {
                 let until = min(next, plan.length) - 0.05
                 guard until - at > 0.3 else { continue }
                 // One size for the whole line so word-by-word captions don't bounce around.
-                let size = min(118, 1150 / Double(max(4, l.text.count)))
+                let size = min(118, 1150 / Double(max(4, l.text.count))) * sizeF
                 // Word-by-word pops: the song's own word stamps when it has them, otherwise
                 // the line's words spread across the line's span — longer words held longer.
                 // Every word pops in, holds to the next word's moment, and is replaced.
                 var pops: [LyricWord] = []
-                if let stamped = l.words, stamped.count > 1 {
-                    pops = stamped
-                } else {
-                    let toks = l.text.split(separator: " ").filter { !$0.isEmpty }
-                    if toks.count > 1, until - at > 0.6 {
-                        let total = Double(toks.reduce(0) { $0 + max(1, $1.count) })
-                        var acc = at
-                        for tok in toks {
-                            pops.append(LyricWord(time: acc, text: String(tok)))
-                            acc += (until - at) * Double(max(1, tok.count)) / total
+                if plan.wordByWord {
+                    if let stamped = l.words, stamped.count > 1 {
+                        pops = stamped
+                    } else {
+                        let toks = l.text.split(separator: " ").filter { !$0.isEmpty }
+                        if toks.count > 1, until - at > 0.6 {
+                            let total = Double(toks.reduce(0) { $0 + max(1, $1.count) })
+                            var acc = at
+                            for tok in toks {
+                                pops.append(LyricWord(time: acc, text: String(tok)))
+                                acc += (until - at) * Double(max(1, tok.count)) / total
+                            }
                         }
                     }
                 }
@@ -155,15 +255,15 @@ final class ReelBuilder: @unchecked Sendable {
                     // Word pops are sized by the longest word in the line, not the whole
                     // line — that's why short words looked tiny before.
                     let longest = pops.map { $0.text.count }.max() ?? 4
-                    let wSize = min(150, 1600 / Double(max(3, longest)))
+                    let wSize = min(150, 1600 / Double(max(3, longest))) * sizeF
                     for (w, word) in pops.enumerated() {
                         let wAt = max(word.time, at)
                         guard wAt < until else { break }
                         let wNext = w + 1 < pops.count ? max(pops[w + 1].time, wAt + 0.08) : until
-                        core.call("add_text", lyric(word.text, project: id, size: wSize, at: wAt, dur: min(wNext, until) - wAt, accent: n % 3 == 2))
+                        core.call("add_text", lyric(word.text, project: id, size: wSize, at: wAt, dur: min(wNext, until) - wAt, accent: n % 3 == 2, font: plan.font, style: plan.style, place: plan.placement, align: plan.align, sizeK: plan.size.factor))
                     }
                 } else {
-                    core.call("add_text", lyric(l.text, project: id, size: size, at: at, dur: until - at, accent: n % 3 == 2))
+                    core.call("add_text", lyric(l.text, project: id, size: size, at: at, dur: until - at, accent: n % 3 == 2, font: plan.font, style: plan.style, place: plan.placement, align: plan.align, sizeK: plan.size.factor))
                 }
                 last = at
             }
@@ -182,10 +282,11 @@ final class ReelBuilder: @unchecked Sendable {
                     let shown = Array(lines.dropFirst(Int(skip)))
                     var at = max(first > 0.08 ? first : first + beat, 0.05)
                     let each = min(beat * 4, max(beat, (plan.length - at) / Double(shown.count)))
+                    let sizeF = sizeFactor(plan.font)
                     for (n, w) in shown.enumerated() {
                         guard at < plan.length - 0.1 else { break }
-                        let size = min(140, 1400 / Double(max(4, w.count)))
-                        core.call("add_text", lyric(w, project: id, size: size, at: at, dur: min(each, plan.length - at), accent: n % 3 == 2))
+                        let size = min(140, 1400 / Double(max(4, w.count))) * sizeF
+                        core.call("add_text", lyric(w, project: id, size: size, at: at, dur: min(each, plan.length - at), accent: n % 3 == 2, font: plan.font, style: plan.style, place: plan.placement, align: plan.align, sizeK: plan.size.factor))
                         at += each
                     }
                 } else {
@@ -196,10 +297,11 @@ final class ReelBuilder: @unchecked Sendable {
                     let room = (plan.length - at) / beat
                     let perWord = Double(min(4, max(bpm > 140 ? 2 : 1, Int(room / Double(words.count)))))
                     let each = beat * perWord
+                    let sizeF = sizeFactor(plan.font)
                     for (n, w) in words.enumerated() {
                         guard at < plan.length - 0.1 else { break }
-                        let size = min(140, 1400 / Double(max(4, w.count)))
-                        core.call("add_text", lyric(w, project: id, size: size, at: at, dur: min(each, plan.length - at), accent: n % 3 == 2))
+                        let size = min(140, 1400 / Double(max(4, w.count))) * sizeF
+                        core.call("add_text", lyric(w, project: id, size: size, at: at, dur: min(each, plan.length - at), accent: n % 3 == 2, font: plan.font, style: plan.style, place: plan.placement, align: plan.align, sizeK: plan.size.factor))
                         at += each
                     }
                 }
@@ -226,17 +328,57 @@ final class ReelBuilder: @unchecked Sendable {
         return out
     }
 
-    /// Lyric caption style: Bebas Neue in caps — the condensed poster face every reel
-    /// uses, nothing like the plain sans every app ships — with a dark outline so it
-    /// reads over any footage, yellow accent pops every third line, and the "pop"
-    /// entrance. Big on purpose: lyric words are the point of a lyric reel.
-    private func lyric(_ content: String, project: String, size: Double, at: Double, dur: Double, accent: Bool) -> [String: Any] {
-        [
+    /// Lyric captions: the face and look the user picked. Poster is the classic reel look —
+    /// Bebas Neue in caps with a dark outline — and the others trade that for a cleaner,
+    /// glowing, glassy, inverted or highlighted style. Yellow/orange accents every third caption.
+    private func lyric(_ content: String, project: String, size: Double, at: Double, dur: Double, accent: Bool, font: String, style: CaptionStyle, place: CaptionPlacement, align: CaptionAlign, sizeK: Double) -> [String: Any] {
+        var a: [String: Any] = [
             "project": project, "content": content.uppercased(), "start": at, "duration": dur,
-            "font": "Bebas Neue", "weight": 400, "size": size, "y": 210,
-            "color": accent ? "#ffd400" : "#ffffff", "align": "center", "animation": "pop", "box": false,
-            "outline": "#000000", "outlineWidth": 5,
+            "font": font, "weight": weight(of: font), "size": size * sizeK, "y": place.y,
+            "align": align.rawValue, "animation": "pop",
         ]
+        switch style {
+        case .poster:
+            a["color"] = accent ? "#ffd400" : "#ffffff"
+            a["outline"] = "#000000"
+            a["outlineWidth"] = 5
+        case .clean:
+            a["color"] = "#ffffff"
+            a["shadow"] = "#000000"
+        case .neon:
+            a["color"] = "#ffffff"
+            a["glow"] = accent ? "#00e5ff" : "#ff2bd6"
+        case .glass:
+            a["color"] = "#ffffff"
+            a["glassText"] = "#ffffff"
+        case .invert:
+            a["color"] = "#ffffff"
+            a["blend"] = "invert"
+        case .marker:
+            a["color"] = "#111111"
+            a["highlight"] = accent ? "#ff7a3d" : "#ffd400"
+        }
+        return a
+    }
+
+    /// Captions are sized for Bebas's condensed faces; wider faces get scaled down to fit.
+    private func sizeFactor(_ font: String) -> Double {
+        switch font {
+        case "Bebas Neue": 1.0
+        case "Instrument Serif": 0.88
+        case "Caveat": 0.92
+        case "JetBrains Mono": 0.72
+        default: 0.8
+        }
+    }
+
+    private func weight(of font: String) -> Double {
+        switch font {
+        case "Bebas Neue", "Instrument Serif": 400
+        case "JetBrains Mono": 500
+        case "Caveat": 700
+        default: 800
+        }
     }
 
     private func clipId(_ json: String) -> String? {

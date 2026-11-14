@@ -433,10 +433,13 @@ fn draw_flat(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
 
     // Liquid glass: a frosted panel that blurs whatever has been composited behind the
     // text, tinted, with a specular sheen and a fine light border. Behind everything else.
-    if let Some(glass) = t.glass.as_deref().filter(|g| !g.is_empty() && *g != "none") {
-        let bw = widths.iter().cloned().fold(f32::MIN, f32::max) + 56.0;
-        let bx = left_of(bw - 56.0) - 28.0;
-        glass_panel(c, bx + ox, top - 16.0 + oy, bw, lay.total + 32.0, alpha * a, glass);
+    // Glass *text* (the glyphs themselves glassy) takes precedence over the panel.
+    if t.glass_text.is_none() {
+        if let Some(glass) = t.glass.as_deref().filter(|g| !g.is_empty() && *g != "none") {
+            let bw = widths.iter().cloned().fold(f32::MIN, f32::max) + 56.0;
+            let bx = left_of(bw - 56.0) - 28.0;
+            glass_panel(c, bx + ox, top - 16.0 + oy, bw, lay.total + 32.0, alpha * a, glass);
+        }
     }
     if t.boxed {
         let bw = widths.iter().cloned().fold(f32::MIN, f32::max) + 48.0;
@@ -476,13 +479,14 @@ fn draw_flat(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
         }
     }
 
-    let outline = t.outline.as_ref().map(|o| (hex(o), t.outline_width as f32));
+    let outline = if t.glass_text.is_some() { None } else { t.outline.as_ref().map(|o| (hex(o), t.outline_width as f32)) };
     let units = per_unit(t.anim);
     // The glyphs (outline under fill) in one colour, or their own colours.
     let paint = |c: &mut Canvas, only: Option<tiny_skia::Color>, a_lines: f32, dx: f32, dy: f32| {
         let mut y = top + dy;
         let mut count = 0usize;
-        let blend = text_blend(t.blend);
+        // Glass text composites its own way, so the blend styles don't apply to its fill.
+        let blend = if t.glass_text.is_some() { tiny_skia::BlendMode::SourceOver } else { text_blend(t.blend) };
         for (i, l) in lay.lines.iter().enumerate() {
             let line_a = (if i > 0 { 0.75 } else { 1.0 }) * a_lines;
             c.set_alpha(line_a);
@@ -588,15 +592,72 @@ fn draw_flat(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
         c.composite(&pm, (alpha * a * strength).min(1.0), tiny_skia::BlendMode::SourceOver);
         c.restore();
     };
-    if let Some(sh) = &t.shadow {
-        let mut col = hex(sh);
-        col.apply_opacity(0.8);
-        soft(c, col, 0.0, size * 0.06, size * 0.07, 1.0);
-    }
-    if let Some(g) = &t.glow {
-        let col = hex(g);
-        soft(c, col, 0.0, 0.0, size * 0.28, 1.0);
-        soft(c, col, 0.0, 0.0, size * 0.09, 0.9);
+    // The glyphs themselves as liquid glass: the frosted backdrop shows through the letter
+    // shapes, washed with the tint, light pooling along the top and a soft rim catching it from
+    // up-left. When this text draws on its own empty layer (over a transition or a title card)
+    // the backdrop is blank, so a neutral glassy wash stands in for the frost.
+    let glass_glyphs = |c: &mut Canvas, tint: &str| {
+        let ts = c.transform();
+        let (w, h) = (c.width(), c.height());
+        // 1. The glyphs alone, in their animation pose, on a layer of their own.
+        let mut glyph = Canvas::from_pixmap(pixmap(w, h));
+        glyph.set_transform(ts);
+        paint(&mut glyph, None, 1.0, 0.0, 0.0);
+        let glyphs = glyph.into_pixmap();
+        // 2. Frost whatever has been composited behind the text; a near-blank backdrop gets a
+        // neutral wash instead, so the glass still reads.
+        let d = c.pm.data();
+        let step = 4 * 24;
+        let seen = d.len() / step;
+        let lit = d.iter().skip(3).step_by(step).filter(|a| **a > 12).count();
+        let frosted = if lit * 4 > seen {
+            crate::fx::engines::blur_of(&c.pm, 16.0)
+        } else {
+            let mut neutral = Canvas::from_pixmap(pixmap(w, h));
+            neutral.set_fill_color(rgba(255, 255, 255, 0.32));
+            neutral.fill_rect(0.0, 0.0, w as f32, h as f32);
+            neutral.into_pixmap()
+        };
+        // 3. The frost through the glyph mask: SrcIn keeps it only inside the letters.
+        let mut glass = glyphs;
+        glass.draw_pixmap(0, 0, frosted.as_ref(), &tiny_skia::PixmapPaint { opacity: 1.0, blend_mode: tiny_skia::BlendMode::SourceIn, quality: tiny_skia::FilterQuality::Nearest }, tiny_skia::Transform::identity(), None);
+        // 4. Inside the shapes only (SrcAtop), device space over the text's rectangle: the
+        // tint, a sheen pooling along the top and a shadowed lower edge for depth.
+        let mut over = Canvas::from_pixmap(glass);
+        over.set_blend(tiny_skia::BlendMode::SourceAtop);
+        let r = text_rect(t);
+        let map = |x: f32, y: f32| (ts.sx * x + ts.kx * y + ts.tx, ts.ky * x + ts.sy * y + ts.ty);
+        let (x0, y0) = map(r.x - 8.0, r.y - 8.0);
+        let (x1, y1) = map(r.x + r.w + 8.0, r.y + r.h + 8.0);
+        over.set_fill(over.linear(x0, y0, x0, y1, &[(0.0, rgba(255, 255, 255, 0.5)), (0.4, rgba(255, 255, 255, 0.06)), (1.0, rgba(255, 255, 255, 0.0))]));
+        over.fill_rect(x0, y0, x1 - x0, y1 - y0);
+        over.set_fill_color(with_alpha(hex(tint), 0.20));
+        over.fill_rect(x0, y0, x1 - x0, y1 - y0);
+        over.set_fill(over.linear(x0, y0, x0, y1, &[(0.72, rgba(0, 0, 0, 0.0)), (1.0, rgba(0, 0, 0, 0.28))]));
+        over.fill_rect(x0, y0, x1 - x0, y1 - y0);
+        let glass = over.into_pixmap();
+        // 5. A soft light rim ghosting up-left from under the glass, then the glass itself.
+        let mut rim = Canvas::from_pixmap(pixmap(w, h));
+        rim.set_transform(ts.pre_translate(-1.5, -1.9));
+        paint(&mut rim, Some(tiny_skia::Color::WHITE), 1.0, 0.0, 0.0);
+        let rim_pm = crate::fx::engines::blur_of(&rim.into_pixmap(), 2.5);
+        c.save();
+        c.reset_transform();
+        c.composite(&rim_pm, 0.45, tiny_skia::BlendMode::SourceOver);
+        c.composite(&glass, 1.0, tiny_skia::BlendMode::SourceOver);
+        c.restore();
+    };
+    if t.glass_text.is_none() {
+        if let Some(sh) = &t.shadow {
+            let mut col = hex(sh);
+            col.apply_opacity(0.8);
+            soft(c, col, 0.0, size * 0.06, size * 0.07, 1.0);
+        }
+        if let Some(g) = &t.glow {
+            let col = hex(g);
+            soft(c, col, 0.0, 0.0, size * 0.28, 1.0);
+            soft(c, col, 0.0, 0.0, size * 0.09, 0.9);
+        }
     }
     if t.anim == TextAnim::Echo {
         // Fading copies trailing below, closing in as the text settles.
@@ -627,7 +688,11 @@ fn draw_flat(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
             c.set_blend(saved);
         }
         // Shimmer keeps the letters a little dim so the sheen reads on any colour.
-        paint(c, None, a * alpha * if t.anim == TextAnim::Shimmer { 0.55 } else { 1.0 }, 0.0, 0.0);
+        if let Some(gt) = t.glass_text.as_deref().filter(|g| !g.is_empty() && *g != "none") {
+            glass_glyphs(c, gt);
+        } else {
+            paint(c, None, a * alpha * if t.anim == TextAnim::Shimmer { 0.55 } else { 1.0 }, 0.0, 0.0);
+        }
     }
     if t.anim == TextAnim::Shimmer {
         // A slanted band of light crossing the letters, every 2.4 s.

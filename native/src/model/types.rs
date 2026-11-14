@@ -160,6 +160,10 @@ pub struct TextProps {
     /// whatever is behind it, with a light top sheen and an inner border.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glass: Option<String>,
+    /// The glyphs themselves as liquid glass, tinted this colour (#rrggbb): the frosted backdrop
+    /// shows through the letter shapes, with a light top sheen and a rim catching the light.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "glassText")]
+    pub glass_text: Option<String>,
     /// Turned in 3D, in degrees: tipped back or forward (around the horizontal axis) and swung
     /// left or right (around the vertical one), seen in perspective.
     #[serde(default, skip_serializing_if = "is_zero", rename = "tiltX")]

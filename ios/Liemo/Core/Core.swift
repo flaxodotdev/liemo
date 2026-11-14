@@ -182,6 +182,9 @@ struct TextSpec: Decodable, Hashable {
     let highlight: String?
     /// Frosted liquid-glass panel behind the text, tinted this colour.
     let glass: String?
+    /// The glyphs themselves as liquid glass, tinted this colour: the frosted backdrop
+    /// shows through the letters.
+    let glassText: String?
     /// normal, invert (reads on any footage) or exclusion (a softer invert).
     let blend: String?
     /// Turned in 3D, degrees.

@@ -272,7 +272,8 @@ fn main() {
         probe(fx::transitions::GridOrder::Random, 7, 3, 3, "3x3-random#7 again");
         probe(fx::transitions::GridOrder::Random, 8, 3, 3, "3x3-random#8");
         probe(fx::transitions::GridOrder::Random, fx::transitions::id_seed("clip-x1") as u64, 4, 4, "4x4-random");
-        // Liquid glass text over a photograph, mid entrance.
+        // Liquid glass: a glass panel behind text over a photograph, then the glyphs
+        // themselves as glass (over the photo, and over a plain card for the neutral wash).
         let mut c = Canvas::new(1280, 720);
         c.draw_image(&render::thumbs::format_preview(16.0, 9.0, 720), 0.0, 0.0);
         let glass = model::types::TextProps {
@@ -292,11 +293,25 @@ fn main() {
             glow: None,
             highlight: None,
             glass: Some("#9fd0ff".into()),
+            glass_text: None,
             tilt_x: 0.0,
             tilt_y: 0.0,
         };
         render::textclip::draw_text(&mut c, &glass, 2.0, 1.0);
-        save_png(&c.into_pixmap(), &format!("{dir}/glass-text.png"));
+        save_png(&c.into_pixmap(), &format!("{dir}/glass-panel.png"));
+        for (i, (bg, label)) in [(true, "photo"), (false, "plain")].iter().enumerate() {
+            let mut c = Canvas::new(1280, 720);
+            if *bg {
+                c.draw_image(&render::thumbs::format_preview(16.0, 9.0, 720), 0.0, 0.0);
+            } else {
+                c.fill_all(render::canvas::hex("#20222a"));
+            }
+            let mut gt = glass.clone();
+            gt.glass = None;
+            gt.glass_text = Some("#ffffff".into());
+            render::textclip::draw_text(&mut c, &gt, 2.0, 1.0);
+            save_png(&c.into_pixmap(), &format!("{dir}/glass-text-{i}-{label}.png"));
+        }
         for id in ["tx-lower", "tx-quote", "tx-poster", "tx-note", "ov-frame", "ov-grain"] {
             save_png(&render::thumbs::asset_thumb_id(id).unwrap(), &format!("{dir}/as-{id}.png"));
         }

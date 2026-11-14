@@ -248,6 +248,7 @@ fn all_definitions() -> Vec<Value> {
         "animation": { "type": "string", "enum": TEXT_ANIMS.iter().map(|(a, _)| text_anim_id(*a)).collect::<Vec<_>>(), "description": "Entrance. Letters: wave, drop, spring, flip, tracking, scramble (decode). Words: words, wordrise, wordpop. Whole: fade, rise, slide, descend, type, caret (typewriter), pop, bounce, zoom, settle, squeeze, stretch, blur, fog, reveal (mask), wipe, echo. Accents: marker (highlight swipe), underline, shimmer, count (numbers count up), glitch, flicker." },
         "box": { "type": "boolean", "description": "Dark rounded backing behind the text" },
         "glass": { "type": "string", "description": "Frosted liquid-glass panel behind the text, blurring whatever is behind it, tinted this colour #rrggbb, or \"none\"" },
+        "glassText": { "type": "string", "description": "The glyphs themselves as liquid glass: the frosted backdrop shows through the letters, tinted this colour #rrggbb, or \"none\"" },
         "outline": { "type": "string", "description": "Outline colour #rrggbb, or \"none\"" },
         "outlineWidth": { "type": "number", "description": "Outline thickness, 1–24 (default 6)" },
         "shadow": { "type": "string", "description": "Soft drop-shadow colour #rrggbb, or \"none\"" },
@@ -921,7 +922,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 }
                 if let Some(t) = args.get("text") {
                     apply_text(st, &cid, t)?;
-                } else if c.kind == AssetType::Text && ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "glass", "outline", "outlineWidth", "shadow", "glow", "highlight", "tiltX", "tiltY"].iter().any(|k| args.get(*k).is_some()) {
+                } else if c.kind == AssetType::Text && ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "glass", "glassText", "outline", "outlineWidth", "shadow", "glow", "highlight", "tiltX", "tiltY"].iter().any(|k| args.get(*k).is_some()) {
                     // Text fields given flat, as add_text takes them (y stays the clip's offset).
                     let mut t = args.clone();
                     if let Some(o) = t.as_object_mut() {
@@ -1447,6 +1448,9 @@ fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
         }
         if let Some(v) = colour("glass") {
             t.glass = v;
+        }
+        if let Some(v) = colour("glassText") {
+            t.glass_text = v;
         }
         if let Some(v) = f(&a, "tiltX") {
             t.tilt_x = v.clamp(-80.0, 80.0);

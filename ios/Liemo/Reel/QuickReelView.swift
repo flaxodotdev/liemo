@@ -45,6 +45,11 @@ struct QuickReelView: View {
     @State private var failure: String?
     @State private var editing: SavedSong?
     @State private var libraryOpen = false
+    // Customizations: where the song starts, and where each clip starts.
+    @State private var songStartChoice = 0        // 0 the drop, 1 the start, 2 a custom moment
+    @State private var customStart = 0.0
+    @State private var songDuration = 0.0
+    @State private var trimming: Int?             // index into the footage, when choosing its start
 
     var body: some View {
         NavigationStack {
@@ -54,6 +59,7 @@ struct QuickReelView: View {
                     songSection
                     vibeSection
                     wordsSection
+                    captionsSection
                     if let f = failure { Text(f).font(.system(size: 14)).foregroundStyle(Theme.danger) }
                 }
                 .padding(16)
@@ -80,8 +86,17 @@ struct QuickReelView: View {
             }
             .preferredColorScheme(.dark)
         }
+        .sheet(isPresented: Binding(get: { trimming != nil }, set: { if !$0 { trimming = nil } })) {
+            if let i = trimming, i < plan.media.count {
+                ClipStartSheet(url: plan.media[i], initial: plan.videoStarts.count > i ? plan.videoStarts[i] ?? 0 : 0) { v in
+                    if plan.videoStarts.count > i { plan.videoStarts[i] = v }
+                }
+                .preferredColorScheme(.dark)
+            }
+        }
         .onChange(of: picks) { _, p in loadMedia(p) }
         .onChange(of: songFromVideo) { _, v in if let v { loadSongVideo(v) } }
+        .onChange(of: pick?.id) { _, _ in measureSong() }
         .fileImporter(isPresented: $filesOpen, allowedContentTypes: [.audio]) { r in
             if case .success(let u) = r {
                 let scoped = u.startAccessingSecurityScopedResource()
@@ -103,7 +118,7 @@ struct QuickReelView: View {
 
     private var mediaSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            title("Footage", "Photos and videos, in the order they'll play")
+            title("Footage", "In the order they'll play · tap one to choose where it starts")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     PhotosPicker(selection: $picks, maxSelectionCount: 30, selectionBehavior: .ordered, matching: .any(of: [.images, .videos])) {
@@ -115,9 +130,19 @@ struct QuickReelView: View {
                         .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 10))
                         .foregroundStyle(Theme.ink)
                     }
-                    ForEach(Array(thumbs.enumerated()), id: \.offset) { _, img in
-                        Image(uiImage: img).resizable().scaledToFill()
-                            .frame(width: 62, height: 110).clipShape(RoundedRectangle(cornerRadius: 10))
+                    ForEach(Array(thumbs.enumerated()), id: \.offset) { i, img in
+                        Button { trimming = i } label: {
+                            Image(uiImage: img).resizable().scaledToFill()
+                                .frame(width: 62, height: 110).clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(alignment: .bottomTrailing) {
+                                    if plan.videoStarts.count > i, plan.videoStarts[i] != nil {
+                                        Image(systemName: "clock.arrow.circlepath").font(.system(size: 9, weight: .bold))
+                                            .padding(4).background(Color.black.opacity(0.65), in: Circle())
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -142,6 +167,7 @@ struct QuickReelView: View {
             }
             .background(Theme.surface1, in: RoundedRectangle(cornerRadius: 12))
             lyricNotes
+            if songDuration > plan.length { songStartSection }
         }
     }
 
@@ -219,6 +245,124 @@ struct QuickReelView: View {
         }
     }
 
+    /// Which part of the song plays: the drop (picked for you), the very start, or a moment
+    /// the user scrubs to and hears.
+    private var songStartSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            title("Start at")
+            Picker("Start at", selection: $songStartChoice) {
+                Text("The drop").tag(0)
+                Text("The start").tag(1)
+                Text("Pick").tag(2)
+            }
+            .pickerStyle(.segmented)
+            if songStartChoice == 2 {
+                let maxStart = max(0.1, songDuration - plan.length)
+                HStack(spacing: 12) {
+                    Button { playFrom(customStart) } label: {
+                        Image(systemName: playing == "scrub" ? "stop.fill" : "play.fill").font(.system(size: 12))
+                            .frame(width: 30, height: 30).background(Theme.surface3, in: Circle())
+                    }
+                    .foregroundStyle(Theme.ink)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Slider(value: $customStart, in: 0...maxStart)
+                        Text("\(tc(customStart)) of \(tc(songDuration))").font(.system(size: 11)).foregroundStyle(Theme.muted).monospacedDigit()
+                    }
+                }
+            }
+        }
+    }
+
+    private func tc(_ t: Double) -> String {
+        String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)
+    }
+
+    /// Hear the song from the scrubbed moment.
+    private func playFrom(_ at: Double) {
+        if playing == "scrub" { stopPreview(); return }
+        stopPreview()
+        guard let u = pick?.url, let player = try? AVAudioPlayer(contentsOf: u) else { return }
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+        player.currentTime = at
+        player.play()
+        preview = player
+        playing = "scrub"
+    }
+
+    private var captionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            title("Captions", "How the words on the reel look")
+            if case .saved(let s) = pick, s.hasSynced {
+                Toggle(isOn: $plan.captions) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use the song's lyrics").font(.system(size: 15))
+                        Text("Off keeps just the words you typed below").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    }
+                }
+                .font(.system(size: 15))
+                if plan.captions {
+                    Toggle("Word by word", isOn: $plan.wordByWord).font(.system(size: 15))
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Font").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Self.captionFonts, id: \.self) { f in
+                            Button { plan.font = f } label: { pill(f, "textformat", plan.font == f) }
+                        }
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Style").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(CaptionStyle.allCases) { s in
+                            Button { plan.style = s } label: { pill(s.name, "paintbrush", plan.style == s) }
+                        }
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Placement").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Picker("Placement", selection: $plan.placement) {
+                    ForEach(CaptionPlacement.allCases) { p in
+                        Text(p.name).tag(p)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Size").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Picker("Size", selection: $plan.size) {
+                    ForEach(CaptionSize.allCases) { s in
+                        Text(s.name).tag(s)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+            HStack(spacing: 8) {
+                Text("Align").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Spacer()
+                ForEach(CaptionAlign.allCases) { al in
+                    Button {
+                        plan.align = al
+                    } label: {
+                        Image(systemName: al == .left ? "text.alignleft" : al == .right ? "text.alignright" : "text.aligncenter")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 44, height: 30)
+                            .background(plan.align == al ? Theme.ink : Theme.surface2, in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(plan.align == al ? Theme.bg : Theme.ink)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    static let captionFonts = ["Bebas Neue", "Mona Sans", "Inter", "Instrument Serif", "JetBrains Mono", "Caveat"]
+
     private var wordsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             title("Words", pick == nil ? nil : "From the song's lyrics, or your own")
@@ -261,6 +405,16 @@ struct QuickReelView: View {
 
     private var ready: Bool { pick?.url != nil && !plan.media.isEmpty && !loadingMedia }
 
+    /// How long the picked song runs, so "start at" has a range to scrub over.
+    private func measureSong() {
+        stopPreview()
+        songStartChoice = 0
+        customStart = 0
+        songDuration = 0
+        guard let u = pick?.url, let f = try? AVAudioFile(forReading: u) else { return }
+        songDuration = Double(f.length) / f.processingFormat.sampleRate
+    }
+
     private func loadMedia(_ items: [PhotosPickerItem]) {
         loadingMedia = true
         Task {
@@ -271,6 +425,7 @@ struct QuickReelView: View {
                 if let img = await thumbnail(f.url) { imgs.append(img) }
             }
             plan.media = urls
+            plan.videoStarts = Array(repeating: nil, count: urls.count)
             thumbs = imgs
             loadingMedia = false
         }
@@ -355,6 +510,11 @@ struct QuickReelView: View {
         var p = plan
         p.song = pick?.url
         p.songName = pick?.name ?? ""
+        p.songStart = switch songStartChoice {
+        case 1: 0
+        case 2: customStart
+        default: nil
+        }
         if case .saved(let s) = pick {
             // The song's own calibration shift rides on every stamp: whatever the calibrator
             // saved is the truth for this file, not whatever LRCLIB guessed.
@@ -374,5 +534,94 @@ struct QuickReelView: View {
                 failure = error.localizedDescription
             }
         }
+    }
+}
+
+/// Choose where a piece of footage starts in its own file: scrub the slider, see the frame
+/// under the playhead, and either use that moment or let the reel pick moments for you.
+struct ClipStartSheet: View {
+    let url: URL
+    let initial: Double
+    let done: (Double?) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var start: Double = 0
+    @State private var duration = 0.0
+    @State private var frame: UIImage?
+    @State private var gen = AVAssetImageGenerator(asset: AVURLAsset(url: URL(fileURLWithPath: "/dev/null")))
+    @State private var lastRequested = -1.0
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                if duration < 0.2 {
+                    // A photo: it plays whole, nothing to choose.
+                    Text("This one's a photo — it plays the whole time.")
+                        .font(.system(size: 14)).foregroundStyle(Theme.muted)
+                        .padding(.top, 40)
+                } else {
+                    ZStack {
+                        Color(Theme.bg)
+                        if let frame {
+                            Image(uiImage: frame).resizable().scaledToFit()
+                                .frame(maxHeight: 360).clipShape(RoundedRectangle(cornerRadius: 12))
+                        } else {
+                            ProgressView().controlSize(.large)
+                        }
+                    }
+                    .frame(maxHeight: 380)
+                    Slider(value: $start, in: 0...max(0.1, duration - 0.5))
+                        .onChange(of: start) { _, t in scrub(t) }
+                    HStack {
+                        Text(tc(start)).font(.system(size: 12)).foregroundStyle(Theme.muted).monospacedDigit()
+                        Spacer()
+                        Text(tc(duration)).font(.system(size: 12)).foregroundStyle(Theme.muted).monospacedDigit()
+                    }
+                }
+                Spacer()
+            }
+            .padding(16)
+            .background(Theme.bg)
+            .navigationTitle("Where it starts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Liemo picks") { hand(nil) } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Use this") { hand(start) }
+                        .disabled(duration < 0.2)
+                        .font(.system(size: 15, weight: .semibold))
+                }
+            }
+            .onAppear {
+                let asset = AVURLAsset(url: url)
+                duration = CMTimeGetSeconds(asset.duration)
+                if duration.isNaN { duration = 0 }
+                start = min(max(initial, 0), max(0, duration - 0.5))
+                gen = AVAssetImageGenerator(asset: asset)
+                gen.appliesPreferredTrackTransform = true
+                gen.maximumSize = CGSize(width: 640, height: 1138)
+                scrub(start)
+            }
+        }
+    }
+
+    private func hand(_ v: Double?) {
+        done(v)
+        dismiss()
+    }
+
+    private func scrub(_ t: Double) {
+        // Skip near-duplicate requests while the slider whips around.
+        guard abs(t - lastRequested) > 0.2 || (t == 0 && lastRequested != 0) else { return }
+        lastRequested = t
+        let time = CMTime(seconds: t, preferredTimescale: 600)
+        Task {
+            if let img = try? await gen.image(at: time).image {
+                frame = UIImage(cgImage: img)
+            }
+        }
+    }
+
+    private func tc(_ t: Double) -> String {
+        String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)
     }
 }
