@@ -3806,7 +3806,7 @@ dependencies = [
 
 [[package]]
 name = "liemo-mobile"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -5659,7 +5659,7 @@ dependencies = [
 
 [[package]]
 name = "rayna"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
