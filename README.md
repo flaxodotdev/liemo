@@ -7,6 +7,7 @@ An open-source video editor for macOS, with an AI-editing MCP server built in.
   [Releases](https://github.com/flaxodotdev/liemo/releases/latest); it keeps itself up to date. Building, credits and the MCP server: [native/README.md](native/README.md);
   releases: [native/RELEASING.md](native/RELEASING.md).
 - **The browser version**, the original prototype, is this Next.js app (below).
+- **The website** is a separate Next.js app in [`site/`](site/).
 
 Liemo is MIT licensed (see [LICENSE](LICENSE)). Third-party code, shaders, fonts and photos keep
 their own licences, listed in [native/README.md](native/README.md).

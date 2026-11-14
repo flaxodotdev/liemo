@@ -156,6 +156,10 @@ pub struct TextProps {
     /// A rounded highlight behind each line, in this colour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub highlight: Option<String>,
+    /// A frosted "liquid glass" panel behind the text, tinted this colour (#rrggbb): it blurs
+    /// whatever is behind it, with a light top sheen and an inner border.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glass: Option<String>,
     /// Turned in 3D, in degrees: tipped back or forward (around the horizontal axis) and swung
     /// left or right (around the vertical one), seen in perspective.
     #[serde(default, skip_serializing_if = "is_zero", rename = "tiltX")]

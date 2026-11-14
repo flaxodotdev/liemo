@@ -217,6 +217,86 @@ fn main() {
         for id in ["clock", "soft-wipe", "blinds", "spin", "blur"] {
             save_png(&render::thumbs::transition_thumb(id), &format!("{dir}/tr-{id}.png"));
         }
+        // Grid flash and its id variants (order and grid size ride in the id), at a moment
+        // mid-transition so cells flash, hold and reveal.
+        for id in ["grid-flash", "grid-flash-4x4-random", "grid-flash-3x3-up", "grid-flash-6x6"] {
+            for (i, p) in [0.25f32, 0.5, 0.75].iter().enumerate() {
+                save_png(&render::thumbs::transition_at(id, *p), &format!("{dir}/tr-{id}-{i}.png"));
+            }
+        }
+        // Grid flash against synthetic frames: solid red out, solid blue in — the probe then
+        // reads each cell's state unambiguously.
+        let (ga, gb) = {
+            let mut a = Canvas::new(384, 216);
+            a.fill_all(render::canvas::hex("#d92b2b"));
+            let mut b = Canvas::new(384, 216);
+            b.fill_all(render::canvas::hex("#2b52d9"));
+            (a.into_pixmap(), b.into_pixmap())
+        };
+        for (i, p) in [0.1f32, 0.3, 0.5, 0.7, 0.9].iter().enumerate() {
+            let mut c = Canvas::new(384, 216);
+            fx::transitions::grid_flash_p(&mut c, Some(&ga), &gb, *p, 1.0, 3, 3, fx::transitions::GridOrder::Down, 0);
+            let pm = c.into_pixmap();
+            // Which way each cell has flipped: its middle pixel reads red (a) or blue (b).
+            let cell = |col: usize, row: usize| {
+                let x = (col * 128 + 64) as usize;
+                let y = (row * 72 + 36) as usize;
+                let d = pm.data();
+                let px = &d[(y * 384 + x) * 4..(y * 384 + x) * 4 + 3];
+                if px[2] > px[0] { 'B' } else { 'R' }
+            };
+            let grid: String = (0..3).map(|row| (0..3).map(|col| cell(col, row)).collect::<String>()).collect::<Vec<_>>().join(" ");
+            println!("gf p={p}: {grid} (R=a, B=b)");
+            save_png(&pm, &format!("{dir}/gf-syn-{i}.png"));
+        }
+        // Up reads the other way; random is a stable shuffled permutation, and 4×4 is 16 cells.
+        let probe = |order: fx::transitions::GridOrder, seed: u64, cols: u32, rows: u32, label: &str| {
+            let mut c = Canvas::new(384, 216);
+            fx::transitions::grid_flash_p(&mut c, Some(&ga), &gb, 0.5, 1.0, cols, rows, order, seed);
+            let pm = c.into_pixmap();
+            let (cw, ch) = (384.0 / cols as f32, 216.0 / rows as f32);
+            let mut grid = String::new();
+            for row in 0..rows as usize {
+                for col in 0..cols as usize {
+                    let d = pm.data();
+                    let (x, y) = ((col as f32 * cw + cw / 2.0) as usize, (row as f32 * ch + ch / 2.0) as usize);
+                    let px = &d[(y * 384 + x) * 4..(y * 384 + x) * 4 + 3];
+                    grid.push(if px[2] > px[0] { 'B' } else { 'R' });
+                }
+                grid.push(' ');
+            }
+            println!("gf {label} p=0.5: {grid}");
+        };
+        probe(fx::transitions::GridOrder::Up, 0, 3, 3, "3x3-up");
+        probe(fx::transitions::GridOrder::Random, 7, 3, 3, "3x3-random#7");
+        probe(fx::transitions::GridOrder::Random, 7, 3, 3, "3x3-random#7 again");
+        probe(fx::transitions::GridOrder::Random, 8, 3, 3, "3x3-random#8");
+        probe(fx::transitions::GridOrder::Random, fx::transitions::id_seed("clip-x1") as u64, 4, 4, "4x4-random");
+        // Liquid glass text over a photograph, mid entrance.
+        let mut c = Canvas::new(1280, 720);
+        c.draw_image(&render::thumbs::format_preview(16.0, 9.0, 720), 0.0, 0.0);
+        let glass = model::types::TextProps {
+            content: "LIQUID GLASS".into(),
+            font: "Bebas Neue".into(),
+            size: 110.0,
+            weight: 400.0,
+            color: "#ffffff".into(),
+            align: model::types::TextAlign::Center,
+            anim: model::types::TextAnim::None,
+            boxed: false,
+            y: 0.0,
+            blend: model::types::TextBlend::Normal,
+            outline: None,
+            outline_width: 6.0,
+            shadow: None,
+            glow: None,
+            highlight: None,
+            glass: Some("#9fd0ff".into()),
+            tilt_x: 0.0,
+            tilt_y: 0.0,
+        };
+        render::textclip::draw_text(&mut c, &glass, 2.0, 1.0);
+        save_png(&c.into_pixmap(), &format!("{dir}/glass-text.png"));
         for id in ["tx-lower", "tx-quote", "tx-poster", "tx-note", "ov-frame", "ov-grain"] {
             save_png(&render::thumbs::asset_thumb_id(id).unwrap(), &format!("{dir}/as-{id}.png"));
         }

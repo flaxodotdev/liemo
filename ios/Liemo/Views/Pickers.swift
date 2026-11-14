@@ -63,7 +63,24 @@ struct TransitionPicker: View {
     let model: EditorModel
     let done: () -> Void
 
-    @MainActor static let defs: [TransitionDef] = (try? Core.shared.decode(TransitionList.self, "list_transitions"))?.transitions ?? []
+    @MainActor static let defs: [TransitionDef] = {
+        var defs = (try? Core.shared.decode(TransitionList.self, "list_transitions"))?.transitions ?? []
+        // Grid flash's customizations ride in its id; the base entry is 3×3 reading down.
+        // The extra cards here are the useful setups of the same effect.
+        let variants = [
+            TransitionDef(id: "grid-flash-4x4-random", name: "Grid flash 4×4 random", group: "Stylized"),
+            TransitionDef(id: "grid-flash-3x3-up", name: "Grid flash up", group: "Stylized"),
+            TransitionDef(id: "grid-flash-6x6", name: "Grid flash 6×6", group: "Stylized"),
+        ]
+        for v in variants where !defs.contains(where: { $0.id == v.id }) {
+            if let at = defs.firstIndex(where: { $0.id == "grid-flash" }) {
+                defs.insert(v, at: at + 1)
+            } else {
+                defs.append(v)
+            }
+        }
+        return defs
+    }()
     @MainActor static func name(_ id: String) -> String { defs.first { $0.id == id }?.name ?? id }
 
     var body: some View {
@@ -100,7 +117,7 @@ struct TransitionPicker: View {
     private func set(_ id: String) {
         if let c = model.selectedClip {
             var a: [String: Any] = ["clip": c.id, "transition": id]
-            if id != "none" { a["duration"] = id == "text-zoom" ? 1.2 : (c.transition?.dur ?? 0.6) }
+            if id != "none" { a["duration"] = id == "text-zoom" ? 1.2 : (c.transition?.dur ?? (id.hasPrefix("grid-flash") ? 0.45 : 0.6)) }
             model.edit("set_transition", a)
             // Text zoom opens through the title over the cut; without one, add a big word to edit.
             if id == "text-zoom", !(model.doc?.clips.contains { $0.type == "text" && $0.start <= c.start && $0.end > c.start - 0.5 } ?? false) {

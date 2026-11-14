@@ -2,22 +2,49 @@ import AVFoundation
 import PhotosUI
 import SwiftUI
 
-/// Pick footage, a song and a vibe, add some words: Liemo cuts the reel.
+/// Pick footage, a song and a vibe, add some words: Liemo cuts the reel. Songs you bring in
+/// are recognised and get their real lyrics from the web, so the words land on their moments.
 struct QuickReelView: View {
     let done: (String?) -> Void
+
+    enum Pick {
+        case bundled(Song)
+        case saved(SavedSong)
+
+        var id: String {
+            switch self {
+            case .bundled(let s): return s.id
+            case .saved(let s): return s.id
+            }
+        }
+        var name: String {
+            switch self {
+            case .bundled(let s): return s.title
+            case .saved(let s): return s.title
+            }
+        }
+        var url: URL? {
+            switch self {
+            case .bundled(let s): return s.url
+            case .saved(let s): return s.url
+            }
+        }
+    }
 
     @State private var plan = ReelPlan()
     @State private var picks: [PhotosPickerItem] = []
     @State private var thumbs: [UIImage] = []
     @State private var loadingMedia = false
-    @State private var song: Song? = Song.library.first
-    @State private var ownSong: URL?
+    @State private var pick: Pick? = .bundled(Song.library.first!)
     @State private var songFromVideo: PhotosPickerItem?
     @State private var filesOpen = false
     @State private var preview: AVAudioPlayer?
     @State private var playing: String?
     @State private var progress: String?
+    @State private var songWork: String?
     @State private var failure: String?
+    @State private var editing: SavedSong?
+    @State private var libraryOpen = false
 
     var body: some View {
         NavigationStack {
@@ -36,18 +63,31 @@ struct QuickReelView: View {
             .safeAreaInset(edge: .bottom) { makeButton }
             .navigationTitle("Quick reel")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { stopPreview(); done(nil) } } }
-            .overlay { if let p = progress { working(p) } }
-            .interactiveDismissDisabled(progress != nil)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { stopPreview(); done(nil) } }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { libraryOpen = true } label: { Image(systemName: "music.note.list") }
+                }
+            }
+            .overlay { if let p = progress ?? songWork { working(p) } }
+            .interactiveDismissDisabled(progress != nil || songWork != nil)
+            .navigationDestination(isPresented: $libraryOpen) { SongLibraryView() }
+        }
+        .sheet(item: $editing) { song in
+            LyricsEditor(song: song) { updated in
+                SongLibrary.shared.update(updated)
+                if case .saved(let current) = pick, current.id == updated.id { pick = .saved(updated) }
+            }
+            .preferredColorScheme(.dark)
         }
         .onChange(of: picks) { _, p in loadMedia(p) }
         .onChange(of: songFromVideo) { _, v in if let v { loadSongVideo(v) } }
         .fileImporter(isPresented: $filesOpen, allowedContentTypes: [.audio]) { r in
             if case .success(let u) = r {
                 let scoped = u.startAccessingSecurityScopedResource()
-                ownSong = try? ImportedFile.copy(u)
+                let copied = try? ImportedFile.copy(u)
                 if scoped { u.stopAccessingSecurityScopedResource() }
-                if ownSong != nil { song = nil }
+                if let copied { own(copied) }
             }
         }
     }
@@ -86,44 +126,83 @@ struct QuickReelView: View {
 
     private var songSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            title("Song")
+            title("Song", "Yours get recognised and pick up their lyrics from the web")
             HStack(spacing: 8) {
-                Button { filesOpen = true } label: { pill("Your song", "music.note", ownSong != nil && song == nil) }
+                Button { filesOpen = true } label: { pill("Your song", "music.note", pick == nil) }
                 PhotosPicker(selection: $songFromVideo, matching: .videos) { pill("From a video", "film", false) }
             }
-            if let u = ownSong, song == nil {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text(u.deletingPathExtension().lastPathComponent.split(separator: "-", maxSplits: 1).last.map(String.init) ?? "Your song")
-                        .font(.system(size: 14)).lineLimit(1)
-                }
-            }
+            if !SongLibrary.shared.songs.isEmpty { savedList }
             VStack(spacing: 0) {
                 ForEach(Song.library) { s in
-                    HStack(spacing: 12) {
-                        Button { togglePreview(s) } label: {
-                            Image(systemName: playing == s.id ? "stop.fill" : "play.fill").font(.system(size: 13))
-                                .frame(width: 34, height: 34).background(Theme.surface3, in: Circle())
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(s.title).font(.system(size: 15, weight: .medium))
-                            Text(s.mood).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                        }
-                        Spacer()
-                        if song == s { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
-                    }
-                    .foregroundStyle(Theme.ink)
-                    .padding(.vertical, 8).padding(.horizontal, 12)
-                    .contentShape(Rectangle())
-                    .onTapGesture { song = s }
+                    row(id: s.id, main: s.title, sub: s.mood) {
+                        pick = .bundled(s)
+                        fillWords()
+                    } onPlay: { togglePreview(.bundled(s)) }
                 }
             }
             .background(Theme.surface1, in: RoundedRectangle(cornerRadius: 12))
-            if let s = song {
-                Text("Credit when you post: \(s.credit)").font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    .textSelection(.enabled)
+            lyricNotes
+        }
+    }
+
+    private var savedList: some View {
+        VStack(spacing: 0) {
+            ForEach(SongLibrary.shared.songs) { s in
+                row(id: s.id, main: s.title, sub: s.artist.isEmpty ? "Your song" : s.artist) {
+                    pick = .saved(s)
+                    fillWords()
+                } onPlay: { togglePreview(.saved(s)) }
             }
         }
+        .background(Theme.surface1, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// What the picked song brings: its credit, its lyrics, and the buttons to fix either.
+    @ViewBuilder private var lyricNotes: some View {
+        switch pick {
+        case .bundled(let s):
+            Text("Credit when you post: \(s.credit)").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                .textSelection(.enabled)
+        case .saved(let s):
+            HStack(spacing: 8) {
+                Image(systemName: s.hasSynced ? "waveform" : "text.quote").font(.system(size: 12))
+                    .foregroundStyle(s.hasSynced ? Theme.accent : Theme.muted)
+                Text(s.hasSynced
+                     ? (s.wordSynced ? "Word-by-word synced"
+                        : s.offset != 0 ? "Synced · timing fixed (\(s.offset >= 0 ? "+" : "")\(String(format: "%.1f", s.offset))s)"
+                        : "Lyrics synced to the music")
+                     : (s.plainText.isEmpty ? "No lyrics yet" : "Lyrics on the beat"))
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Spacer()
+                if !s.hasSynced, !s.artist.isEmpty {
+                    Button("Find lyrics") { findLyrics(s) }
+                        .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.accent)
+                }
+                Button("Edit") { editing = s }
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.accent)
+            }
+        case nil:
+            EmptyView()
+        }
+    }
+
+    private func row(id: String, main: String, sub: String, onSelect: @escaping () -> Void, onPlay: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            Button(action: onPlay) {
+                Image(systemName: playing == id ? "stop.fill" : "play.fill").font(.system(size: 13))
+                    .frame(width: 34, height: 34).background(Theme.surface3, in: Circle())
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(main).font(.system(size: 15, weight: .medium)).lineLimit(1)
+                Text(sub).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            Spacer()
+            if pick?.id == id { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+        }
+        .foregroundStyle(Theme.ink)
+        .padding(.vertical, 8).padding(.horizontal, 12)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
     }
 
     private var vibeSection: some View {
@@ -142,7 +221,7 @@ struct QuickReelView: View {
 
     private var wordsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            title("Words", "They pop in on the beat, a word or two at a time")
+            title("Words", pick == nil ? nil : "From the song's lyrics, or your own")
             TextField("pov: you finally stopped overthinking", text: $plan.words, axis: .vertical)
                 .lineLimit(2...6)
                 .padding(12).background(Theme.surface2, in: RoundedRectangle(cornerRadius: 10))
@@ -180,7 +259,7 @@ struct QuickReelView: View {
 
     // MARK: Actions
 
-    private var ready: Bool { !plan.media.isEmpty && (song != nil || ownSong != nil) && !loadingMedia }
+    private var ready: Bool { pick?.url != nil && !plan.media.isEmpty && !loadingMedia }
 
     private func loadMedia(_ items: [PhotosPickerItem]) {
         loadingMedia = true
@@ -205,11 +284,22 @@ struct QuickReelView: View {
         return (try? await gen.image(at: .zero).image).map(UIImage.init(cgImage:))
     }
 
-    private func loadSongVideo(_ item: PhotosPickerItem) {
+    /// A song you brought in: recognised, given its lyrics, kept for next time.
+    private func own(_ url: URL) {
+        songWork = "Recognizing the song…"
+        let name = url.deletingPathExtension().lastPathComponent.split(separator: "-", maxSplits: 1).last.map(String.init) ?? "Your song"
         Task {
+            let (match, lyrics) = await SongMatcher.identify(url: url, fallbackName: String(name))
+            let saved = SongLibrary.shared.add(url: url, title: match.title, artist: match.artist, synced: lyrics.synced, plain: lyrics.plain)
+            pick = .saved(saved)
+            fillWords()
+            songWork = nil
+        }
+    }
+
+    private func loadSongVideo(_ item: PhotosPickerItem) {        Task {
             if let f = try? await item.loadTransferable(type: ImportedFile.self), let a = try? await SongFX.extractAudio(from: f.url) {
-                ownSong = a
-                song = nil
+                own(a)
             } else {
                 failure = "That video's sound couldn't be read."
             }
@@ -217,16 +307,40 @@ struct QuickReelView: View {
         }
     }
 
-    private func togglePreview(_ s: Song) {
-        if playing == s.id { stopPreview(); return }
+    /// The picked song's words go into the field, ready to trim.
+    private func fillWords() {
+        if case .saved(let s) = pick { plan.words = s.plainText }
+    }
+
+    private func findLyrics(_ song: SavedSong) {
+        songWork = "Finding the lyrics…"
+        Task {
+            var s = song
+            let duration = s.url.map { (try? AVAudioFile(forReading: $0)).map { Double($0.length) / $0.processingFormat.sampleRate } } ?? nil
+            if let got = try? await SongMatcher.fetchLyrics(artist: s.artist, track: s.title, duration: duration) {
+                s.synced = got.synced ?? s.synced
+                s.plain = got.plain ?? s.plain
+                SongLibrary.shared.update(s)
+                if case .saved(let current) = pick, current.id == s.id {
+                    pick = .saved(s)
+                    fillWords()
+                }
+            }
+            songWork = nil
+        }
+    }
+
+    private func togglePreview(_ p: Pick) {
+        if playing == p.id { stopPreview(); return }
         stopPreview()
-        guard let u = s.url, let p = try? AVAudioPlayer(contentsOf: u) else { return }
+        guard let u = p.url, let player = try? AVAudioPlayer(contentsOf: u) else { return }
         try? AVAudioSession.sharedInstance().setCategory(.playback)
-        p.currentTime = min(30, p.duration / 3)
-        p.play()
-        preview = p
-        playing = s.id
-        song = s
+        player.currentTime = min(30, player.duration / 3)
+        player.play()
+        preview = player
+        playing = p.id
+        pick = p
+        if case .saved = p { fillWords() }
     }
 
     private func stopPreview() {
@@ -239,12 +353,12 @@ struct QuickReelView: View {
         stopPreview()
         failure = nil
         var p = plan
-        if let s = song {
-            p.song = s.url
-            p.songName = s.title
-        } else {
-            p.song = ownSong
-            p.songName = "Your song"
+        p.song = pick?.url
+        p.songName = pick?.name ?? ""
+        if case .saved(let s) = pick {
+            // The song's own calibration shift rides on every stamp: whatever the calibrator
+            // saved is the truth for this file, not whatever LRCLIB guessed.
+            p.lyrics = s.lines.map { LyricLine(time: $0.time + s.offset, text: $0.text) }
         }
         progress = "Starting…"
         let plan = p

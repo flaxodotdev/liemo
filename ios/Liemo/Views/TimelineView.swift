@@ -31,6 +31,8 @@ struct TimelineView: View {
         let height: CGFloat
         /// Titles at the same moment stack in rows.
         var rows: Int = 1
+        /// Height of one stacked row inside the lane.
+        var rowH: CGFloat = 30
         var y: CGFloat = 0
         var id: String { track }
     }
@@ -39,22 +41,24 @@ struct TimelineView: View {
     /// when it has clips (tracks added on the Mac included). `scroll` lifts them all.
     private func lanes(_ doc: ProjectDoc, height: CGFloat, scroll: CGFloat = 0) -> [Lane] {
         let used = Set(doc.clips.map(\.track))
-        var stack = [Lane(track: "V1", height: 58)]
+        var stack = [Lane(track: "V1", height: 58, rowH: 58)]
         let audio = doc.tracks.filter { $0.kind == "audio" }.map(\.id)
         let sounding = audio.filter { used.contains($0) }
         if sounding.isEmpty {
-            stack.append(Lane(track: "A1", height: 34))
+            stack.append(Lane(track: "A1", height: 34, rowH: 34))
         } else {
-            stack += sounding.map { Lane(track: $0, height: 34) }
+            // Sound tracks stack too when their clips overlap, same as titles.
+            stack += sounding.map { id in
+                let n = max(1, stackRows(doc.clips.filter { $0.track == id }).count)
+                return Lane(track: id, height: CGFloat(n) * 34 + CGFloat(n - 1) * 4, rows: n, rowH: 34)
+            }
         }
         // Picture layers from the back up (the track list runs front to back), then titles.
+        // Every lane grows with its stacked rows: a lane that doesn't grow hides its own
+        // clips underneath the lanes below it, and no amount of scrolling reveals them.
         for t in doc.tracks.reversed() where t.id != "V1" && t.kind != "audio" && used.contains(t.id) {
-            if t.kind == "text" {
-                let n = max(1, stackRows(doc.clips.filter { $0.track == t.id }).count)
-                stack.append(Lane(track: t.id, height: CGFloat(n) * 30 + CGFloat(n - 1) * 4, rows: n))
-            } else {
-                stack.append(Lane(track: t.id, height: 30))
-            }
+            let n = max(1, stackRows(doc.clips.filter { $0.track == t.id }).count)
+            stack.append(Lane(track: t.id, height: CGFloat(n) * 30 + CGFloat(n - 1) * 4, rows: n, rowH: 30))
         }
         var y = height - 18 + scroll
         for i in stack.indices {
@@ -124,11 +128,13 @@ struct TimelineView: View {
             .clipped()
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 2)
+                DragGesture(minimumDistance: 5)
                     .onChanged { v in
-                        // Mostly up or down (with lanes to scroll): scroll them. Otherwise scrub.
+                        // Mostly up or down (with lanes to scroll): scroll them. A slight
+                        // vertical bias — fingers drift sideways, and a diagonal drag must
+                        // not lock into scrubbing when there are layers to reach.
                         if dragAxis == nil {
-                            dragAxis = abs(v.translation.height) > abs(v.translation.width) && scrollMax > 0 ? .vertical : .horizontal
+                            dragAxis = abs(v.translation.height) > abs(v.translation.width) * 0.75 && scrollMax > 0 ? .vertical : .horizontal
                         }
                         if dragAxis == .vertical {
                             let s = vStart ?? lift
@@ -207,8 +213,8 @@ private struct TrackContent: View, Equatable {
                         let rows = stackRows(doc.clips.filter { $0.track == lane.track })
                         ForEach(doc.clips.filter { $0.track == lane.track }) { c in
                             let r = rows.row[c.id] ?? 0
-                            let rowH = lane.rows > 1 ? 30 : lane.height
-                            ClipView(model: model, clip: c, lane: TimelineView.Lane(track: lane.track, height: rowH), pps: pps)
+                            let rowH = lane.rowH
+                            ClipView(model: model, clip: c, lane: TimelineView.Lane(track: lane.track, height: rowH, rowH: rowH), pps: pps)
                                 .offset(y: CGFloat(r) * (rowH + 4))
                         }
                     }

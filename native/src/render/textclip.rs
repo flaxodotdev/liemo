@@ -1,7 +1,7 @@
 // Text clips: drawing with their entrance animation, and the box they occupy (for hit-testing
 // and handles on the preview). Both lay lines out identically.
 
-use super::canvas::{hex, pixmap, rgba, Canvas};
+use super::canvas::{hex, pixmap, rgba, with_alpha, Canvas};
 use super::text::{fill_text, measure, stroke_text, Align, Baseline, TextStyle};
 use crate::model::assets::font_def;
 use crate::model::time::{H, W};
@@ -251,6 +251,52 @@ fn count_up(s: &str, p: f32) -> String {
     out
 }
 
+/// The liquid glass panel: the backdrop (everything composited so far) frosted behind a
+/// rounded translucent panel, tinted, with a specular sheen along the top and a fine light
+/// border. The panel's path follows the canvas transform, so a placed, scaled or turned
+/// text keeps its glass; the blurred backdrop is painted full-frame in device space, since
+/// the clip is already in device space.
+fn glass_panel(c: &mut Canvas, x: f32, y: f32, w: f32, h: f32, alpha: f32, tint: &str) {
+    if alpha <= 0.01 || w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let r = (h * 0.16).min(24.0).max(8.0);
+    // Frost whatever is behind the text right now.
+    let frost = crate::fx::engines::blur_of(&c.pm, 16.0);
+    let panel = |c: &mut Canvas| {
+        c.begin_path();
+        c.round_rect(x, y, w, h, r);
+    };
+    c.save();
+    panel(c);
+    c.clip();
+    // The frosted backdrop, full frame, device space (the clip already is).
+    c.save();
+    c.reset_transform();
+    c.set_alpha(alpha);
+    c.draw_image(&frost, 0.0, 0.0);
+    c.restore();
+    // Translucent white body over it, washed with the chosen tint.
+    c.set_alpha(alpha);
+    c.set_fill_color(rgba(255, 255, 255, 0.14));
+    panel(c);
+    c.fill();
+    c.set_fill_color(with_alpha(hex(tint), 0.16));
+    panel(c);
+    c.fill();
+    // Specular sheen: light pooling along the top, gone by mid-panel.
+    c.set_fill(c.linear(x, y, x, y + h, &[(0.0, rgba(255, 255, 255, 0.4)), (0.28, rgba(255, 255, 255, 0.05)), (1.0, rgba(255, 255, 255, 0.0))]));
+    panel(c);
+    c.fill();
+    // Fine inner border catching the light.
+    c.set_stroke_color(rgba(255, 255, 255, 0.55));
+    c.set_line_width(1.5);
+    c.begin_path();
+    c.round_rect(x + 0.75, y + 0.75, w - 1.5, h - 1.5, (r - 0.75).max(2.0));
+    c.stroke();
+    c.restore();
+}
+
 /// Flat text: its entrance animation, backing (box or per-line highlight), soft shadow and glow,
 /// outline, fill, and accents (marker, underline, sheen, caret).
 fn draw_flat(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
@@ -385,6 +431,13 @@ fn draw_flat(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
         c.clip();
     }
 
+    // Liquid glass: a frosted panel that blurs whatever has been composited behind the
+    // text, tinted, with a specular sheen and a fine light border. Behind everything else.
+    if let Some(glass) = t.glass.as_deref().filter(|g| !g.is_empty() && *g != "none") {
+        let bw = widths.iter().cloned().fold(f32::MIN, f32::max) + 56.0;
+        let bx = left_of(bw - 56.0) - 28.0;
+        glass_panel(c, bx + ox, top - 16.0 + oy, bw, lay.total + 32.0, alpha * a, glass);
+    }
     if t.boxed {
         let bw = widths.iter().cloned().fold(f32::MIN, f32::max) + 48.0;
         let bx = left_of(bw - 48.0) - 24.0;

@@ -108,6 +108,12 @@ jobs:
         with:
           workspaces: native
       - name: Build
+        # $ORIGIN rpath: the bundled FFmpeg 6 libraries sit next to the binary, so the
+        # system's FFmpeg version (7, 8, …) never matters — the loaders are different
+        # between majors and a distro with newer FFmpeg can't run an FFmpeg-6-linked
+        # binary without them.
+        env:
+          RUSTFLAGS: '-C link-arg=-Wl,-rpath,$ORIGIN'
         run: cargo build --release --bin rayna
       - name: Package
         run: |
@@ -116,8 +122,21 @@ jobs:
           mkdir -p "$d"
           cp target/release/rayna "$d/liemo"
           cp assets/app/AppIcon.png "$d/liemo.png"
+          # Bundle EVERY shared library the binary loads that isn't part of glibc's core —
+          # FFmpeg, ALSA, X11, Wayland, xkbcommon, Vulkan's loader, fontconfig, OpenSSL,
+          # the C++ runtime, all of it — under their exact loader names, next to the
+          # binary. The $ORIGIN rpath (set at build) makes it find them here, so whatever
+          # versions the user's distro ships simply don't matter: FFmpeg 6/7/8, no FFmpeg,
+          # anything. Only glibc's core (always present, backwards compatible) and the
+          # GPU driver (impossible to bundle) come from the system.
+          ldd target/release/rayna | awk '$3 ~ /^\// { print $3 "\t" $1 }' | while IFS=$'\t' read -r path soname; do
+            case "$soname" in
+              ld-linux-*|libc.so*|libm.so*|libmvec*|libdl.so*|libpthread*|librt.so*|libresolv.so*|libnsl*|libutil*|libBrokenLocale*|libanl*) ;;
+              *) cp -L "$path" "$d/$soname" ;;
+            esac
+          done
           printf '[Desktop Entry]\nType=Application\nName=Liemo\nComment=Video editor\nExec=liemo\nIcon=liemo\nCategories=AudioVideo;Video;\n' > "$d/liemo.desktop"
-          printf 'Liemo %s for Linux (x86_64)\n\nRun ./liemo. Needs FFmpeg 6 or newer (Ubuntu/Debian: sudo apt install ffmpeg)\nand a Vulkan driver for the GPU effects.\n' "$v" > "$d/README.txt"
+          printf 'Liemo %s for Linux (x86_64)\n\nRun ./liemo. All libraries it needs are bundled next to the\nbinary — nothing to install, whatever distro you are on. Only\nrequirement: a GPU driver with Vulkan, for the GPU effects.\n' "$v" > "$d/README.txt"
           tar -C dist -czf "$d.tar.gz" "$(basename "$d")"
       - name: Sign for the updater
         env:

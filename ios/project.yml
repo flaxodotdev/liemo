@@ -25,6 +25,7 @@ targets:
       - sdk: AVFoundation.framework
       - sdk: Photos.framework
       - sdk: Accelerate.framework
+      - sdk: ShazamKit.framework
       - sdk: libc++.tbd
       - sdk: libresolv.tbd
     info:

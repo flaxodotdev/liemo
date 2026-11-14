@@ -180,6 +180,8 @@ struct TextSpec: Decodable, Hashable {
     let shadow: String?
     let glow: String?
     let highlight: String?
+    /// Frosted liquid-glass panel behind the text, tinted this colour.
+    let glass: String?
     /// normal, invert (reads on any footage) or exclusion (a softer invert).
     let blend: String?
     /// Turned in 3D, degrees.

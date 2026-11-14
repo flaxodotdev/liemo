@@ -458,16 +458,29 @@ fn draw_transition(c: &mut Canvas, w: &TransitionWindow, p: f64, t: f64, frames:
     let a = w.a.map(|a| clip_frame(a, t, cw, ch, frames));
     let b = clip_frame(w.b, t, cw, ch, frames);
     let p = p.clamp(0.0, 1.0) as f32;
+    // The grid flash is one definition with variants in its id (grid-flash-4x4-random and
+    // friends): its size and cell order ride along, and a shuffled order is seeded per clip
+    // so it's the same shuffle every frame.
+    let run = |c: &mut Canvas| {
+        if w.def.id == "grid-flash" {
+            let (cols, rows, order) = crate::fx::transitions::grid_flash_of(w.b.transition.as_ref().map(|tr| tr.id.as_str()).unwrap_or(w.def.id))
+                .unwrap_or((3, 3, crate::fx::transitions::GridOrder::Down));
+            let seed = crate::fx::transitions::id_seed(&w.b.id);
+            crate::fx::transitions::grid_flash_p(c, a.as_ref(), &b, p, t as f32, cols, rows, order, seed);
+        } else {
+            (w.def.draw)(c, a.as_ref(), &b, p, t as f32);
+        }
+    };
     c.save();
     c.reset_transform();
     if w.b.track == "V1" {
-        (w.def.draw)(c, a.as_ref(), &b, p, t as f32);
+        run(c);
     } else {
         // Titles and overlays: the transition happens to the object, not the frame. On its own
         // layer, and (unless it moves the object) kept to where the object is, so a dip to black
         // darkens the letters rather than the whole picture.
         let mut layer = Canvas::from_pixmap(pixmap(cw, ch));
-        (w.def.draw)(&mut layer, a.as_ref(), &b, p, t as f32);
+        run(&mut layer);
         let mut out = layer.into_pixmap();
         if w.def.group != crate::fx::transitions::TransitionGroup::Motion {
             keep_within(&mut out, a.as_ref(), &b);

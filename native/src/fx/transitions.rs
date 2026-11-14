@@ -302,7 +302,7 @@ shader_transition!(particles, "remocn-particles");
 shader_transition!(particle_drift, "remocn-particles-up");
 shader_transition!(shatter, "remocn-shatter");
 
-pub const TRANSITIONS: [TransitionDef; 50] = {
+pub const TRANSITIONS: [TransitionDef; 51] = {
     use TransitionGroup::*;
     [
         TransitionDef { id: "dissolve", name: "Dissolve", group: Dissolve, draw: dissolve },
@@ -357,10 +357,101 @@ pub const TRANSITIONS: [TransitionDef; 50] = {
         TransitionDef { id: "remocn-seam", name: "Seam", group: Shader, draw: super::remocn_tr::seam },
         TransitionDef { id: "remocn-spiral-pass", name: "Spiral pass", group: Shader, draw: super::remocn_tr::spiral_pass },
         TransitionDef { id: "remocn-shatter", name: "Shatter shift", group: Shader, draw: shatter },
+        TransitionDef { id: "grid-flash", name: "Grid flash", group: Stylized, draw: grid_flash },
     ]
 };
 
 pub fn transition_def(id: &str) -> Option<&'static TransitionDef> {
-    TRANSITIONS.iter().find(|t| t.id == id)
+    TRANSITIONS.iter().find(|t| t.id == id).or_else(|| {
+        // Parameterized ids: grid-flash-4x4-random and friends all run the grid flash.
+        id.starts_with("grid-flash").then(|| TRANSITIONS.iter().find(|t| t.id == "grid-flash").unwrap())
+    })
+}
+
+// ---------- Grid flash ----------
+
+/// The order a grid flash lights its cells in: reading down, back up, or shuffled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GridOrder {
+    Down,
+    Up,
+    Random,
+}
+
+/// A `grid-flash[-COLSxROWS[-down|up|random]]` id: the grid's size and its cell order.
+/// Bare `grid-flash` is the default, 3×3 (9 squares) reading from the first cell to the last.
+pub fn grid_flash_of(id: &str) -> Option<(u32, u32, GridOrder)> {
+    let rest = id.strip_prefix("grid-flash")?;
+    let (mut cols, mut rows, mut order) = (3u32, 3u32, GridOrder::Down);
+    for part in rest.trim_start_matches('-').split('-') {
+        if let Some((c, r)) = part.split_once('x') {
+            if let (Ok(c), Ok(r)) = (c.parse::<u32>(), r.parse::<u32>()) {
+                if (1..=12).contains(&c) && (1..=12).contains(&r) {
+                    (cols, rows) = (c, r);
+                }
+            }
+        } else if part == "up" {
+            order = GridOrder::Up;
+        } else if part == "random" {
+            order = GridOrder::Random;
+        }
+    }
+    Some((cols, rows, order))
+}
+
+/// A stable seed for a clip: shuffled orders must be the same every frame, and every
+/// clip gets its own shuffle.
+pub fn id_seed(id: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in id.bytes() {
+        h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+pub fn grid_flash(c: &mut Canvas, a: Option<&Pixmap>, b: &Pixmap, p: f32, t: f32) {
+    grid_flash_p(c, a, b, p, t, 3, 3, GridOrder::Down, 0)
+}
+
+/// The frame splits into a grid; each cell holds the outgoing clip until its turn, then a
+/// white flash goes off in it and decays fast, revealing that square of the incoming clip.
+/// With no outgoing clip the cells just flash in over what's below.
+pub fn grid_flash_p(c: &mut Canvas, a: Option<&Pixmap>, b: &Pixmap, p: f32, _t: f32, cols: u32, rows: u32, order: GridOrder, seed: u64) {
+    let (w, h) = (c.w(), c.h());
+    let n = (cols * rows) as usize;
+    let mut cells: Vec<usize> = (0..n).collect();
+    match order {
+        GridOrder::Down => {}
+        GridOrder::Up => cells.reverse(),
+        GridOrder::Random => {
+            let mut r = rng(seed as i64);
+            for i in (1..n).rev() {
+                let j = (r.next() * (i + 1) as f32) as usize;
+                cells.swap(i, j.min(i));
+            }
+        }
+    }
+    let (cw, ch) = (w / cols as f32, h / rows as f32);
+    let cols = cols as usize;
+    for (i, cell) in cells.iter().enumerate() {
+        let (cx, cy) = ((*cell % cols) as f32 * cw, (*cell / cols) as f32 * ch);
+        let s0 = i as f32 / n as f32;
+        let s1 = (i + 1) as f32 / n as f32;
+        clip_to(c, |c| c.rect(cx, cy, cw, ch), |c| {
+            if p <= s0 {
+                draw(c, a, 0.0, 0.0);
+            } else {
+                draw(c, Some(b), 0.0, 0.0);
+                // The flash fires when the cell's turn comes and decays over its slot,
+                // fast, so the square of the next clip shows through.
+                let q = ((p - s0) / (s1 - s0)).clamp(0.0, 1.0);
+                let flash = (1.0 - q).powi(2);
+                if flash > 0.004 {
+                    c.set_alpha(flash);
+                    c.fill_rect_color(cx, cy, cw, ch, hex("#fff"));
+                }
+            }
+        });
+    }
 }
 

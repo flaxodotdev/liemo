@@ -160,6 +160,7 @@ private struct TextSection: View {
             StyleColorRow(label: "Shadow", value: text.shadow, fallback: "#000000") { set(["shadow": $0 ?? "none"]) }
             StyleColorRow(label: "Glow", value: text.glow, fallback: "#ff2bd6") { set(["glow": $0 ?? "none"]) }
             StyleColorRow(label: "Highlight", value: text.highlight, fallback: "#ffd400") { set(["highlight": $0 ?? "none"]) }
+            StyleColorRow(label: "Liquid glass", value: text.glass, fallback: "#ffffff") { set(["glass": $0 ?? "none"]) }
             SliderRow(label: "3D tilt ↕", value: text.tiltX ?? 0, range: -70...70, fmt: { "\(Int($0))°" }) { set(["tiltX": $0]) }
             SliderRow(label: "3D tilt ↔", value: text.tiltY ?? 0, range: -70...70, fmt: { "\(Int($0))°" }) { set(["tiltY": $0]) }
             VStack(alignment: .leading, spacing: 6) {
