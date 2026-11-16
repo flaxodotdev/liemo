@@ -403,33 +403,58 @@ struct StickerPanel: View {
 
 // MARK: - Sound effects
 
-/// Sound effects made on the device (no licences to worry about), dropped on the voice & SFX
-/// track at the playhead.
+/// Sound effects: ten made on the device (no licences to worry about) plus the earshot bank of
+/// 252 code-rendered ones (MIT, github.com/Leonxlnx/earshot — its "real takes" are fitted from
+/// CC0 recordings). All drop on the voice & SFX track at the playhead.
 struct SfxPanel: View {
     let model: EditorModel
     let done: () -> Void
     @State private var player: AVAudioPlayer?
+    @State private var search = ""
 
     var body: some View {
         VStack(spacing: 0) {
             header("Sound effects", done: done)
+            HStack {
+                Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                TextField("Search sounds", text: $search).font(.system(size: 15)).autocorrectionDisabled()
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(Theme.muted) }
+                }
+            }
+            .padding(10).background(Theme.surface2, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 16).padding(.bottom, 4)
             ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Sfx.allCases) { s in
-                        HStack(spacing: 12) {
-                            Button { preview(s) } label: {
-                                Image(systemName: "play.fill").font(.system(size: 12)).frame(width: 32, height: 32)
-                                    .background(Theme.surface3, in: Circle())
+                VStack(alignment: .leading, spacing: 0) {
+                    if search.isEmpty {
+                        section("Made on device") {
+                            ForEach(Sfx.allCases) { s in
+                                row(s.name, String(format: "%.1fs", s.length)) {
+                                    preview(s.file())
+                                } add: {
+                                    if let url = s.file(), model.addMedia(url, track: "A2", duration: s.length, extra: [:]) { done() }
+                                }
                             }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(s.name).font(.system(size: 15, weight: .medium))
-                                Text(String(format: "%.1fs", s.length)).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                            }
-                            Spacer()
-                            Button("Add") { add(s) }.font(.system(size: 14, weight: .semibold))
                         }
-                        .foregroundStyle(Theme.ink)
-                        .padding(.vertical, 8).padding(.horizontal, 16)
+                    }
+                    ForEach(SfxBank.groups, id: \.self) { g in
+                        let sounds = SfxBank.inGroup(g).filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+                        if !sounds.isEmpty {
+                            section(g) {
+                                ForEach(sounds, id: \.id) { s in
+                                    row(s.name, String(format: "%.1fs", s.dur)) {
+                                        preview(s.url)
+                                    } add: {
+                                        if let url = s.url, model.addMedia(url, track: "A2", duration: s.dur, extra: [:]) { done() }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if search.isEmpty {
+                        Text("Sounds by earshot (MIT), github.com/Leonxlnx/earshot — the real takes are fitted from CC0 recordings.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            .padding(16)
                     }
                 }
             }
@@ -437,8 +462,31 @@ struct SfxPanel: View {
         .onDisappear { player?.stop() }
     }
 
-    private func preview(_ s: Sfx) {
-        guard let url = s.file() else { return }
+    @ViewBuilder private func section(_ title: String, @ViewBuilder rows: () -> some View) -> some View {
+        Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
+            .padding(.top, 14).padding(.bottom, 4).padding(.horizontal, 16)
+        rows()
+    }
+
+    private func row(_ name: String, _ dur: String, play: @escaping () -> Void, add: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            Button(action: play) {
+                Image(systemName: "play.fill").font(.system(size: 12)).frame(width: 32, height: 32)
+                    .background(Theme.surface3, in: Circle())
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.system(size: 15, weight: .medium)).lineLimit(1)
+                Text(dur).font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+            Spacer()
+            Button("Add", action: add).font(.system(size: 14, weight: .semibold))
+        }
+        .foregroundStyle(Theme.ink)
+        .padding(.vertical, 8).padding(.horizontal, 16)
+    }
+
+    private func preview(_ url: URL?) {
+        guard let url else { return }
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         player = try? AVAudioPlayer(contentsOf: url)
         player?.play()
