@@ -335,7 +335,11 @@ struct PreviewStage: View {
     @State private var box: [Double] = []
     private func refreshBox() {
         guard let s = model.selected else { box = []; return }
-        box = Core.shared.engine.clipBox(clipId: s, time: model.time)
+        let (id, t, engine, key) = (s, model.time, Core.shared.engine, boxKey)
+        Task.detached(priority: .userInitiated) {
+            let b = engine.clipBox(clipId: id, time: t)
+            await MainActor.run { if boxKey == key { self.box = b } }
+        }
     }
 
     /// The selected clip's outline and a corner handle to resize it with one finger. It follows the
@@ -453,9 +457,17 @@ struct PreviewStage: View {
         }
         if abs(l.scale - 1) > 0.001 { f["scale"] = (s.scale * Double(l.scale)).clamped(0.05, 8) }
         if abs(l.rot.degrees) > 0.01 { f["rotation"] = s.rot + l.rot.degrees }
-        if !f.isEmpty { model.update(c.id, f) }
-        model.endGesture()
-        if f.isEmpty { live = nil } else { live?.committed = model.rev }
+        if !f.isEmpty {
+            // The edit runs off the main thread: closing the gesture's undo batch and marking
+            // the layer committed both wait until the new state is in.
+            model.update(c.id, f) {
+                live?.committed = model.rev
+                model.endGesture()
+            }
+        } else {
+            model.endGesture()
+            live = nil
+        }
     }
 
     private func moveOrTilt(fit: CGSize, k: CGFloat) -> some Gesture {

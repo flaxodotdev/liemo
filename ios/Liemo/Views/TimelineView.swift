@@ -160,11 +160,14 @@ struct TimelineView: View {
                         zoomStart = s
                         pps = (s * v.magnification).clamped(8, 400)
                     }
-                    .onEnded { _ in zoomStart = nil }
+                    .onEnded { _ in
+                        zoomStart = nil
+                        model.setTileSpan(tileSpan, exactly: true)
+                    }
             )
             .onTapGesture { model.selected = nil }
             .onChange(of: tileSpan) { _, s in model.setTileSpan(s) }
-            .onAppear { model.setTileSpan(tileSpan) }
+            .onAppear { model.setTileSpan(tileSpan, exactly: true) }
         }
     }
 
@@ -255,6 +258,7 @@ private struct ClipView: View {
     let pps: CGFloat
     @State private var dx: CGFloat = 0
     @State private var kind: Kind?
+    @State private var gen = 0
 
     enum Kind { case move, left, right }
 
@@ -338,6 +342,7 @@ private struct ClipView: View {
     private func drag(_ k: Kind, minimum: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: minimum)
             .onChanged { v in
+                gen += 1
                 kind = k
                 dx = v.translation.width
             }
@@ -347,16 +352,17 @@ private struct ClipView: View {
     private func commit(_ k: Kind, _ moved: CGFloat) {
         let c = clip
         let d = Double(moved / pps)
-        // Keep the dragged look until the engine's answer replaces this clip.
-        defer {
-            kind = nil
-            dx = 0
-        }
+        // The edit is async now: hold the dragged look until the engine's answer replaces
+        // this clip, so the clip doesn't snap back for a frame in between. A newer drag
+        // invalidates an older settle.
+        let g = gen
+        let settle = { if gen == g { kind = nil; dx = 0 } }
+        if abs(d) < 1e-9 { settle(); return }
         switch k {
         case .move:
-            model.update(c.id, ["start": max(0, c.start + d)])
+            model.update(c.id, ["start": max(0, c.start + d)], done: settle)
         case .right:
-            model.update(c.id, ["duration": max(0.2, c.dur + d)])
+            model.update(c.id, ["duration": max(0.2, c.dur + d)], done: settle)
         case .left:
             let media = ["video", "audio", "music"].contains(c.type)
             var d = min(d, c.dur - 0.2)
@@ -364,7 +370,7 @@ private struct ClipView: View {
             if media { d = max(d, -c.in) }
             var f: [String: Any] = ["start": c.start + d, "duration": c.dur - d]
             if media { f["in"] = c.in + d }
-            model.update(c.id, f)
+            model.update(c.id, f, done: settle)
         }
     }
 }
@@ -412,7 +418,7 @@ private struct FilmTile: View {
             }
         }
         .overlay(alignment: .trailing) { Rectangle().fill(Color.black.opacity(0.25)).frame(width: 0.5) }
-        .task(id: model.rev) { model.loadTile(index) }
+        .task(id: "\(model.rev)|\(model.tileSpan)") { model.loadTile(index) }
     }
 }
 

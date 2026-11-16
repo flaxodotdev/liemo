@@ -23,7 +23,7 @@ final class EditorModel {
     /// Filmstrip frames by index (frame i shows time (i + ½) × tileSpan), and which version of
     /// the edit each was drawn from: old frames stay up until fresh ones replace them.
     private(set) var tiles: [Int: CGImage] = [:]
-    @ObservationIgnored private var tileRev: [Int: Int] = [:]
+    @ObservationIgnored private var tileRev: [Int: (Double, Int)] = [:]
     @ObservationIgnored private var tilesBusy: Set<Int> = []
     @ObservationIgnored private(set) var tileSpan: Double = 1
     private(set) var rev = 0
@@ -41,12 +41,10 @@ final class EditorModel {
     @ObservationIgnored private let audio = AudioOut()
     /// While recording a voiceover the playhead may run past the end of the edit.
     @ObservationIgnored var recordingPastEnd = false
-    @ObservationIgnored private var gestureSent: CFTimeInterval = 0
 
     init(id: String) {
         self.id = id
     }
-
     var duration: Double { doc?.duration ?? 0 }
     var selectedClip: Clip? { doc?.clips.first { $0.id == selected } }
     var aspect: Double { guard let d = doc else { return 16 / 9 }; return d.canvas.width / d.canvas.height }
@@ -127,13 +125,6 @@ final class EditorModel {
     /// second so the preview keeps up with the finger.
     func beginGesture() {
         core.engine.beginGesture()
-        gestureSent = 0
-    }
-    func gestureUpdate(_ clip: String, _ fields: [String: Any], final: Bool = false) {
-        let now = CACurrentMediaTime()
-        guard final || now - gestureSent > 0.05 else { return }
-        gestureSent = now
-        update(clip, fields)
     }
     /// An edit during a gesture that only the moving clip's own picture needs to show: the engine
     /// takes it, but the project isn't re-read (that waits for the gesture's end).
@@ -148,44 +139,65 @@ final class EditorModel {
         canUndo = core.engine.canUndo()
     }
 
-    func update(_ clip: String, _ fields: [String: Any]) {
+    /// The hot edit path — dragging handles, trims, sliders. The engine call, the project's
+    /// save and the re-read all run off the main thread, so a commit never blocks a finger;
+    /// `done` fires on the main thread once the new state is in.
+    func update(_ clip: String, _ fields: [String: Any], done: (() -> Void)? = nil) {
         var f = fields
         f["clip"] = clip
-        edit("update_clip", f)
+        let (a, core, pid) = (f, core, id)
+        Task.detached(priority: .userInitiated) {
+            let r = core.call("update_clip", a)
+            let d: ProjectDoc? = r.ok ? try? core.decode(ProjectDoc.self, "get_project", ["project": pid]) : nil
+            await MainActor.run {
+                if !r.ok { self.error = r.text }
+                if let d { self.apply(d) }
+                done?()
+            }
+        }
     }
 
-    /// The project changed outside this model (Liemo AI): show what the engine has now.
-    func reload() {
-        if let d = try? core.decode(ProjectDoc.self, "get_project", ["project": id]) {
-            doc = d
-            if let s = selected, !d.clips.contains(where: { $0.id == s }) { selected = nil }
-        }
+    private func apply(_ d: ProjectDoc) {
+        doc = d
+        if let s = selected, !d.clips.contains(where: { $0.id == s }) { selected = nil }
         rev += 1
         canUndo = core.engine.canUndo()
         canRedo = core.engine.canRedo()
         requestFrame()
     }
 
-    func setTileSpan(_ s: Double) {
-        guard abs(s - tileSpan) > 1e-6 else { return }
-        tileSpan = s
-        tiles = [:]
-        tileRev = [:]
+    /// The project changed outside this model (Liemo AI): show what the engine has now.
+    func reload() {
+        if let d = try? core.decode(ProjectDoc.self, "get_project", ["project": id]) {
+            apply(d)
+        } else {
+            canUndo = core.engine.canUndo()
+            canRedo = core.engine.canRedo()
+        }
     }
 
-    /// Draw filmstrip frame `i` if it's missing or older than the edit.
+    /// Zoom steps land coarsely, so a pinch doesn't queue a whole filmstrip re-render every
+    /// tick; stale frames stay up until their fresh ones replace them (never a blank flash).
+    /// `exactly` applies small steps too — for a pinch's last tick, so tiles and ruler agree.
+    func setTileSpan(_ s: Double, exactly: Bool = false) {
+        guard exactly || abs(s - tileSpan) > tileSpan * 0.04 else { return }
+        tileSpan = s
+    }
+
+    /// Draw filmstrip frame `i` if it's missing or older than the edit or the zoom.
     func loadTile(_ i: Int) {
-        guard tileRev[i] != rev, !tilesBusy.contains(i) else { return }
+        let (span, r) = (tileSpan, rev)
+        if let done = tileRev[i], done.0 == span, done.1 == r { return }
+        guard !tilesBusy.contains(i) else { return }
         tilesBusy.insert(i)
-        let (t, r, span, engine) = ((Double(i) + 0.5) * tileSpan, rev, tileSpan, core.engine)
+        let (t, engine) = ((Double(i) + 0.5) * span, core.engine)
         Task.detached(priority: .utility) {
             let img = engine.renderFrame(time: t, max: 140)?.cgImage
             await MainActor.run {
                 self.tilesBusy.remove(i)
-                guard span == self.tileSpan else { return }
                 if let img { self.tiles[i] = img }
-                self.tileRev[i] = r
-                if r != self.rev { self.loadTile(i) }
+                self.tileRev[i] = (span, r)
+                if r != self.rev || span != self.tileSpan { self.loadTile(i) }
             }
         }
     }
