@@ -1,0 +1,110 @@
+{
+ "edit": 1,
+ "track": "audio/music/dance_floor_coverr.mp3",
+ "analysis": "audio/music/dance_floor_coverr.track.json",
+ "licence": "audio/music/dance_floor_coverr.licence.json",
+ "sha256": "58a752bdad0967784d43640f0c4eb355baeee0336f896aebe5e5c939428c3e54",
+ "bpm": 85.334,
+ "beat_s": 0.70312,
+ "beats_per_bar": 4,
+ "film_t0": 0.25,
+ "film_bars": 7,
+ "phrase_len": 8,
+ "args": {
+  "bars": 7,
+  "reveal_bar": 7,
+  "end": "fade",
+  "start_bar": null,
+  "entry": 12,
+  "film_t0": 0.25,
+  "fade": 2.5,
+  "arc": null,
+  "map": null,
+  "fit": true
+ },
+ "reveal": {
+  "film_bar": 7,
+  "src_bar": 12,
+  "film_s": 17.125
+ },
+ "segments": [
+  {
+   "film_bar": 1,
+   "src_bar": 6,
+   "bars": 7,
+   "film_s": 0.25,
+   "src_from": 15.001,
+   "src_to": 34.689
+  }
+ ],
+ "joins": [],
+ "ending": {
+  "mode": "fade",
+  "fade_from_film_s": 19.938,
+  "fade_s": 2.5,
+  "end_s": 19.938,
+  "hold_s": 2.5
+ },
+ "track_dips": [],
+ "film": {
+  "downbeats": [
+   0.25,
+   3.063,
+   5.874,
+   8.687,
+   11.5,
+   14.313,
+   17.125,
+   19.938
+  ],
+  "accents": [
+   {
+    "t": 0.25,
+    "db": 8.5,
+    "band": "low"
+   },
+   {
+    "t": 0.601,
+    "db": 6.4,
+    "band": "mid"
+   },
+   {
+    "t": 0.717,
+    "db": 7.3,
+    "band": "high"
+   }
+  ],
+  "entries": [
+   0.25,
+   17.125
+  ],
+  "breaks": [],
+  "stops": [],
+  "phrases": [
+   8.687
+  ],
+  "sections": [
+   {
+    "from": 0.25,
+    "to": 19.938,
+    "label": "body"
+   }
+  ]
+ },
+ "key": "C minor",
+ "key_r": 0.812,
+ "cost": {
+  "total": 16.59,
+  "splices": 0
+ },
+ "muffled_bars": [],
+ "fit": {
+  "bars": 7,
+  "reveal_bar": 7,
+  "cuts": [
+   1
+  ],
+  "end_asked": "fade",
+  "midshot_steps": []
+ }
+}

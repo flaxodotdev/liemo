@@ -13,6 +13,8 @@ pub enum ParamKind {
     Toggle,
     /// A file on disk (the value is its path), with this extension.
     File(&'static str),
+    /// Free text typed by the user.
+    Text,
 }
 #[derive(Clone, Debug)]
 pub struct ParamDef {
@@ -23,7 +25,7 @@ pub struct ParamDef {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Engine {
-    Css, Ascii, Dots, Pixelate, Dither, RgbSplit, Glitch, Posterize, Duotone, Vhs, Crt, Shake, Mirror, Edges, Emboss,
+    Css, Ascii, DitherText, Dots, Pixelate, Dither, RgbSplit, Glitch, Posterize, Duotone, Vhs, Crt, Shake, Mirror, Edges, Emboss,
     GradientMap, ZoomBlur, Wave, TiltShift, Glow, Threshold, Solarize, ColorScale, Look, Shader, Adjust,
     /// The phone-editor set in `fx::extra`, dispatched by id.
     Extra,
@@ -179,6 +181,9 @@ pub(crate) fn select(key: &'static str, label: &'static str, options: Vec<(&'sta
 pub(crate) fn color(key: &'static str, label: &'static str) -> ParamDef {
     ParamDef { key, label, kind: ParamKind::Color }
 }
+pub(crate) fn text_param(key: &'static str, label: &'static str) -> ParamDef {
+    ParamDef { key, label, kind: ParamKind::Text }
+}
 pub(crate) fn toggle(key: &'static str, label: &'static str) -> ParamDef {
     ParamDef { key, label, kind: ParamKind::Toggle }
 }
@@ -303,6 +308,20 @@ pub fn effects() -> &'static Vec<EffectDef> {
             ascii("halftone", "Halftone", &[("set", s("dots")), ("cell", n(10.0)), ("contrast", n(1.1))]),
             ascii("pixel-squares", "Pixel squares", &[("set", s("squares")), ("cell", n(14.0)), ("contrast", n(1.0))]),
             ascii("hatch", "Hatching", &[("set", s("hatch")), ("cell", n(10.0)), ("color", s("tint")), ("tint", s("#ffffff")), ("bg", s("black"))]),
+            def("dither-text", "Dither text", Stylize, En::DitherText,
+                &[("text", s("NINE NOW BOARDING PLATFORM")), ("cell", n(16.0)), ("dither", n(0.8)), ("contrast", n(1.2)), ("shadow", n(0.0)), ("scramble", n(0.06)), ("color", s("ink")), ("ink", s("#efe6d2")), ("bg", s("#141210")), ("invert", b(false))],
+                vec![
+                    text_param("text", "Text"),
+                    range("cell", "Letter size", 6.0, 48.0, 1.0, "px"),
+                    range("dither", "Dither above", 0.3, 1.0, 0.01, ""),
+                    range("contrast", "Contrast", 0.5, 3.0, 0.05, "×"),
+                    range("shadow", "Shadow letters", 0.0, 0.6, 0.01, ""),
+                    range("scramble", "Scramble", 0.0, 0.5, 0.01, ""),
+                    select("color", "Colour", vec![("ink", "Ink"), ("source", "Original")]),
+                    color("ink", "Ink"),
+                    color("bg", "Background"),
+                    toggle("invert", "Invert"),
+                ]),
             ascii("moon", "Moon phases", &[("set", s("moon")), ("cell", n(22.0)), ("contrast", n(1.4))]),
             def("pixelate", "Pixelate", Stylize, En::Pixelate, &[("size", n(16.0))], vec![range("size", "Pixel size", 2.0, 80.0, 1.0, "px")]),
             def("dither", "Dither", Retro, En::Dither, &[("palette", s("1bit")), ("pixel", n(3.0)), ("spread", n(1.0))], dither_params.clone()),

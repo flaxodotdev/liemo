@@ -1,0 +1,25 @@
+{
+  "name": "liemo-site",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack -p 3001",
+    "build": "next build",
+    "start": "npx serve out"
+  },
+  "dependencies": {
+    "lucide-react": "^1.68.0",
+    "next": "15.5.29",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4.3.4",
+    "typescript": "^5"
+  }
+}

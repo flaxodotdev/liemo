@@ -303,6 +303,152 @@ fn ascii(src: &Pixmap, dst: &mut Pixmap, p: &Params, t: f32, object: bool) {
     *dst = out;
 }
 
+// ---------- Dither text ----------
+/// Glyph tiles for each distinct character of a phrase (bold mono, white on transparent).
+fn phrase_atlas(chars: &[char], cell: u32) -> Arc<HashMap<char, Pixmap>> {
+    static C: OnceLock<Mutex<HashMap<(String, u32), Arc<HashMap<char, Pixmap>>>>> = OnceLock::new();
+    let cache = C.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = (chars.iter().collect::<String>(), cell);
+    if let Some(a) = cache.lock().get(&key) {
+        return a.clone();
+    }
+    let cf = cell as f32;
+    let st = TextStyle { family: "JetBrains Mono", weight: 700.0, size: (cf * 0.92).round(), spacing: 0.0 };
+    let mut tiles = HashMap::new();
+    for &ch in chars {
+        tiles.entry(ch).or_insert_with(|| glyph_tile(&ch.to_string(), cell, &st, cf * 0.05));
+    }
+    let a = Arc::new(tiles);
+    let mut c = cache.lock();
+    if c.len() > 40 {
+        c.clear();
+    }
+    c.insert(key, a.clone());
+    a
+}
+
+fn hash3(x: u32, y: u32, z: u32) -> u32 {
+    let mut h = x.wrapping_mul(0x9E37_79B1) ^ y.wrapping_mul(0x85EB_CA77) ^ z.wrapping_mul(0xC2B2_AE3D);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    h
+}
+
+/// The picture written out as a repeating phrase on a grid: letter brightness follows the
+/// picture, the brightest cells turn into ordered-dither blocks, and a few letters scramble.
+fn dither_text(src: &Pixmap, dst: &mut Pixmap, p: &Params, t: f32, object: bool) {
+    let (w, h) = (dst.width() as usize, dst.height() as usize);
+    let k = unit_of(dst);
+    let cell_px = (num(p, "cell", 16.0) as f32 * k).max(4.0);
+    let cols = ((w as f32 / cell_px).ceil() as usize).max(1);
+    let rows = ((h as f32 / cell_px).ceil() as usize).max(1);
+    let phrase: Vec<char> = {
+        let v: Vec<char> = text(p, "text", "NINE NOW BOARDING PLATFORM").chars().filter(|c| !c.is_whitespace()).collect();
+        if v.is_empty() { "LIEMO".chars().collect() } else { v }
+    };
+    let contrast = num(p, "contrast", 1.2) as f32;
+    let hi = num(p, "dither", 0.8) as f32;
+    let shadow = num(p, "shadow", 0.0) as f32;
+    let scramble = num(p, "scramble", 0.06) as f32;
+    let invert = flag(p, "invert");
+    let source_col = text(p, "color", "ink") == "source";
+    let ink = hex_rgb(text(p, "ink", "#efe6d2"));
+    let bg = hex_rgb(text(p, "bg", "#141210"));
+
+    let small = resample_area(src, cols as u32, rows as u32);
+    let px = to_straight(&small);
+    let tile_size = cell_px.round().max(4.0) as u32;
+    let atlas = phrase_atlas(&phrase, tile_size);
+    // Dither dots: a few device pixels each, so the checker reads at any frame size.
+    let dot = (cell_px / 7.0).round().max(1.0) as usize;
+    // Scrambled letters re-roll about eight times a second.
+    let tick = (t * 8.0).floor().max(0.0) as u32;
+
+    let mut out = pixmap(w as u32, h as u32);
+    let d = out.data_mut();
+    for y in 0..rows {
+        for x in 0..cols {
+            let i = (y * cols + x) * 4;
+            let a = px[i + 3] as f32 / 255.0;
+            if a == 0.0 {
+                continue;
+            }
+            let mut l = lum(px[i] as f32, px[i + 1] as f32, px[i + 2] as f32);
+            l = clamp01((l - 0.5) * contrast + 0.5);
+            if invert {
+                l = 1.0 - l;
+            }
+            let col = if source_col { [px[i] as f32, px[i + 1] as f32, px[i + 2] as f32] } else { ink };
+            let x0 = (x as f32 * cell_px).round() as i32;
+            let y0 = (y as f32 * cell_px).round() as i32;
+            let x1 = (((x + 1) as f32 * cell_px).round() as i32).min(w as i32);
+            let y1 = (((y + 1) as f32 * cell_px).round() as i32).min(h as i32);
+            // Highlights turn into ordered-dither blocks, more often and denser the brighter they
+            // are; the pick is fixed per cell so the pattern doesn't flicker.
+            let over = clamp01((l - hi) / (1.0 - hi).max(1e-3));
+            let chance = clamp01((l - (hi - 0.12)) / (1.12 - hi).max(1e-3));
+            if hi < 1.0 && l >= hi - 0.12 && (hash3(x as u32, y as u32, 7) & 0xffff) as f32 / 65535.0 < chance * chance {
+                let dens = 0.4 + 0.4 * over;
+                let m = ((x1 - x0) as f32 * 0.08).round() as i32;
+                for yy in (y0 + m).max(0)..(y1 - m) {
+                    for xx in (x0 + m).max(0)..(x1 - m) {
+                        let (bx, by) = ((xx as usize / dot) & 3, (yy as usize / dot) & 3);
+                        if (BAYER[by * 4 + bx] + 0.5) / 16.0 < dens {
+                            let o = (yy as usize * w + xx as usize) * 4;
+                            for c in 0..3 {
+                                d[o + c] = (col[c] * a).round() as u8;
+                            }
+                            d[o + 3] = (a * 255.0).round() as u8;
+                        }
+                    }
+                }
+                continue;
+            }
+            let ga = clamp01(shadow + (1.0 - shadow) * (l / hi.max(1e-3)).powf(1.3)) * a;
+            if ga < 0.03 {
+                continue;
+            }
+            let idx = y * cols + x;
+            let r = hash3(x as u32, y as u32, tick);
+            let ch = if (r & 0xffff) as f32 / 65535.0 < scramble { phrase[(r >> 16) as usize % phrase.len()] } else { phrase[idx % phrase.len()] };
+            let Some(tile) = atlas.get(&ch) else { continue };
+            let size = (x1 - x0).max(1) as usize;
+            // Stamp the glyph in the cell's colour (tiles are white, so scale by the colour).
+            let ts = tile.width() as usize;
+            let td = tile.data();
+            for ty in 0..size {
+                let yy = y0 + ty as i32;
+                if yy < 0 || yy as usize >= h {
+                    continue;
+                }
+                let sy = (ty * ts / size).min(ts - 1);
+                for tx in 0..size {
+                    let xx = x0 + tx as i32;
+                    if xx < 0 || xx as usize >= w {
+                        continue;
+                    }
+                    let sx = (tx * ts / size).min(ts - 1);
+                    let sa = td[(sy * ts + sx) * 4 + 3] as f32 / 255.0 * ga;
+                    if sa <= 0.0 {
+                        continue;
+                    }
+                    let o = (yy as usize * w + xx as usize) * 4;
+                    let inv = 1.0 - sa;
+                    for c in 0..3 {
+                        d[o + c] = (col[c] * sa + d[o + c] as f32 * inv).round().min(255.0) as u8;
+                    }
+                    d[o + 3] = (sa * 255.0 + d[o + 3] as f32 * inv).round().min(255.0) as u8;
+                }
+            }
+        }
+    }
+    if !object {
+        under_color(&mut out, [bg[0] as u8, bg[1] as u8, bg[2] as u8]);
+    }
+    *dst = out;
+}
+
 // ---------- Pixelate ----------
 fn pixelate(src: &Pixmap, dst: &mut Pixmap, p: &Params) {
     let (w, h) = (dst.width(), dst.height());
@@ -1156,7 +1302,7 @@ pub fn apply_css_filter(pm: &mut Pixmap, filter: &str) {
 /// Engines that paint pixels where the input was transparent (backgrounds, noise, vignettes,
 /// kernels). On an object they get cut back to its shape plus a soft margin.
 fn fills(e: Engine) -> bool {
-    matches!(e, Engine::Ascii | Engine::Dots | Engine::Vhs | Engine::Crt | Engine::Glitch | Engine::Edges | Engine::Emboss | Engine::GradientMap)
+    matches!(e, Engine::Ascii | Engine::DitherText | Engine::Dots | Engine::Vhs | Engine::Crt | Engine::Glitch | Engine::Edges | Engine::Emboss | Engine::GradientMap)
 }
 fn mask_to_object(out: &mut Pixmap, shape: &Pixmap) {
     let halo = blur_of(shape, 10.0);
@@ -1195,6 +1341,7 @@ pub fn run_effects(src: &Pixmap, stack: &[ClipEffect], t: f32, dur: f32, object:
         let p = &fx.params;
         match def.engine {
             Engine::Ascii => ascii(&cur, &mut out, p, t, object),
+            Engine::DitherText => dither_text(&cur, &mut out, p, t, object),
             Engine::Pixelate => pixelate(&cur, &mut out, p),
             Engine::Dither => dither(&cur, &mut out, p),
             Engine::RgbSplit => rgbsplit(&cur, &mut out, p, t),

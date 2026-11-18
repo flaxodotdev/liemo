@@ -132,7 +132,7 @@ impl Engine {
         let _ = std::fs::create_dir_all(&data_dir);
         crate::media::set_host(host.clone());
         // Remove background asks the device's AI (Vision) for the subject, on a small copy.
-        crate::fx::cutout::set_segmenter(Box::new(move |pm: &Pixmap| {
+        crate::fx::cutout::set_segmenter(Box::new(move |pm: &Pixmap, _pick: Option<(f32, f32)>| {
             let k = (512.0 / pm.width().max(pm.height()) as f32).min(1.0);
             let small = if k < 1.0 {
                 crate::render::canvas::resample_area(pm, ((pm.width() as f32 * k) as u32).max(1), ((pm.height() as f32 * k) as u32).max(1))

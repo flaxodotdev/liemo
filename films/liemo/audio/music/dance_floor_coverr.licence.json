@@ -1,0 +1,39 @@
+{
+ "record": 1,
+ "kind": "music",
+ "file": "dance_floor_coverr.mp3",
+ "sha256": "58a752bdad0967784d43640f0c4eb355baeee0336f896aebe5e5c939428c3e54",
+ "bytes": 1500935,
+ "title": "dance floor",
+ "artist": "Coverr",
+ "source": "Coverr",
+ "page": "https://coverr.co/free-stock-music",
+ "file_url": "https://cdn.coverr.co/audios/coverr-dance-floor-l6I4oS/preview.mp3?download=true",
+ "licence": "Coverr License",
+ "licence_id": "coverr",
+ "licence_url": "https://coverr.co/license",
+ "credit_required": false,
+ "credit": "Music: \"dance floor\" by Coverr (Coverr)",
+ "content_id": "unknown",
+ "ai_generated": false,
+ "vocals": false,
+ "checked": "2026-11-13",
+ "certificate": null,
+ "licence_seen": {
+  "quote": "All videos and music tracks published on Coverr.co are available for free for both commercial and non-commercial purposes. You are not required to seek permission from or provide credit to the content creator or Coverr.co.",
+  "url": "https://coverr.co/license",
+  "date": "2026-11-13"
+ },
+ "limits": "free for commercial and non-commercial films, no credit; never compile Coverr items into a similar or competing service, never use them to train AI, and trademarks that appear in an item need their owner's permission",
+ "modifications": "edited at bar lines for the film; levels adjusted",
+ "found": {
+  "by": "music.mjs",
+  "query": "upbeat electronic pulse forward bright instrumental",
+  "listed_notice": "Coverr License",
+  "ai_marked": false,
+  "vocal_tags": false,
+  "notes": [
+   "Coverr's free download: the full-length MP3 (128 kbps); the WAV master needs an account"
+  ]
+ }
+}

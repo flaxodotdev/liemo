@@ -235,6 +235,8 @@ pub struct Editor {
     /// in canvas units.
     pub snap_mode: bool,
     pub snap_drag: Option<((f32, f32), (f32, f32))>,
+    /// Pick-subject mode: the clip and effect a click on the picture feeds a pick point to.
+    pub pick_fx: Option<(String, String)>,
     pub stage_guides: Vec<(bool, f32)>,
     pub readout: Option<String>,
     // Saving
@@ -245,6 +247,8 @@ pub struct Editor {
     // Export
     pub export: Option<export_ui::ExportUi>,
     pickers: HashMap<String, (Entity<gpui_component::color_picker::ColorPickerState>, Subscription)>,
+    /// Text fields of effect parameters (a dither-text phrase), keyed by effect uid and param.
+    fx_texts: HashMap<String, (Entity<InputState>, Subscription)>,
     scheduled_rev: u64,
     stage_size: (f32, f32),
     /// A take being recorded from the microphone.
@@ -457,6 +461,7 @@ impl Editor {
             hover_clip: None,
             snap_mode: false,
             snap_drag: None,
+            pick_fx: None,
             stage_guides: vec![],
             readout: None,
             save_state: SaveState::Saved,
@@ -464,6 +469,7 @@ impl Editor {
             save_task: None,
             export: None,
             pickers: HashMap::new(),
+            fx_texts: HashMap::new(),
             scheduled_rev: 0,
             stage_size: (0.0, 0.0),
             _wake: wake,
@@ -830,6 +836,7 @@ impl Editor {
                     self.snap_mode = false;
                     self.snap_drag = None;
                 }
+                "escape" if self.pick_fx.is_some() => self.pick_fx = None,
                 "escape" if self.cinema => self.toggle_cinema(window, cx),
                 "escape" => s.select(None),
                 "f" => self.toggle_cinema(window, cx),

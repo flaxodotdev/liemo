@@ -12,7 +12,8 @@ use std::sync::OnceLock;
 use tiny_skia::{BlendMode, Pixmap};
 
 /// Finds the subject in a frame: returns a mask (0–255 per pixel, row by row) at any size.
-pub type Segmenter = Box<dyn Fn(&Pixmap) -> Option<(Vec<u8>, u32, u32)> + Send + Sync>;
+/// With a pick point (normalised x, y in the frame) only the subject under it is kept.
+pub type Segmenter = Box<dyn Fn(&Pixmap, Option<(f32, f32)>) -> Option<(Vec<u8>, u32, u32)> + Send + Sync>;
 
 fn slot() -> &'static RwLock<Option<Segmenter>> {
     static S: OnceLock<RwLock<Option<Segmenter>>> = OnceLock::new();
@@ -24,9 +25,9 @@ pub fn set_segmenter(f: Segmenter) {
 }
 
 /// The subject mask at the frame's size, as an alpha-only pixmap.
-fn subject_mask(src: &Pixmap) -> Option<Pixmap> {
+fn subject_mask(src: &Pixmap, pick: Option<(f32, f32)>) -> Option<Pixmap> {
     let s = slot().read();
-    let (m, mw, mh) = (s.as_ref()?)(src)?;
+    let (m, mw, mh) = (s.as_ref()?)(src, pick)?;
     if m.len() < (mw * mh) as usize || mw == 0 || mh == 0 {
         return None;
     }
@@ -124,11 +125,17 @@ fn finish(src: &Pixmap, mask: &Pixmap, p: &Params) -> Pixmap {
     out.into_pixmap()
 }
 
+/// The picked subject point, if the effect has one (normalised x, y in the frame).
+fn pick_of(p: &Params) -> Option<(f32, f32)> {
+    let (x, y) = (num(p, "pickX", -1.0) as f32, num(p, "pickY", -1.0) as f32);
+    (x >= 0.0 && x <= 1.0 && y >= 0.0 && y <= 1.0).then_some((x, y))
+}
+
 /// Run a cutout effect over `src`.
 pub fn run(id: &str, src: &Pixmap, dst: &mut Pixmap, p: &Params) {
     let mask = match id {
         "chroma-key" => Some(key_mask(src, p)),
-        _ => subject_mask(src),
+        _ => subject_mask(src, pick_of(p)),
     };
     let Some(mask) = mask else {
         // No AI on this device: leave the picture as it is.

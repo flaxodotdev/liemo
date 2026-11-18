@@ -1,0 +1,243 @@
+{
+ "version": 1,
+ "tool": "brand.py",
+ "name": "Liemo",
+ "colours": {
+  "source": "supplied",
+  "accent": "#0099FF",
+  "stage": "dark",
+  "list": [
+   {
+    "hex": "#0099FF",
+    "role": "accent",
+    "L": 0.669,
+    "C": 0.1837,
+    "h": 248.8066,
+    "label": "colours accent"
+   },
+   {
+    "hex": "#0A0A0A",
+    "role": "extra",
+    "L": 0.1448,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours list 1 hex"
+   },
+   {
+    "hex": "#FFFFFF",
+    "role": "extra",
+    "L": 1.0,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours list 2 hex"
+   },
+   {
+    "hex": "#121212",
+    "role": "extra",
+    "L": 0.1822,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours list 3 hex"
+   },
+   {
+    "hex": "#F2F2F2",
+    "role": "extra",
+    "L": 0.9612,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours list 4 hex"
+   },
+   {
+    "hex": "#8C8C8C",
+    "role": "extra",
+    "L": 0.6401,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours list 5 hex"
+   },
+   {
+    "hex": "#1F1F1F",
+    "role": "extra",
+    "L": 0.2393,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours list 6 hex"
+   },
+   {
+    "hex": "#151515",
+    "role": "extra",
+    "L": 0.1957,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours tokens ink2 hex"
+   },
+   {
+    "hex": "#E8E8E8",
+    "role": "extra",
+    "L": 0.931,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours tokens mist hex"
+   },
+   {
+    "hex": "#696969",
+    "role": "extra",
+    "L": 0.5208,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours tokens mute hex"
+   },
+   {
+    "hex": "#484848",
+    "role": "extra",
+    "L": 0.4017,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "colours tokens slateRaised hex"
+   },
+   {
+    "hex": "#0A0A0A",
+    "role": "ground",
+    "L": 0.1448,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "background"
+   },
+   {
+    "hex": "#FFFFFF",
+    "role": "extra",
+    "L": 1.0,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "paper"
+   },
+   {
+    "hex": "#121212",
+    "role": "extra",
+    "L": 0.1822,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "surface"
+   },
+   {
+    "hex": "#F2F2F2",
+    "role": "ink",
+    "L": 0.9612,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "ink"
+   },
+   {
+    "hex": "#8C8C8C",
+    "role": "extra",
+    "L": 0.6401,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "muted"
+   },
+   {
+    "hex": "#1F1F1F",
+    "role": "line",
+    "L": 0.2393,
+    "C": 0.0,
+    "h": 89.8756,
+    "label": "line"
+   },
+   {
+    "hex": "#0099FF",
+    "role": "extra",
+    "L": 0.669,
+    "C": 0.1837,
+    "h": 248.8066,
+    "label": "accent"
+   }
+  ],
+  "second_hues": [],
+  "checks": {
+   "stage": "dark",
+   "statements": 17.68,
+   "accent_on_stage": 6.6,
+   "accent_on_paper": 2.68,
+   "accent_lift_on_slate": 3.05,
+   "type_on_slate": 8.17
+  },
+  "tokens": {
+   "ink": {
+    "hex": "#0A0A0A",
+    "supplied": true
+   },
+   "ink2": {
+    "hex": "#151515",
+    "supplied": true
+   },
+   "paper": {
+    "hex": "#F2F2F2",
+    "supplied": true
+   },
+   "mist": {
+    "hex": "#E8E8E8",
+    "supplied": true
+   },
+   "line": {
+    "hex": "#1F1F1F",
+    "supplied": true
+   },
+   "mute": {
+    "hex": "#696969",
+    "supplied": true
+   },
+   "white": {
+    "hex": "#FFFFFF",
+    "supplied": false
+   },
+   "accent": {
+    "hex": "#0099FF",
+    "supplied": true
+   },
+   "slate": {
+    "hex": "#484848",
+    "supplied": true
+   },
+   "slateRaised": {
+    "hex": "#484848",
+    "supplied": false
+   },
+   "accentLift": {
+    "hex": "#0099FF",
+    "supplied": true
+   }
+  }
+ },
+ "fonts": {
+  "family": null,
+  "google": null,
+  "faces": [],
+  "skipped": []
+ },
+ "logo": {
+  "mark": {
+   "file": "logo-mark.svg",
+   "split": "leaves",
+   "parts": [
+    "shard-a",
+    "shard-b"
+   ],
+   "leaves": 2,
+   "viewBox": "296 163 161 237"
+  },
+  "wordmark": null,
+  "raster": null
+ },
+ "screenshots": [
+  {
+   "file": "editor.webp",
+   "use": "rebuild as live UI with src/kit at film size; the image only under a camera move"
+  }
+ ],
+ "photos": [],
+ "notes": [
+  "the accent holds 2.7:1 on paper: play the film on the brand's dark ground, or keep it to large graphics and floods on a light stage"
+ ],
+ "warnings": [],
+ "fails": []
+}

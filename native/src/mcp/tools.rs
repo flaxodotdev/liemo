@@ -586,6 +586,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                             ParamKind::Color => json!({ "key": p.key, "label": p.label, "type": "color", "default": e.defaults.get(p.key) }),
                             ParamKind::Toggle => json!({ "key": p.key, "label": p.label, "type": "boolean", "default": e.defaults.get(p.key) }),
                             ParamKind::File(ext) => json!({ "key": p.key, "label": p.label, "type": "file", "extension": ext, "description": format!("Absolute path to a .{ext} file") }),
+                            ParamKind::Text => json!({ "key": p.key, "label": p.label, "type": "string", "default": e.defaults.get(p.key) }),
                         })
                         .collect();
                     let group = EFFECT_GROUPS.iter().find(|(g, _)| *g == e.group).map(|(_, l)| *l).unwrap_or("");

@@ -181,7 +181,7 @@ fn main() {
             println!("t={t}: {:?}", start.elapsed());
             save_png(&c.into_pixmap(), &format!("{dir}/frame-{t}.png"));
         }
-        for id in ["ascii", "braille", "rain", "moon", "vhs", "crt", "kaleidoscope", "sketch", "thermal", "dither", "tilt-shift", "glitch", "blocks"] {
+        for id in ["ascii", "braille", "rain", "moon", "vhs", "crt", "kaleidoscope", "sketch", "thermal", "dither", "tilt-shift", "glitch", "blocks", "dither-text"] {
             save_png(&render::thumbs::effect_thumb(id), &format!("{dir}/fx-{id}.png"));
         }
         // Installed fonts: a few families at two weights.

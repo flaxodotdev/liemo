@@ -1,0 +1,171 @@
+@import "tailwindcss";
+
+/*
+ * The site's own look: paper white, editorial serif display type, hairline rules that frame
+ * the page like a print layout, black and outlined pills. Colour belongs to the footage and
+ * the app screenshots; the page itself stays black on white.
+ */
+
+:root {
+  color-scheme: light;
+
+  --paper: #ffffff;
+  --paper-2: #f7f7f6;
+  --ink: #0a0a0a;
+  --muted: #7a7a7a;
+  --faint: #a3a3a3;
+  --line: #ebebeb;
+  --line-strong: #d9d9d9;
+  --live: #16a34a;
+  --pill-hover: #2a2a2a;
+  --frame-ring: rgba(0, 0, 0, 0.06);
+}
+
+/* Dark: the same layout in negative. Follows the system unless the toggle has picked a side. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #0a0a0a;
+    --paper-2: #121212;
+    --ink: #f2f2f2;
+    --muted: #8c8c8c;
+    --faint: #5c5c5c;
+    --line: #1f1f1f;
+    --line-strong: #333333;
+    --live: #22c55e;
+    --pill-hover: #d4d4d4;
+    --frame-ring: rgba(255, 255, 255, 0.08);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0a0a0a;
+  --paper-2: #121212;
+  --ink: #f2f2f2;
+  --muted: #8c8c8c;
+  --faint: #5c5c5c;
+  --line: #1f1f1f;
+  --line-strong: #333333;
+  --live: #22c55e;
+  --pill-hover: #d4d4d4;
+  --frame-ring: rgba(255, 255, 255, 0.08);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: var(--font-source-serif), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-live: var(--live);
+  --color-frame-ring: var(--frame-ring);
+}
+
+@layer base {
+  html {
+    background: var(--paper);
+    color: var(--ink);
+    scroll-behavior: smooth;
+  }
+  body {
+    background: var(--paper);
+    font-family: var(--font-inter), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  :focus-visible {
+    outline: 1.5px solid var(--ink);
+    outline-offset: 3px;
+  }
+}
+
+/* Serif display: regular weight, slightly tight, big. */
+@utility type-hero {
+  font-family: var(--font-source-serif), Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(2.875rem, 7.4vw, 6rem);
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+}
+@utility type-section {
+  font-family: var(--font-source-serif), Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(2.25rem, 4.6vw, 3.75rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+@utility type-title {
+  font-family: var(--font-source-serif), Georgia, serif;
+  font-weight: 400;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+@utility type-lede {
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+@utility type-label {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@utility pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.5rem;
+  padding-inline: 1.125rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 150ms, color 150ms, border-color 150ms;
+}
+@utility pill-dark {
+  background: var(--ink);
+  color: var(--paper);
+  &:hover {
+    background: var(--pill-hover);
+  }
+}
+@utility pill-outline {
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  &:hover {
+    border-color: var(--ink);
+  }
+}
+
+/* Show one of a pair depending on the theme in effect. */
+.dark-only {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dark-only {
+    display: block;
+  }
+  :root:not([data-theme="light"]) .light-only {
+    display: none;
+  }
+}
+:root[data-theme="dark"] .dark-only {
+  display: block;
+}
+:root[data-theme="dark"] .light-only {
+  display: none;
+}

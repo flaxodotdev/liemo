@@ -11,7 +11,7 @@ use crate::ui::theme::*;
 use gpui::prelude::*;
 use gpui::{anchored, deferred, div, px, relative, AnyElement, Context, Div, Entity, SharedString, Window};
 use gpui_component::button::Button;
-use gpui_component::input::{Input, Textarea};
+use gpui_component::input::{Input, InputEvent, InputState, Textarea};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use std::rc::Rc;
 
@@ -939,6 +939,43 @@ impl Editor {
         g.child(div().child(self.select("add-effect", "+  Add effect", entries, cx)))
     }
 
+    /// A free-text effect parameter. Typing is one undo step per focus, like the clip's text box.
+    fn text_param(&mut self, c: &Clip, fx: &ClipEffect, key: &'static str, label_text: &str, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let cur = match fx.params.get(key) {
+            Some(ParamValue::Str(s)) => s.clone(),
+            _ => String::new(),
+        };
+        let id = format!("{}.{key}", fx.uid);
+        if !self.fx_texts.contains_key(&id) {
+            let st = cx.new(|cx| InputState::new(window, cx).default_value(cur.clone()));
+            let (cid, uid) = (c.id.clone(), fx.uid.clone());
+            let sub = cx.subscribe_in(&st, window, move |this: &mut Editor, input, ev: &InputEvent, _w, cx| match ev {
+                InputEvent::Focus => this.store.begin_edit(),
+                InputEvent::Blur => this.store.end_edit(),
+                InputEvent::Change => {
+                    let v = input.read(cx).value().to_string();
+                    this.store.update_effect(&cid, &uid, |x| {
+                        x.params.insert(key.to_string(), ParamValue::Str(v.clone()));
+                    });
+                    cx.notify();
+                }
+                _ => {}
+            });
+            self.fx_texts.insert(id.clone(), (st, sub));
+        }
+        let st = self.fx_texts[&id].0.clone();
+        // Follow undo and outside edits, but never rewrite the field while it's being typed in.
+        if st.read(cx).value() != cur.as_str() && !gpui::Focusable::focus_handle(st.read(cx), cx).is_focused(window) {
+            st.update(cx, |s, cx| s.set_value(cur, window, cx));
+        }
+        field_row(
+            label_text,
+            div().flex_1().h(px(28.)).flex().items_center().px_2().rounded(px(8.)).bg(canvas_bg()).border_1().border_color(hairline()).child(div().flex_1().child(Input::new(&st).appearance(false).text_size(px(12.)).aria_label(label_text.to_string()))),
+            None,
+        )
+        .into_any_element()
+    }
+
     fn effect_card(&mut self, c: &Clip, fx: &ClipEffect, first: bool, last: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(def) = effect_def(&fx.id) else { return div().into_any_element() };
         let (cid, uid) = (c.id.clone(), fx.uid.clone());
@@ -991,6 +1028,7 @@ impl Editor {
             };
             let el: AnyElement = match &p.kind {
                 ParamKind::File(ext) => self.file_param(c, fx, key, p.label, ext, cx),
+                ParamKind::Text => self.text_param(c, fx, key, p.label, window, cx),
                 ParamKind::Range { min, max, step, unit } => {
                     let unit = *unit;
                     // A parameter never set yet shows its lowest value.
@@ -1069,6 +1107,30 @@ impl Editor {
                 }
             };
             card = card.child(el);
+        }
+        // Remove background can keep one picked object instead of every subject.
+        if fx.id == "remove-bg" {
+            let picked = fx.params.contains_key("pickX");
+            let (pc, pu) = (c.id.clone(), fx.uid.clone());
+            card = card.child(field_row(
+                "Subject",
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        button("pick-subject", Variant::Secondary, 30.)
+                            .text_size(px(12.))
+                            .child(if picked { "Pick another" } else { "Pick on picture" })
+                            .on_click(cx.listener(move |this: &mut Editor, _, _, cx| {
+                                this.pick_fx = Some((pc.clone(), pu.clone()));
+                                this.store.toast("Click the object to keep on the picture");
+                                cx.notify();
+                            })),
+                    )
+                    .when(picked, |d| d.child(micro("one object"))),
+                None,
+            ));
         }
         card.into_any_element()
     }

@@ -387,7 +387,7 @@ impl Editor {
             .left_0()
             .size_full()
             .when(!self.snap_mode && (self.hover_clip.is_some() || bx.is_some()), |d| d.cursor_move())
-            .when(self.snap_mode, |d| d.cursor_crosshair())
+            .when(self.snap_mode || self.pick_fx.is_some(), |d| d.cursor_crosshair())
             .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, window, cx| this.stage_mouse_down(ev, window, cx)))
             // Right-click a clip on the picture: its menu (the clip becomes the selection first).
             .on_mouse_down(MouseButton::Right, cx.listener(|this, ev: &MouseDownEvent, _, cx| {
@@ -442,6 +442,13 @@ impl Editor {
             layer = layer.child(
                 div().absolute().top(px(8.)).left_0().right_0().flex().justify_center().child(
                     div().rounded_full().bg(black_overlay(0.75)).px_3().py(px(4.)).text_size(px(12.)).text_color(ink()).child("Drag a box to show the AI chat · click for the whole frame · Esc to cancel"),
+                ),
+            );
+        }
+        if self.pick_fx.is_some() {
+            layer = layer.child(
+                div().absolute().top(px(8.)).left_0().right_0().flex().justify_center().child(
+                    div().rounded_full().bg(black_overlay(0.75)).px_3().py(px(4.)).text_size(px(12.)).text_color(ink()).child("Click the object to keep · Esc to cancel"),
                 ),
             );
         }
@@ -582,6 +589,20 @@ impl Editor {
         let Some(p) = self.stage_point(ev.position) else { return };
         if self.snap_mode {
             self.snap_drag = Some((p, p));
+            cx.notify();
+            return;
+        }
+        if let Some((cid, uid)) = self.pick_fx.clone() {
+            // The effect sees the clip's layer in canvas units, so the pick is just the
+            // point normalised to the frame — clip moves and zooms come along for free.
+            let (x, y) = ((p.0 / W()).clamp(0.0, 1.0) as f64, (p.1 / H()).clamp(0.0, 1.0) as f64);
+            self.store.commit();
+            self.store.update_effect(&cid, &uid, |e| {
+                e.params.insert("pickX".into(), crate::model::types::ParamValue::Num(x));
+                e.params.insert("pickY".into(), crate::model::types::ParamValue::Num(y));
+            });
+            self.pick_fx = None;
+            self.store.toast("Subject picked. Click it again any time to pick another.");
             cx.notify();
             return;
         }
