@@ -9,12 +9,13 @@ other way are shown the release page instead.
 
 ## Cutting a release
 
-1. Bump `version` in `native/Cargo.toml` (e.g. `0.2.0`) and commit.
+1. Bump `version` in `native/Cargo.toml` and `native/mobile/Cargo.toml` and `MARKETING_VERSION`
+   in `ios/project.yml` (e.g. `0.2.0`), add a `## 0.2.0` section to `CHANGELOG.md`, and commit.
 2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
 3. The workflow builds Apple silicon and Intel apps, signs them with the Developer ID, notarises
    and staples them, builds Windows and Linux, signs every archive with the update key, and
    publishes the GitHub Release with
-   generated notes. Edit the notes afterwards if you like: the app shows them in its update
+   that version's `CHANGELOG.md` section as its notes (GitHub's generated notes if there is none). Edit the notes afterwards if you like: the app shows them in its update
    dialog.
 
 Assets per release, which the updater looks for by name:

@@ -214,4 +214,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la dist
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Liemo ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
+          # The notes are this version's section of CHANGELOG.md (the app shows them in its
+          # update dialog); without one, GitHub's generated notes.
+          v="${GITHUB_REF_NAME#v}"
+          gh api "repos/$GITHUB_REPOSITORY/contents/CHANGELOG.md?ref=$GITHUB_REF_NAME" -H "Accept: application/vnd.github.raw" > CHANGELOG.md 2>/dev/null || true
+          awk -v v="$v" '/^## / { if (on) exit; on = ($2 == v); next } on' CHANGELOG.md > notes.md 2>/dev/null || true
+          if [ -s notes.md ]; then notes=(--notes-file notes.md); else notes=(--generate-notes); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Liemo $v" "${notes[@]}" --verify-tag
