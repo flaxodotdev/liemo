@@ -114,6 +114,8 @@ pub enum TextAnim {
     Echo,
     /// Lifts out of a blur, like fog clearing.
     Fog,
+    /// Flicks through the bundled fonts, many times a second, for as long as it's on screen.
+    FontSwap,
 }
 
 /// How text blends into what's under it. Invert (difference) flips every channel to the opposite
@@ -170,6 +172,25 @@ pub struct TextProps {
     pub tilt_x: f64,
     #[serde(default, skip_serializing_if = "is_zero", rename = "tiltY")]
     pub tilt_y: f64,
+    /// The same words again, smaller and in their own style, centred inside the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner: Option<InnerText>,
+}
+
+/// The smaller copy of a text's words drawn in its middle ("BIG" with "big" set inside it).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct InnerText {
+    pub font: String,
+    pub color: String,
+    /// Its size as a share of the text's size, 0.1–0.8.
+    pub scale: f64,
+}
+
+impl Default for InnerText {
+    fn default() -> Self {
+        InnerText { font: "Instrument Serif".into(), color: "#ffffff".into(), scale: 0.3 }
+    }
 }
 
 fn is_zero(v: &f64) -> bool {
@@ -436,6 +457,17 @@ impl Clip {
             "opacity" => self.opacity,
             "volume" => self.volume,
             "speed" => self.motion.as_ref().map(|m| m.speed).unwrap_or(1.0),
+            "text.size" | "text.y" | "text.tiltX" | "text.tiltY" | "text.outlineWidth" | "text.inner" => {
+                let t = self.text.as_ref()?;
+                match &prop[5..] {
+                    "size" => t.size,
+                    "y" => t.y,
+                    "tiltX" => t.tilt_x,
+                    "tiltY" => t.tilt_y,
+                    "outlineWidth" => t.outline_width,
+                    _ => t.inner.as_ref()?.scale,
+                }
+            }
             "mask.x" | "mask.y" | "mask.w" | "mask.h" | "mask.rot" | "mask.feather" | "mask.radius" => {
                 let m = self.mask.as_ref()?;
                 match &prop[5..] {
@@ -472,6 +504,22 @@ impl Clip {
             "opacity" => self.opacity = v,
             "volume" => self.volume = v,
             "speed" => self.motion.get_or_insert_with(Motion::default).speed = v,
+            "text.size" | "text.y" | "text.tiltX" | "text.tiltY" | "text.outlineWidth" | "text.inner" => {
+                if let Some(t) = self.text.as_mut() {
+                    match &prop[5..] {
+                        "size" => t.size = v.max(1.0),
+                        "y" => t.y = v,
+                        "tiltX" => t.tilt_x = v.clamp(-80.0, 80.0),
+                        "tiltY" => t.tilt_y = v.clamp(-80.0, 80.0),
+                        "outlineWidth" => t.outline_width = v.clamp(0.0, 24.0),
+                        _ => {
+                            if let Some(i) = t.inner.as_mut() {
+                                i.scale = v.clamp(0.1, 0.8);
+                            }
+                        }
+                    }
+                }
+            }
             "mask.x" | "mask.y" | "mask.w" | "mask.h" | "mask.rot" | "mask.feather" | "mask.radius" => {
                 if let Some(m) = self.mask.as_mut() {
                     match &prop[5..] {

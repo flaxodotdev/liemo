@@ -186,6 +186,7 @@ struct AnimatePanel: View {
         ("scramble", "Decode", "number"), ("words", "Word by word", "text.word.spacing"), ("wordrise", "Word rise", "text.alignleft"),
         ("wordpop", "Word pop", "text.bubble"), ("marker", "Marker", "highlighter"), ("underline", "Underline", "underline"),
         ("shimmer", "Shimmer", "sparkles"), ("count", "Count up", "textformat.123"), ("glitch", "Glitch", "tv"), ("flicker", "Flicker", "lightbulb"),
+        ("fontswap", "Font swap", "textformat.alt"),
     ]
 
     var body: some View {

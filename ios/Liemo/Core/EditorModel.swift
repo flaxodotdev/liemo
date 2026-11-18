@@ -5,6 +5,40 @@ import Observation
 import QuartzCore
 import UIKit
 
+/// What a drag on a selected clip does. Normal moves it and trims its edges; the others are
+/// Resolve's Trim tool edits.
+enum TrimMode: String, CaseIterable, Identifiable {
+    case normal, ripple, roll, slip, slide
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .normal: "Move & trim"
+        case .ripple: "Ripple"
+        case .roll: "Roll"
+        case .slip: "Slip"
+        case .slide: "Slide"
+        }
+    }
+    var about: String {
+        switch self {
+        case .normal: "Drag to move, edges to trim"
+        case .ripple: "Edges trim and the rest of the track follows"
+        case .roll: "Edges move the cut with the clip beside"
+        case .slip: "Drag to show other footage, in place"
+        case .slide: "Drag between the clips either side"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .normal: "arrow.left.and.right"
+        case .ripple: "arrow.right.to.line"
+        case .roll: "arrow.left.arrow.right"
+        case .slip: "film"
+        case .slide: "rectangle.portrait.arrowtriangle.2.outward"
+        }
+    }
+}
+
 /// One open project: its state as the engine reports it, the preview frame, playback.
 @MainActor
 @Observable
@@ -29,6 +63,9 @@ final class EditorModel {
     private(set) var rev = 0
     /// Waveform levels per sound clip.
     private(set) var peaks: [String: [Float]] = [:]
+
+    /// What dragging a selected clip on the timeline does, as with Resolve's Trim tool.
+    var trimMode: TrimMode = .normal
 
     /// Long side of the preview render, in pixels (set from the stage's size).
     var previewMax: UInt32 = 960

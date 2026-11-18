@@ -1292,7 +1292,8 @@ impl Store {
         }
         self.changed();
     }
-    /// Move a track up or down among the tracks of its kind (picture tracks higher are in front).
+    /// Move a track up or down: picture and titles tracks among each other (higher is in front,
+    /// so a title can sit between a background and a cut-out subject), audio among audio.
     pub fn move_track(&mut self, id: &str, dir: i32) {
         let Some(i) = self.tracks.iter().position(|t| t.id == id) else { return };
         let j = i as i32 + dir;
@@ -1301,7 +1302,7 @@ impl Store {
         }
         let audio = |k: TrackKind| k == TrackKind::Audio;
         let (a, b) = (self.tracks[i].kind, self.tracks[j as usize].kind);
-        if audio(a) != audio(b) || (a == TrackKind::Text) != (b == TrackKind::Text) {
+        if audio(a) != audio(b) {
             return;
         }
         self.push_past();

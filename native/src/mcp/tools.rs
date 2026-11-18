@@ -245,7 +245,7 @@ fn all_definitions() -> Vec<Value> {
         "blend": { "type": "string", "enum": ["normal", "invert", "exclusion"], "description": "Invert flips each colour channel to the opposite of what's underneath, so the text stays readable on any footage; exclusion is the softer version of the same idea" },
         "align": { "type": "string", "enum": ["left", "center", "right"] },
         "y": { "type": "number", "description": "Vertical offset from the centre, in canvas units (negative is up)" },
-        "animation": { "type": "string", "enum": TEXT_ANIMS.iter().map(|(a, _)| text_anim_id(*a)).collect::<Vec<_>>(), "description": "Entrance. Letters: wave, drop, spring, flip, tracking, scramble (decode). Words: words, wordrise, wordpop. Whole: fade, rise, slide, descend, type, caret (typewriter), pop, bounce, zoom, settle, squeeze, stretch, blur, fog, reveal (mask), wipe, echo. Accents: marker (highlight swipe), underline, shimmer, count (numbers count up), glitch, flicker." },
+        "animation": { "type": "string", "enum": TEXT_ANIMS.iter().map(|(a, _)| text_anim_id(*a)).collect::<Vec<_>>(), "description": "Entrance. Letters: wave, drop, spring, flip, tracking, scramble (decode). Words: words, wordrise, wordpop. Whole: fade, rise, slide, descend, type, caret (typewriter), pop, bounce, zoom, settle, squeeze, stretch, blur, fog, reveal (mask), wipe, echo. Accents: marker (highlight swipe), underline, shimmer, count (numbers count up), glitch, flicker. Ongoing: fontswap (flicks through fonts the whole time)." },
         "box": { "type": "boolean", "description": "Dark rounded backing behind the text" },
         "glass": { "type": "string", "description": "Frosted liquid-glass panel behind the text, blurring whatever is behind it, tinted this colour #rrggbb, or \"none\"" },
         "glassText": { "type": "string", "description": "The glyphs themselves as liquid glass: the frosted backdrop shows through the letters, tinted this colour #rrggbb, or \"none\"" },
@@ -256,6 +256,7 @@ fn all_definitions() -> Vec<Value> {
         "highlight": { "type": "string", "description": "Rounded highlight behind each line, colour #rrggbb, or \"none\"" },
         "tiltX": { "type": "number", "description": "3D: tip the text back (positive) or forward, degrees −80…80" },
         "tiltY": { "type": "number", "description": "3D: swing the text to face right (positive) or left, degrees −80…80" },
+        "inner": { "description": "The same words again, smaller and in another style, centred inside the text (a big word with a small one set in it). An object with any of font, color (#rrggbb) and scale (0.1–0.8 of the text's size), or \"none\" to take it off", "anyOf": [{ "type": "object", "properties": { "font": { "type": "string" }, "color": { "type": "string" }, "scale": { "type": "number" } } }, { "type": "string", "enum": ["none"] }] },
     });
     let mut text_update = text_props.clone();
     let mut clip_fields = json!({
@@ -367,20 +368,33 @@ fn all_definitions() -> Vec<Value> {
                 "font": text_props["font"], "size": text_props["size"], "weight": text_props["weight"], "color": text_props["color"],
                 "align": text_props["align"], "y": text_props["y"], "animation": text_props["animation"], "box": text_props["box"],
                 "outline": text_props["outline"], "outlineWidth": text_props["outlineWidth"], "shadow": text_props["shadow"], "glow": text_props["glow"], "highlight": text_props["highlight"],
-                "tiltX": text_props["tiltX"], "tiltY": text_props["tiltY"],
+                "tiltX": text_props["tiltX"], "tiltY": text_props["tiltY"], "inner": text_props["inner"],
                 "blend": text_props["blend"],
             }), &["project", "content"]),
         tool("update_clip", "Update a clip", "Change any of a clip's timing, track, transform, opacity, volume, fades, name, text or sound (speed, reverb, slowed + reverb and other presets). Only the fields given change.", clip_fields, &["project", "clip"]),
         tool("set_keyframes", "Set keyframes", "Animate a clip property over time. Between keys the value moves in a straight line (linear), eases in and out (smooth) or stays put (hold); before the first key and after the last, the nearest key's value holds. Keys on speed make a speed ramp (the clip keeps its length; its footage runs at the keyed speed). An empty keys list removes the animation and leaves the property at its value at the clip's start.",
             json!({
                 "project": project_prop(), "clip": clip_prop(),
-                "property": { "type": "string", "description": "x, y (offsets from centre, canvas units), scale, rotation, opacity, volume, speed (picture clips, 0.25–4), or an effect's strength / numeric parameter as fx.<uid>.amount or fx.<uid>.<param> (uid from apply_effect or get_project)" },
+                "property": { "type": "string", "description": "x, y (offsets from centre, canvas units), scale, rotation, opacity, volume, speed (picture clips, 0.25–4); on text clips text.size, text.y, text.tiltX, text.tiltY (3D tilt, degrees), text.outlineWidth, text.inner (the inside words' size, 0.1–0.8); on masked clips mask.x, mask.y, mask.w, mask.h, mask.rot, mask.feather, mask.radius; or an effect's strength / numeric parameter as fx.<uid>.amount or fx.<uid>.<param> (uid from apply_effect or get_project)" },
                 "keys": { "type": "array", "items": { "type": "object", "properties": {
                     "time": { "type": "number", "description": "Seconds on the timeline (inside the clip)" },
                     "value": { "type": "number" },
                     "ease": { "type": "string", "enum": ["linear", "smooth", "hold"], "description": "How the value travels to the next key; default linear" },
                 }, "required": ["time", "value"] } },
             }), &["project", "clip", "property", "keys"]),
+        tool("keyframe", "Add, change or remove one keyframe", "Work on one keyframe of a clip property at a moment, the way the keyframe button beside a slider does. With value: put a key there with that value (the property becomes animated if it wasn't). Without value: add a key holding the value there, or take away the key already there. Properties as for set_keyframes.",
+            json!({
+                "project": project_prop(), "clip": clip_prop(),
+                "property": { "type": "string", "description": "As for set_keyframes (x, y, scale, rotation, opacity, volume, text.size, text.tiltX, fx.<uid>.amount…)" },
+                "time": { "type": "number", "description": "Seconds on the timeline (inside the clip)" },
+                "value": { "type": "number" },
+            }), &["project", "clip", "property", "time"]),
+        tool("trim_clip", "Ripple, roll, slip or slide", "Trim-tool edits. ripple-head / ripple-tail: move an edge and everything after it on the track moves too (the head stays put; its footage changes). roll-head / roll-tail: move the cut between this clip and the one touching that edge; nothing else moves. slip: show earlier (positive by) or later footage without moving the clip. slide: move the clip between its neighbours, which grow or shrink to fill. by is how far in seconds, positive is later; it's held back where footage or clips run out.",
+            json!({
+                "project": project_prop(), "clip": clip_prop(),
+                "mode": { "type": "string", "enum": ["ripple-head", "ripple-tail", "roll-head", "roll-tail", "slip", "slide"] },
+                "by": { "type": "number", "description": "Seconds" },
+            }), &["project", "clip", "mode", "by"]),
         tool("transcribe", "Transcribe the sound", "Listen to the project's sound (voice, music, video audio as mixed) with Apple's speech recognition on the Mac and return what's said as short caption cues with timeline times. Pass them to add_captions (fix wording first if needed). The user may be asked to allow speech recognition. Mac app only.",
             json!({ "project": project_prop() }), &["project"]),
         tool("add_captions", "Add captions", "Put captions on the Titles track as text clips, from an SRT or WebVTT file (path) or from cues (e.g. from transcribe). Styles: subtitle (the Caption text style), pop, clean, boxed, and looks after remocn's caption library: word-pop, active-pop, bounce-in, blur-in, rise, drop, words, sweep, highlight-box, marker, underline, outline, knockout, handwrite, typewriter, label-maker, scramble, split-flap, slot, slice, stamp, stack, cube, teleprompter, speaker, weight, echo, neon, glitch, fog. Every part stays editable with update_clip.",
@@ -923,7 +937,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 }
                 if let Some(t) = args.get("text") {
                     apply_text(st, &cid, t)?;
-                } else if c.kind == AssetType::Text && ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "glass", "glassText", "outline", "outlineWidth", "shadow", "glow", "highlight", "tiltX", "tiltY"].iter().any(|k| args.get(*k).is_some()) {
+                } else if c.kind == AssetType::Text && ["content", "font", "size", "weight", "color", "align", "animation", "blend", "box", "glass", "glassText", "outline", "outlineWidth", "shadow", "glow", "highlight", "tiltX", "tiltY", "inner"].iter().any(|k| args.get(*k).is_some()) {
                     // Text fields given flat, as add_text takes them (y stays the clip's offset).
                     let mut t = args.clone();
                     if let Some(o) = t.as_object_mut() {
@@ -961,7 +975,7 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
             out(ws.edit(&id, &mut |st| {
                 let c = st.clip(&cid).cloned().ok_or_else(|| format!("No clip {cid}"))?;
                 if c.base(&prop).is_none() && prop != "speed" {
-                    return Err(format!("{cid} has no numeric property \"{prop}\". Use x, y, scale, rotation, opacity, volume, speed, or fx.<uid>.amount / fx.<uid>.<param>."));
+                    return Err(format!("{cid} has no numeric property \"{prop}\". Use x, y, scale, rotation, opacity, volume, speed, text.size, text.y, text.tiltX, text.tiltY, text.outlineWidth, text.inner, mask.<field>, or fx.<uid>.amount / fx.<uid>.<param>."));
                 }
                 if prop == "speed" && (c.kind.is_audio() || c.kind == AssetType::Text) {
                     return Err("Speed ramps are for video and animated picture clips. Audio clips change speed with update_clip sound.".into());
@@ -1006,6 +1020,60 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                     }
                 }
                 Ok(with_notes(clip_json(&c), notes))
+            })?)
+        }
+        "keyframe" => {
+            let id = resolve(a)?;
+            let cid = req(a, "clip")?.to_string();
+            let prop = match req(a, "property")? {
+                "rotation" => "rot".to_string(),
+                p => p.to_string(),
+            };
+            let t = f(a, "time").ok_or("Missing time")?;
+            let value = f(a, "value");
+            out(ws.edit(&id, &mut |st| {
+                let c = st.clip(&cid).cloned().ok_or_else(|| format!("No clip {cid}"))?;
+                if c.base(&prop).is_none() {
+                    return Err(format!("{cid} has no numeric property \"{prop}\""));
+                }
+                let lt = crate::model::time::snap_frame((t - c.start).clamp(0.0, c.dur));
+                match value {
+                    Some(v) => {
+                        st.commit();
+                        let p = prop.clone();
+                        st.update_clip(&cid, move |k| crate::model::keys::upsert(k.keys.entry(p).or_default(), lt, v));
+                    }
+                    None => st.toggle_key(&cid, &prop, lt),
+                }
+                Ok(clip_json(st.clip(&cid).ok_or("clip gone")?))
+            })?)
+        }
+        "trim_clip" => {
+            use crate::model::trim::{trim, TrimOp};
+            let id = resolve(a)?;
+            let cid = req(a, "clip")?.to_string();
+            let op = match req(a, "mode")? {
+                "ripple-head" => TrimOp::RippleHead,
+                "ripple-tail" => TrimOp::RippleTail,
+                "roll-head" => TrimOp::Roll { tail: false },
+                "roll-tail" => TrimOp::Roll { tail: true },
+                "slip" => TrimOp::Slip,
+                "slide" => TrimOp::Slide,
+                m => return Err(format!("No trim mode {m}")),
+            };
+            let by = f(a, "by").ok_or("Missing by")?;
+            out(ws.edit(&id, &mut |st| {
+                let c = st.clip(&cid).cloned().ok_or_else(|| format!("No clip {cid}"))?;
+                if st.track(&c.track).locked {
+                    return Err(format!("{} is locked", st.track(&c.track).name));
+                }
+                let (clips, done) = trim(&st.clips, &cid, op, crate::model::time::snap_frame(by.abs()) * by.signum(), crate::model::store::min_clip()).map_err(String::from)?;
+                st.commit();
+                st.clips = clips;
+                st.changed();
+                let mut out = clip_json(st.clip(&cid).ok_or("clip gone")?);
+                out["applied"] = json!((done * 1000.0).round() / 1000.0);
+                Ok(out)
             })?)
         }
         "transcribe" => {
@@ -1458,6 +1526,23 @@ fn apply_text(st: &mut Store, cid: &str, a: &Value) -> R<()> {
         }
         if let Some(v) = f(&a, "tiltY") {
             t.tilt_y = v.clamp(-80.0, 80.0);
+        }
+        match a.get("inner") {
+            Some(Value::Object(o)) => {
+                let mut i = t.inner.clone().unwrap_or_default();
+                if let Some(v) = o.get("font").and_then(Value::as_str) {
+                    i.font = font_def(v).family.into();
+                }
+                if let Some(v) = o.get("color").and_then(Value::as_str) {
+                    i.color = v.into();
+                }
+                if let Some(v) = o.get("scale").and_then(Value::as_f64) {
+                    i.scale = v.clamp(0.1, 0.8);
+                }
+                t.inner = Some(i);
+            }
+            Some(Value::String(_)) | Some(Value::Null) => t.inner = None,
+            _ => {}
         }
     });
     Ok(())

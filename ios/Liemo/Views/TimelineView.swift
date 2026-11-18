@@ -246,6 +246,16 @@ private struct TrackContent: View, Equatable {
                 Label(t.locked ? "Unlock track" : "Lock track", systemImage: t.locked ? "lock.open" : "lock")
             }
         }
+        // Higher tracks are in front: titles can go between two video tracks (text behind a
+        // cut-out subject).
+        Section {
+            Button { model.edit("set_track", ["track": t.id, "move": "up"]) } label: {
+                Label(audio ? "Move up" : "Move up (in front)", systemImage: "arrow.up")
+            }
+            Button { model.edit("set_track", ["track": t.id, "move": "down"]) } label: {
+                Label(audio ? "Move down" : "Move down (behind)", systemImage: "arrow.down")
+            }
+        }
     }
 }
 
@@ -265,7 +275,11 @@ private struct ClipView: View {
     var body: some View {
         let c = clip
         let selected = model.selected == c.id
-        let x = CGFloat(c.start) * pps + (kind == .right || kind == nil ? 0 : dx)
+        let mode = model.trimMode
+        // While dragging, how the clip looks: a ripple keeps the head in place, a slip keeps the
+        // whole clip in place.
+        let holdsStart = kind == .right || kind == nil || (kind == .left && mode == .ripple) || (kind == .move && mode == .slip)
+        let x = CGFloat(c.start) * pps + (holdsStart ? 0 : dx)
         let w = max(6, CGFloat(c.dur) * pps + (kind == .left ? -dx : kind == .right ? dx : 0))
         ZStack(alignment: .leading) {
             switch lane.track {
@@ -358,6 +372,20 @@ private struct ClipView: View {
         let g = gen
         let settle = { if gen == g { kind = nil; dx = 0 } }
         if abs(d) < 1e-9 { settle(); return }
+        let trimTo: String? = switch (model.trimMode, k) {
+        case (.ripple, .left): "ripple-head"
+        case (.ripple, .right): "ripple-tail"
+        case (.roll, .left): "roll-head"
+        case (.roll, .right): "roll-tail"
+        case (.slip, .move): "slip"
+        case (.slide, .move): "slide"
+        default: nil
+        }
+        if let trimTo {
+            model.edit("trim_clip", ["clip": c.id, "mode": trimTo, "by": d])
+            settle()
+            return
+        }
         switch k {
         case .move:
             model.update(c.id, ["start": max(0, c.start + d)], done: settle)

@@ -296,6 +296,7 @@ fn main() {
             glass_text: None,
             tilt_x: 0.0,
             tilt_y: 0.0,
+            inner: None,
         };
         render::textclip::draw_text(&mut c, &glass, 2.0, 1.0);
         save_png(&c.into_pixmap(), &format!("{dir}/glass-panel.png"));

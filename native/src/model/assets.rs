@@ -546,7 +546,7 @@ fn tp_inv(content: &str, font: &str, size: f64, weight: f64, color: &str, align:
     TextProps { blend: TextBlend::Invert, ..tp_full(content, font, size, weight, color, align, anim, boxed, y) }
 }
 fn tp_full(content: &str, font: &str, size: f64, weight: f64, color: &str, align: TextAlign, anim: TextAnim, boxed: bool, y: f64) -> TextProps {
-    TextProps { content: content.into(), font: font.into(), size, weight, color: color.into(), align, anim, boxed, y, blend: TextBlend::Normal, outline: None, outline_width: 6.0, shadow: None, glow: None, highlight: None, glass: None, glass_text: None, tilt_x: 0.0, tilt_y: 0.0 }
+    TextProps { content: content.into(), font: font.into(), size, weight, color: color.into(), align, anim, boxed, y, blend: TextBlend::Normal, outline: None, outline_width: 6.0, shadow: None, glow: None, highlight: None, glass: None, glass_text: None, tilt_x: 0.0, tilt_y: 0.0, inner: None }
 }
 pub fn text_presets() -> Vec<Asset> {
     use TextAlign::*;
@@ -560,10 +560,15 @@ pub fn text_presets() -> Vec<Asset> {
         t("tx-quote", "Serif quote", "Editorial", 4.0, tp("“We came for the sea,\nwe stayed for the light.”", "Instrument Serif", 76.0, 400.0, "#ffffff", Center, Fade, false, 0.0)),
         t("tx-poster", "Poster", "Condensed caps", 3.0, tp("CHAPTER TWO", "Bebas Neue", 150.0, 400.0, "#ff7a3d", Center, Type, false, 0.0)),
         t("tx-note", "Handwritten", "Script note", 3.0, tp("day three", "Caveat", 90.0, 700.0, "#ffd9a0", Center, Rise, false, -180.0)),
+        t("tx-fontswap", "Font swap", "Flicks through fonts", 3.0, tp("NO LIMITS", "Mona Sans", 150.0, 700.0, "#ffffff", Center, FontSwap, false, 0.0)),
+        t("tx-inside", "Word inside", "Big word, small word", 3.0, TextProps {
+            inner: Some(InnerText { font: "Instrument Serif".into(), color: "#ffffff".into(), scale: 0.28 }),
+            ..tp("DREAM", "Bebas Neue", 340.0, 400.0, "#ff5577", Center, Settle, false, 0.0)
+        }),
     ]
 }
 pub const TEXT_COLORS: [&str; 9] = ["#ffffff", "#000000", "#ffd9a0", "#ff7a3d", "#ff5577", "#d44df0", "#6a4cf5", "#0099ff", "#22c55e"];
-pub const TEXT_ANIMS: [(TextAnim, &str); 33] = [
+pub const TEXT_ANIMS: [(TextAnim, &str); 34] = [
     (TextAnim::None, "None"), (TextAnim::Fade, "Fade"), (TextAnim::Rise, "Rise"), (TextAnim::Slide, "Slide"), (TextAnim::Descend, "Descend"),
     (TextAnim::Type, "Type"), (TextAnim::Caret, "Typewriter"), (TextAnim::Pop, "Pop"), (TextAnim::Bounce, "Bounce"), (TextAnim::Zoom, "Zoom"),
     (TextAnim::Settle, "Settle"), (TextAnim::Squeeze, "Squeeze"), (TextAnim::Stretch, "Stretch"), (TextAnim::Blur, "Blur"), (TextAnim::Fog, "Fog"),
@@ -571,6 +576,7 @@ pub const TEXT_ANIMS: [(TextAnim, &str); 33] = [
     (TextAnim::Spring, "Letter spring"), (TextAnim::Flip, "Rolodex"), (TextAnim::Tracking, "Tracking in"), (TextAnim::Scramble, "Decode"),
     (TextAnim::Words, "Word by word"), (TextAnim::WordRise, "Word rise"), (TextAnim::WordPop, "Word pop"), (TextAnim::Marker, "Marker"),
     (TextAnim::Underline, "Underline"), (TextAnim::Shimmer, "Shimmer"), (TextAnim::Count, "Count up"), (TextAnim::Glitch, "Glitch"), (TextAnim::Flicker, "Flicker"),
+    (TextAnim::FontSwap, "Font swap"),
 ];
 /// A text animation's name in project JSON and the MCP tools ("wordrise").
 pub fn text_anim_id(a: TextAnim) -> String {

@@ -59,6 +59,7 @@ impl Editor {
         let zoom = s.zoom;
         let snap = s.snap;
         let edit_mode = s.edit_mode;
+        let tool = self.tool;
 
         let toolbar = div()
             .flex()
@@ -69,6 +70,22 @@ impl Editor {
             .border_color(hairline_soft())
             .px_3()
             .py_2()
+            .child(div().w(px(196.)).child(segmented(
+                "tool",
+                &[(super::Tool::Select, "Select"), (super::Tool::Trim, "Trim"), (super::Tool::Blade, "Blade")],
+                &tool,
+                |_| false,
+                {
+                    let ed = cx.entity();
+                    move |v, _, cx| {
+                        ed.update(cx, |this, cx| {
+                            this.set_tool(v);
+                            cx.notify();
+                        })
+                    }
+                },
+            )))
+            .child(div().w(px(1.)).h(px(18.)).mx_1().bg(hairline()))
             .child(
                 button("split", Variant::Secondary, 32.)
                     .child(icon("scissors", 14., ink()))
@@ -631,7 +648,11 @@ impl Editor {
             .overflow_hidden()
             .rounded(px(6.))
             .bg(clip_bg(c.kind))
-            .cursor_grab()
+            .map(|d| match self.tool {
+                super::Tool::Select => d.cursor_grab(),
+                super::Tool::Trim => d.cursor(gpui::CursorStyle::ResizeLeftRight),
+                super::Tool::Blade => d.cursor(gpui::CursorStyle::Crosshair),
+            })
             .when(dim, |d| d.opacity(0.4))
             .when(dragging, |d| d.opacity(0.9).shadow_lg())
             .child(self.track_bounds(format!("clip:{}", c.id)));
@@ -812,6 +833,8 @@ impl Editor {
             }
         }
         // Trim handles. Option-drag the right one to change speed instead (rate stretch).
+        let blade = self.tool == super::Tool::Blade;
+        let trim_tool = self.tool == super::Tool::Trim;
         let handle = |side: &'static str, mode: ClipMode, cid: String, cx: &mut Context<Self>| {
             div()
                 .id(SharedString::from(format!("h{side}-{cid}")))
@@ -821,7 +844,7 @@ impl Editor {
                 .when(side == "l", |d| d.left_0())
                 .when(side == "r", |d| d.right_0())
                 .w(px(8.))
-                .cursor(gpui::CursorStyle::ResizeLeftRight)
+                .cursor(if blade { gpui::CursorStyle::Crosshair } else { gpui::CursorStyle::ResizeLeftRight })
                 .child(
                     div()
                         .absolute()
@@ -834,7 +857,8 @@ impl Editor {
                         .bg(white_a(0.5))
                         .when(!selected, |d| d.opacity(0.).group_hover(group_name.clone(), |s| s.opacity(1.))),
                 )
-                .when(side == "r", |d| d.tooltip(|w, cx| gpui_component::tooltip::Tooltip::new("Drag to trim. Hold ⌥ to change speed instead.").build(w, cx)))
+                .when(side == "r" && !trim_tool && !blade, |d| d.tooltip(|w, cx| gpui_component::tooltip::Tooltip::new("Drag to trim. Hold ⌥ to change speed instead.").build(w, cx)))
+                .when(trim_tool, |d| d.tooltip(|w, cx| gpui_component::tooltip::Tooltip::new("Drag to ripple. Hold ⌥ on a cut to roll it.").build(w, cx)))
                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                     cx.stop_propagation();
                     this.start_clip_drag(&cid, mode, ev.position, ev.modifiers, cx);

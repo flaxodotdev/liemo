@@ -31,7 +31,9 @@ fn is_linear(e: &Ease) -> bool {
     *e == Ease::Linear
 }
 
-/// Animated properties by name: x, y, scale, rot, opacity, volume, speed, and an effect's
+/// Animated properties by name: x, y, scale, rot, opacity, volume, speed, a text's text.size,
+/// text.y, text.tiltX, text.tiltY, text.outlineWidth and text.inner (the inside words' size), a
+/// mask's mask.<field>, and an effect's
 /// strength or numeric parameter as `fx.<uid>.amount` / `fx.<uid>.<param>`.
 pub type Keys = BTreeMap<String, Vec<Key>>;
 
@@ -44,6 +46,12 @@ pub const PROPS: &[(&str, &str)] = &[
     ("opacity", "Opacity"),
     ("volume", "Volume"),
     ("speed", "Speed"),
+    ("text.size", "Text size"),
+    ("text.y", "Text height"),
+    ("text.tiltX", "3D tilt ↕"),
+    ("text.tiltY", "3D tilt ↔"),
+    ("text.outlineWidth", "Outline width"),
+    ("text.inner", "Inside size"),
 ];
 
 pub fn prop_label(prop: &str) -> String {

@@ -125,9 +125,41 @@ struct Clip: Decodable, Identifiable, Hashable {
     let text: TextSpec?
     let motion: Motion?
     let sound: SoundFx?
+    /// Keyframes by property (x, scale, text.size, fx.<uid>.amount…), times from the clip's start.
+    let keys: [String: [ClipKey]]?
 
     var isVisual: Bool { !["music", "audio"].contains(type) }
     var hasSound: Bool { ["music", "audio", "video"].contains(type) }
+
+    /// Whether the property is animated.
+    func keyed(_ prop: String) -> Bool { !(keys?[prop]?.isEmpty ?? true) }
+    /// Whether there's a key on the property at timeline time `t`.
+    func hasKey(_ prop: String, at t: Double) -> Bool {
+        let lt = min(max(t - start, 0), dur)
+        return keys?[prop]?.contains { abs($0.t - lt) < 1.0 / 60 } ?? false
+    }
+    /// The property's keyed value at timeline time `t`, as the engine works it out; nil when
+    /// it isn't animated.
+    func keyedValue(_ prop: String, at t: Double) -> Double? {
+        guard let ks = keys?[prop], let first = ks.first, let last = ks.last else { return nil }
+        let lt = t - start
+        if lt <= first.t { return first.v }
+        if lt >= last.t { return last.v }
+        guard let i = ks.firstIndex(where: { $0.t > lt }), i > 0 else { return last.v }
+        let (a, b) = (ks[i - 1], ks[i])
+        let u = min(max((lt - a.t) / max(b.t - a.t, 1e-9), 0), 1)
+        switch a.ease {
+        case "hold": return a.v
+        case "smooth": return a.v + (b.v - a.v) * u * u * (3 - 2 * u)
+        default: return a.v + (b.v - a.v) * u
+        }
+    }
+}
+
+struct ClipKey: Decodable, Hashable {
+    let t: Double
+    let v: Double
+    let ease: String?
 }
 
 struct ClipTransition: Decodable, Hashable { let id: String; let dur: Double }
@@ -190,6 +222,15 @@ struct TextSpec: Decodable, Hashable {
     /// Turned in 3D, degrees.
     let tiltX: Double?
     let tiltY: Double?
+    /// The same words again, smaller and in their own style, centred inside the text.
+    let inner: InnerTextSpec?
+}
+
+struct InnerTextSpec: Decodable, Hashable {
+    let font: String
+    let color: String
+    /// Share of the text's size, 0.1–0.8.
+    let scale: Double
 }
 
 struct Library: Decodable {

@@ -202,6 +202,23 @@ struct EditorView: View {
                 if let c = model.selectedClip {
                     tool(c.type == "text" ? "Edit text" : "Edit", "slider.horizontal.3") { show(.inspector) }
                     tool("Split", "scissors") { model.edit("split_clip", ["clip": c.id, "time": model.time]) }
+                    Menu {
+                        Picker("Drag", selection: Binding(get: { model.trimMode }, set: { model.trimMode = $0 })) {
+                            ForEach(TrimMode.allCases) { m in
+                                Label {
+                                    Text(m.label)
+                                    Text(m.about)
+                                } icon: { Image(systemName: m.icon) }.tag(m)
+                            }
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: model.trimMode.icon).font(.system(size: 18))
+                            Text(model.trimMode == .normal ? "Trim" : model.trimMode.label).font(.system(size: 11))
+                        }
+                        .frame(minWidth: 64).frame(height: 56)
+                        .foregroundStyle(model.trimMode == .normal ? Theme.ink : Theme.accent)
+                    }
                     if c.type == "text" {
                         tool("Animate", "wand.and.rays") { show(.animate) }
                         tool("Effects", "sparkles.rectangle.stack") { show(.effects) }

@@ -93,6 +93,17 @@ pub enum ClipMode {
     Right,
     /// Option-drag on the right edge: change the clip's speed so its footage fills the new length.
     Stretch,
+    /// A Trim tool edit: ripple, roll, slip or slide.
+    Trim(crate::model::trim::TrimOp),
+}
+
+/// The timeline's tool, as in Resolve: Select (A) moves and trims clips, Trim (T) ripples, rolls,
+/// slips and slides, Blade (B) cuts a clip where it's clicked.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tool {
+    Select,
+    Trim,
+    Blade,
 }
 
 /// A clip being moved or trimmed on the timeline, and the clips moving with it.
@@ -109,6 +120,8 @@ pub struct ClipDrag {
     pub group: Vec<(String, f64)>,
     pub pts: Vec<f64>,
     pub moved: bool,
+    /// Every clip as it was when a Trim tool drag began; the edit is worked out from it.
+    pub base: Vec<Clip>,
 }
 
 pub type Apply = Rc<dyn Fn(&mut Editor, f64)>;
@@ -237,6 +250,7 @@ pub struct Editor {
     pub snap_drag: Option<((f32, f32), (f32, f32))>,
     /// Pick-subject mode: the clip and effect a click on the picture feeds a pick point to.
     pub pick_fx: Option<(String, String)>,
+    pub tool: Tool,
     pub stage_guides: Vec<(bool, f32)>,
     pub readout: Option<String>,
     // Saving
@@ -462,6 +476,7 @@ impl Editor {
             snap_mode: false,
             snap_drag: None,
             pick_fx: None,
+            tool: Tool::Select,
             stage_guides: vec![],
             readout: None,
             save_state: SaveState::Saved,
@@ -828,6 +843,9 @@ impl Editor {
                     self.seek(e - 1.0 / FPS())
                 }
                 "n" => s.snap = !s.snap,
+                "a" => self.set_tool(Tool::Select),
+                "t" => self.set_tool(Tool::Trim),
+                "b" => self.set_tool(Tool::Blade),
                 "l" => s.looping = !s.looping,
                 "g" => s.guides = !s.guides,
                 "=" | "+" => self.zoom_by(1.25, None),
@@ -1263,7 +1281,11 @@ impl Editor {
                 self.snap_at = None;
                 self.dragging_clip = None;
                 self.readout = None;
-                if d.moved {
+                if d.moved && matches!(d.mode, ClipMode::Trim(_)) {
+                    // Trim edits never overlap anything, so nothing needs settling.
+                    self.store.changed();
+                    self.restart_audio();
+                } else if d.moved {
                     if d.group.is_empty() {
                         self.store.settle(&d.id, d.mode == ClipMode::Move);
                     } else {
@@ -1311,6 +1333,9 @@ impl Editor {
             self.store.commit();
             d.moved = true;
             self.dragging_clip = Some(d.id.clone());
+        }
+        if let ClipMode::Trim(op) = d.mode {
+            return self.trim_drag_move(d, op, x);
         }
         let id = d.id.clone();
         let (o_start, o_dur, o_in) = (d.o_start, d.o_dur, d.o_in);
@@ -1414,6 +1439,7 @@ impl Editor {
                 }
                 dur = snap_frame(d);
             }
+            ClipMode::Trim(_) => return,
             ClipMode::Stretch => {
                 let sn = snap_to(o_start + o_dur + dx);
                 self.snap_at = sn.1;
@@ -1437,6 +1463,57 @@ impl Editor {
             }
         });
         self.snap_at = hit;
+    }
+
+    /// A Trim tool drag: work the edit out afresh from the timeline as it was, so it never drifts.
+    fn trim_drag_move(&mut self, d: &mut ClipDrag, op: crate::model::trim::TrimOp, x: f32) {
+        use crate::model::trim::{trim, TrimOp};
+        let zoom = self.store.zoom;
+        let mut dx = (x - d.x0) as f64 / zoom;
+        // The edge being dragged snaps to cuts, the playhead and markers.
+        let (o_end, o_start) = (d.o_start + d.o_dur, d.o_start);
+        let edges: Vec<f64> = match op {
+            TrimOp::RippleTail | TrimOp::Roll { tail: true } => vec![o_end],
+            TrimOp::RippleHead | TrimOp::Roll { tail: false } => vec![o_start],
+            TrimOp::Slide => vec![o_start, o_end],
+            TrimOp::Slip => vec![],
+        };
+        self.snap_at = None;
+        if self.store.snap {
+            let tol = 8.0 / zoom;
+            let best = edges.iter().flat_map(|e| d.pts.iter().map(move |p| (p - (e + dx), *p))).filter(|(gap, _)| gap.abs() < tol).min_by(|a, b| a.0.abs().total_cmp(&b.0.abs()));
+            if let Some((gap, p)) = best {
+                dx += gap;
+                self.snap_at = Some(p);
+            }
+        }
+        let dx = snap_frame(dx.abs()) * dx.signum();
+        match trim(&d.base, &d.id, op, dx, min_clip()) {
+            Ok((clips, done)) => {
+                self.store.clips = clips;
+                self.store.rev += 1;
+                let what = match op {
+                    TrimOp::RippleHead | TrimOp::RippleTail => "Ripple",
+                    TrimOp::Roll { .. } => "Roll",
+                    TrimOp::Slip => "Slip",
+                    TrimOp::Slide => "Slide",
+                };
+                self.readout = Some(format!("{what} {}{}", if done >= 0.0 { "+" } else { "−" }, tc(done.abs())));
+            }
+            Err(e) => self.readout = Some(e.to_string()),
+        }
+    }
+
+    /// Switch the timeline tool.
+    pub fn set_tool(&mut self, t: Tool) {
+        if self.tool != t {
+            self.tool = t;
+            self.store.toast(match t {
+                Tool::Select => "Select: move and trim clips  A",
+                Tool::Trim => "Trim: drag an edge to ripple, ⌥ on a cut to roll; drag a clip to slip, ⌥ to slide  T",
+                Tool::Blade => "Blade: click a clip to cut it there  B",
+            });
+        }
     }
 
     /// Set properties of a clip as it is at the playhead: keyed ones get a key there.
@@ -1625,13 +1702,46 @@ impl Editor {
             cx.notify();
             return;
         }
+        // Blade: cut the clip where it was clicked (on the playhead when that's close by).
+        if self.tool == Tool::Blade {
+            let mut t = snap_frame(self.time_at(pos.x));
+            if self.store.snap && ((t - self.store.time) * self.store.zoom).abs() < 8.0 {
+                t = self.store.time;
+            }
+            let keep = self.store.time;
+            self.store.select(Some(id.to_string()));
+            self.store.time = t;
+            self.store.split();
+            self.store.time = keep;
+            self.restart_audio();
+            cx.notify();
+            return;
+        }
+        let mut mode = mode;
+        if self.tool == Tool::Trim {
+            use crate::model::trim::{trim, TrimOp};
+            let op = match (mode, mods.alt) {
+                (ClipMode::Left, false) => TrimOp::RippleHead,
+                (ClipMode::Right, false) => TrimOp::RippleTail,
+                (ClipMode::Left, true) => TrimOp::Roll { tail: false },
+                (ClipMode::Right, true) => TrimOp::Roll { tail: true },
+                (_, false) => TrimOp::Slip,
+                (_, true) => TrimOp::Slide,
+            };
+            // Tell straight away when the edit can't happen (no footage to slip, no cut to roll).
+            if let Err(e) = trim(&self.store.clips, id, op, 0.0, min_clip()) {
+                self.store.toast(e);
+                cx.notify();
+                return;
+            }
+            mode = ClipMode::Trim(op);
+        }
         // Trimming works on one clip; moving takes the whole selection along.
         let group: Vec<(String, f64)> = if in_group && mode == ClipMode::Move {
             self.store.selected_clips().iter().filter(|k| k.id != id && !self.store.track(&k.track).locked).map(|k| (k.id.clone(), k.start)).collect()
         } else {
             vec![]
         };
-        let mut mode = mode;
         if mode == ClipMode::Right && mods.alt {
             if c.ramped() || c.frozen() || matches!(c.kind, AssetType::Text | AssetType::Image | AssetType::Photo | AssetType::Music) {
                 self.store.toast(if c.ramped() { "This clip has a speed ramp. Change it with the Speed keyframes." } else { "Rate stretch changes the speed of video and audio clips" });
@@ -1651,7 +1761,7 @@ impl Editor {
         pts.extend(self.store.markers.iter().map(|m| m.t));
         pts.extend([self.store.in_out.0, self.store.in_out.1].into_iter().flatten());
         self.begin_drag(
-            Drag::Clip(ClipDrag { id: id.to_string(), mode, x0: f32::from(pos.x), y0: f32::from(pos.y), o_start: c.start, o_dur: c.dur, o_in: c.in_, o_speed: c.speed(), group, pts, moved: false }),
+            Drag::Clip(ClipDrag { id: id.to_string(), mode, x0: f32::from(pos.x), y0: f32::from(pos.y), o_start: c.start, o_dur: c.dur, o_in: c.in_, o_speed: c.speed(), group, pts, moved: false, base: if matches!(mode, ClipMode::Trim(_)) { self.store.clips.clone() } else { vec![] } }),
             cx,
         );
     }

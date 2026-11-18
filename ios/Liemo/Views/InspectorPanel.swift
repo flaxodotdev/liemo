@@ -29,11 +29,11 @@ struct InspectorPanel: View {
 
     private func transform(_ c: Clip) -> some View {
         Section("Transform") {
-            SliderRow(label: "Scale", value: c.scale, range: 0.1...4, fmt: { "\(Int($0 * 100))%" }) { model.update(c.id, ["scale": $0]) }
-            SliderRow(label: "X", value: c.x, range: -1500...1500, fmt: { "\(Int($0))" }) { model.update(c.id, ["x": $0]) }
-            SliderRow(label: "Y", value: c.y, range: -1500...1500, fmt: { "\(Int($0))" }) { model.update(c.id, ["y": $0]) }
-            SliderRow(label: "Rotation", value: c.rot, range: -180...180, fmt: { "\(Int($0))°" }) { model.update(c.id, ["rotation": $0]) }
-            SliderRow(label: "Opacity", value: c.opacity, range: 0...1, fmt: { "\(Int($0 * 100))%" }) { model.update(c.id, ["opacity": $0]) }
+            KeyedSlider(model: model, clip: c, prop: "scale", label: "Scale", base: c.scale, range: 0.1...4, fmt: { "\(Int($0 * 100))%" }) { model.update(c.id, ["scale": $0]) }
+            KeyedSlider(model: model, clip: c, prop: "x", label: "X", base: c.x, range: -1500...1500, fmt: { "\(Int($0))" }) { model.update(c.id, ["x": $0]) }
+            KeyedSlider(model: model, clip: c, prop: "y", label: "Y", base: c.y, range: -1500...1500, fmt: { "\(Int($0))" }) { model.update(c.id, ["y": $0]) }
+            KeyedSlider(model: model, clip: c, prop: "rot", label: "Rotation", base: c.rot, range: -180...180, fmt: { "\(Int($0))°" }) { model.update(c.id, ["rotation": $0]) }
+            KeyedSlider(model: model, clip: c, prop: "opacity", label: "Opacity", base: c.opacity, range: 0...1, fmt: { "\(Int($0 * 100))%" }) { model.update(c.id, ["opacity": $0]) }
             if c.type != "text" {
                 Toggle("Mirror", isOn: Binding(get: { c.motion?.flipH ?? false }, set: { model.update(c.id, ["flipH": $0]) })).font(.system(size: 14))
                 Toggle("Flip upside down", isOn: Binding(get: { c.motion?.flipV ?? false }, set: { model.update(c.id, ["flipV": $0]) })).font(.system(size: 14))
@@ -43,7 +43,7 @@ struct InspectorPanel: View {
 
     private func sound(_ c: Clip) -> some View {
         Section("Sound") {
-            SliderRow(label: "Volume", value: c.volume, range: 0...1, fmt: { "\(Int($0 * 100))%" }) { model.update(c.id, ["volume": $0]) }
+            KeyedSlider(model: model, clip: c, prop: "volume", label: "Volume", base: c.volume, range: 0...1, fmt: { "\(Int($0 * 100))%" }) { model.update(c.id, ["volume": $0]) }
         }
     }
 
@@ -97,6 +97,35 @@ private struct Section<Content: View>: View {
     }
 }
 
+/// A slider for a property that can be keyframed. It shows the value at the playhead; once the
+/// property is animated, moving it sets a key there. The diamond adds or removes the key at the
+/// playhead.
+struct KeyedSlider: View {
+    let model: EditorModel
+    let clip: Clip
+    let prop: String
+    let label: String
+    let base: Double
+    let range: ClosedRange<Double>
+    let fmt: (Double) -> String
+    let set: (Double) -> Void
+
+    var body: some View {
+        let t = model.time
+        let animated = clip.keyed(prop)
+        SliderRow(label: label, value: clip.keyedValue(prop, at: t) ?? base, range: range, fmt: fmt,
+                  key: .init(animated: animated, here: clip.hasKey(prop, at: t)) {
+                      model.edit("keyframe", ["clip": clip.id, "property": prop, "time": t])
+                  }) { v in
+            if animated {
+                model.edit("keyframe", ["clip": clip.id, "property": prop, "time": model.time, "value": v])
+            } else {
+                set(v)
+            }
+        }
+    }
+}
+
 /// A slider that edits a draft while dragging and commits once, on release (one undo step).
 struct SliderRow: View {
     let label: String
@@ -104,14 +133,24 @@ struct SliderRow: View {
     let range: ClosedRange<Double>
     let fmt: (Double) -> String
     let commit: (Double) -> Void
+    /// For a property that can be keyframed: whether it's animated, whether there's a key at the
+    /// playhead, and what the diamond does.
+    var key: KeyState? = nil
     @State private var v: Double
     @State private var dragging = false
 
-    init(label: String, value: Double, range: ClosedRange<Double>, fmt: @escaping (Double) -> String, commit: @escaping (Double) -> Void) {
+    struct KeyState {
+        let animated: Bool
+        let here: Bool
+        let toggle: () -> Void
+    }
+
+    init(label: String, value: Double, range: ClosedRange<Double>, fmt: @escaping (Double) -> String, key: KeyState? = nil, commit: @escaping (Double) -> Void) {
         self.label = label
         self.value = value
         self.range = range
         self.fmt = fmt
+        self.key = key
         self.commit = commit
         _v = State(initialValue: value)
     }
@@ -122,6 +161,16 @@ struct SliderRow: View {
                 Text(label).font(.system(size: 14))
                 Spacer()
                 Text(fmt(v)).font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.muted)
+                if let key {
+                    Button(action: key.toggle) {
+                        Image(systemName: key.here ? "diamond.fill" : "diamond")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(key.animated ? Theme.accent : Theme.muted)
+                            .frame(width: 30, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(key.here ? "Remove keyframe" : "Add keyframe")
+                }
             }
             Slider(value: $v, in: range) { editing in
                 dragging = editing
@@ -155,15 +204,26 @@ private struct TextSection: View {
             TextStyleStrip(current: text) { set($0.update) }
             StyleColorRow(label: "Outline", value: text.outline, fallback: "#000000") { set(["outline": $0 ?? "none"]) }
             if text.outline != nil {
-                SliderRow(label: "Outline width", value: text.outlineWidth ?? 6, range: 1...24, fmt: { "\(Int($0))" }) { set(["outlineWidth": $0]) }
+                KeyedSlider(model: model, clip: clip, prop: "text.outlineWidth", label: "Outline width", base: text.outlineWidth ?? 6, range: 1...24, fmt: { "\(Int($0))" }) { set(["outlineWidth": $0]) }
             }
             StyleColorRow(label: "Shadow", value: text.shadow, fallback: "#000000") { set(["shadow": $0 ?? "none"]) }
             StyleColorRow(label: "Glow", value: text.glow, fallback: "#ff2bd6") { set(["glow": $0 ?? "none"]) }
             StyleColorRow(label: "Highlight", value: text.highlight, fallback: "#ffd400") { set(["highlight": $0 ?? "none"]) }
             StyleColorRow(label: "Glass text", value: text.glassText, fallback: "#ffffff") { set(["glassText": $0 ?? "none"]) }
             StyleColorRow(label: "Glass panel", value: text.glass, fallback: "#ffffff") { set(["glass": $0 ?? "none"]) }
-            SliderRow(label: "3D tilt ↕", value: text.tiltX ?? 0, range: -70...70, fmt: { "\(Int($0))°" }) { set(["tiltX": $0]) }
-            SliderRow(label: "3D tilt ↔", value: text.tiltY ?? 0, range: -70...70, fmt: { "\(Int($0))°" }) { set(["tiltY": $0]) }
+            // The same words again, smaller, in their own font and colour, inside the text.
+            StyleColorRow(label: "Word inside", value: text.inner?.color, fallback: "#ffffff") { c in
+                if let c { set(["inner": ["color": c]]) } else { set(["inner": "none"]) }
+            }
+            if let inner = text.inner {
+                Picker("Inside font", selection: Binding(get: { inner.font }, set: { set(["inner": ["font": $0]]) })) {
+                    ForEach(["Instrument Serif", "Caveat", "Mona Sans", "Inter", "Bebas Neue", "JetBrains Mono"], id: \.self) { Text($0).tag($0) }
+                }
+                .font(.system(size: 14))
+                KeyedSlider(model: model, clip: clip, prop: "text.inner", label: "Inside size", base: inner.scale, range: 0.1...0.8, fmt: { "\(Int(($0 * 100).rounded()))%" }) { set(["inner": ["scale": $0]]) }
+            }
+            KeyedSlider(model: model, clip: clip, prop: "text.tiltX", label: "3D tilt ↕", base: text.tiltX ?? 0, range: -70...70, fmt: { "\(Int($0))°" }) { set(["tiltX": $0]) }
+            KeyedSlider(model: model, clip: clip, prop: "text.tiltY", label: "3D tilt ↔", base: text.tiltY ?? 0, range: -70...70, fmt: { "\(Int($0))°" }) { set(["tiltY": $0]) }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Blend").font(.system(size: 14))
                 Picker("Blend", selection: Binding(get: { text.blend ?? "normal" }, set: { set(["blend": $0]) })) {
@@ -199,7 +259,7 @@ private struct TextSection: View {
                     if let f { set(["font": f]) }
                 }
             }
-            SliderRow(label: "Size", value: text.size, range: 12...300, fmt: { "\(Int($0))" }) { set(["size": $0]) }
+            KeyedSlider(model: model, clip: clip, prop: "text.size", label: "Size", base: text.size, range: 12...300, fmt: { "\(Int($0))" }) { set(["size": $0]) }
             Picker("Weight", selection: Binding(get: { Int(text.weight) }, set: { set(["weight": $0]) })) {
                 ForEach([400, 500, 600, 700, 800], id: \.self) { Text("\($0)").tag($0) }
             }
@@ -321,7 +381,7 @@ struct EffectRow: View {
                 }
                 .foregroundStyle(Theme.muted)
             }
-            SliderRow(label: "Amount", value: effect.amount, range: 0...1, fmt: { "\(Int($0 * 100))%" }) { up(["amount": $0]) }
+            KeyedSlider(model: model, clip: clip, prop: "fx.\(effect.uid).amount", label: "Amount", base: effect.amount, range: 0...1, fmt: { "\(Int($0 * 100))%" }) { up(["amount": $0]) }
             if let d = def, let ps = d.params, !ps.isEmpty {
                 DisclosureGroup("Settings", isExpanded: $expanded) {
                     VStack(spacing: 12) {

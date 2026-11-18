@@ -6,6 +6,7 @@ use super::text::{fill_text, measure, stroke_text, Align, Baseline, TextStyle};
 use crate::model::assets::font_def;
 use crate::model::time::{H, W};
 use crate::model::types::{TextAlign, TextAnim, TextBlend, TextProps};
+use crate::model::assets::FONTS;
 use tiny_skia::Pixmap;
 
 fn ease(p: f32) -> f32 {
@@ -56,10 +57,66 @@ pub fn text_blend(b: TextBlend) -> tiny_skia::BlendMode {
     }
 }
 
-/// Draw a text clip at local time `lt` (seconds into the clip), in 1280×720 units.
-/// Draw a text clip at local time `lt` (seconds into the clip), in 1280×720 units. Tilted text is
-/// drawn flat on a layer, then laid onto its turned plane in perspective.
+/// How many fonts a second Font swap flicks through.
+const SWAPS_PER_SEC: f32 = 12.0;
+
+/// The font Font swap shows at `lt`: the text's own font first, then a bundled font picked at
+/// random each step, never the same one twice in a row.
+fn swap_font(t: &TextProps, lt: f32) -> &str {
+    let step = (lt.max(0.0) * SWAPS_PER_SEC) as u32;
+    if step == 0 {
+        return &t.font;
+    }
+    let n = FONTS.len() as u32;
+    let pick = |s: u32| (s.wrapping_mul(2_654_435_761) >> 16) % n;
+    let (mut i, prev) = (pick(step), if step == 1 { None } else { Some(pick(step - 1)) });
+    if Some(i) == prev || FONTS[i as usize].family == t.font && step == 1 {
+        i = (i + 1) % n;
+    }
+    FONTS[i as usize].family
+}
+
+/// Draw a text clip at local time `lt` (seconds into the clip), in 1280×720 units: the text, then
+/// its inner words (the same words smaller, in their own style, centred inside it).
 pub fn draw_text(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
+    let swapped;
+    let t = if t.anim == TextAnim::FontSwap {
+        let f = swap_font(t, lt);
+        swapped = TextProps { font: f.into(), weight: if f == t.font { t.weight } else { font_def(f).weight }, ..t.clone() };
+        &swapped
+    } else {
+        t
+    };
+    draw_one(c, t, lt, alpha);
+    let Some(inner) = &t.inner else { return };
+    let r = text_rect(t);
+    let it = TextProps {
+        font: inner.font.clone(),
+        size: t.size * inner.scale.clamp(0.1, 0.8),
+        weight: font_def(&inner.font).weight,
+        color: inner.color.clone(),
+        align: TextAlign::Center,
+        // The inner words keep their own font while the big ones swap.
+        anim: if t.anim == TextAnim::FontSwap { TextAnim::None } else { t.anim },
+        boxed: false,
+        outline: None,
+        shadow: None,
+        glow: None,
+        highlight: None,
+        glass: None,
+        glass_text: None,
+        inner: None,
+        ..t.clone()
+    };
+    c.save();
+    c.translate(r.x + r.w / 2.0 - W() / 2.0, 0.0);
+    draw_one(c, &it, lt, alpha);
+    c.restore();
+}
+
+/// One text, flat or tilted. Tilted text is drawn flat on a layer, then laid onto its turned
+/// plane in perspective.
+fn draw_one(c: &mut Canvas, t: &TextProps, lt: f32, alpha: f32) {
     if t.tilt_x.abs() < 0.05 && t.tilt_y.abs() < 0.05 {
         return draw_flat(c, t, lt, alpha);
     }
@@ -866,8 +923,9 @@ mod tests {
                     render(&t, lt);
                 }
                 // Shimmer dims the letters for its sheen; marker and underline add marks; the
-                // caret blinks; typing and words reflow centred text; flicker and glitch settle.
-                let keeps = matches!(a, TextAnim::Shimmer | TextAnim::Marker | TextAnim::Underline | TextAnim::Caret);
+                // caret blinks; typing and words reflow centred text; flicker and glitch settle;
+                // font swap never stops.
+                let keeps = matches!(a, TextAnim::Shimmer | TextAnim::Marker | TextAnim::Underline | TextAnim::Caret | TextAnim::FontSwap);
                 if !keeps && !content.trim().is_empty() {
                     let end = render(&t, 6.0);
                     let differ = end.iter().zip(&still).filter(|(x, y)| (**x as i32 - **y as i32).abs() > 24).count();
@@ -883,7 +941,7 @@ mod tests {
         let mut t = asset("tx-title").and_then(|a| a.text.clone()).unwrap();
         t.content = "Ship 2,400 videos".into();
         for (a, _) in TEXT_ANIMS {
-            if matches!(a, TextAnim::None | TextAnim::Marker | TextAnim::Underline | TextAnim::Shimmer) {
+            if matches!(a, TextAnim::None | TextAnim::Marker | TextAnim::Underline | TextAnim::Shimmer | TextAnim::FontSwap) {
                 continue;
             }
             t.anim = a;
@@ -897,5 +955,61 @@ mod tests {
             t.anim = TextAnim::None;
             assert!(with != render(&t, 3.0), "{a:?} adds nothing");
         }
+    }
+
+    #[test]
+    fn font_swap_opens_on_its_font_then_keeps_changing() {
+        let mut t = asset("tx-fontswap").and_then(|a| a.text.clone()).unwrap();
+        assert_eq!(swap_font(&t, 0.0), t.font);
+        let fonts: Vec<&str> = (1..60).map(|i| swap_font(&t, i as f32 / SWAPS_PER_SEC + 0.01)).collect();
+        assert!(fonts.windows(2).all(|w| w[0] != w[1]), "the same font twice in a row: {fonts:?}");
+        assert!(FONTS.iter().all(|f| fonts.contains(&f.family)), "some fonts never show: {fonts:?}");
+        t.anim = TextAnim::FontSwap;
+        let frames: Vec<Vec<u8>> = (0..6).map(|i| render(&t, i as f32 / SWAPS_PER_SEC + 0.01)).collect();
+        assert!(frames.windows(2).all(|w| w[0] != w[1]));
+    }
+
+    /// `PREVIEW_DIR=… cargo test preview_new_text_presets -- --ignored` writes both presets as PNGs.
+    #[test]
+    #[ignore]
+    fn preview_new_text_presets() {
+        let dir = std::env::var("PREVIEW_DIR").unwrap();
+        let save = |c: Canvas, name: &str| {
+            let pm = c.into_pixmap();
+            let rgba = crate::render::canvas::to_straight(&pm);
+            image::save_buffer(format!("{dir}/{name}.png"), &rgba, pm.width(), pm.height(), image::ColorType::Rgba8).unwrap();
+        };
+        let mut c = Canvas::new(1280, 720);
+        c.fill_all(hex("#3a4652"));
+        let swap = asset("tx-fontswap").and_then(|a| a.text.clone()).unwrap();
+        for i in 0..4 {
+            c.save();
+            c.translate((i % 2) as f32 * 640.0, (i / 2) as f32 * 360.0);
+            c.scale(0.5, 0.5);
+            draw_text(&mut c, &swap, i as f32 / SWAPS_PER_SEC + 0.01, 1.0);
+            c.restore();
+        }
+        save(c, "swap");
+        let mut c = Canvas::new(1280, 720);
+        c.fill_all(hex("#3a4652"));
+        draw_text(&mut c, &asset("tx-inside").and_then(|a| a.text.clone()).unwrap(), 3.0, 1.0);
+        save(c, "inside");
+    }
+
+    #[test]
+    fn inner_words_draw_inside_the_text() {
+        let mut t = asset("tx-inside").and_then(|a| a.text.clone()).unwrap();
+        let with = render(&t, 3.0);
+        let r = text_rect(&t);
+        t.inner = None;
+        let without = render(&t, 3.0);
+        // Every changed pixel is within the big text's box.
+        for (i, (a, b)) in with.chunks(4).zip(without.chunks(4)).enumerate() {
+            if a != b {
+                let (x, y) = ((i % 1280) as f32, (i / 1280) as f32);
+                assert!(x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h, "inner word drawn outside at {x},{y}");
+            }
+        }
+        assert!(with != without, "no inner words drawn");
     }
 }

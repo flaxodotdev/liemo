@@ -50,7 +50,21 @@ fn every_text_animation_has_a_stable_id() {
         let back: TextAnim = serde_json::from_value(json!(id)).unwrap();
         assert_eq!(back, a);
     }
-    assert_eq!(seen.len(), 33);
+    assert_eq!(seen.len(), 34);
+}
+
+#[test]
+fn text_size_height_tilt_and_inside_size_take_keyframes() {
+    let mut t = crate::model::assets::asset("tx-inside").and_then(|a| a.text.clone()).unwrap();
+    t.tilt_x = 0.0;
+    let mut c = crate::model::store::make_clip(&crate::model::store::default_tracks(), 0.0, "tx-inside", Some("T1"), Some(0.0)).unwrap();
+    c.text = Some(t);
+    for (prop, a, b) in [("text.size", 100.0, 200.0), ("text.y", -100.0, 100.0), ("text.tiltX", -30.0, 30.0), ("text.tiltY", 0.0, 60.0), ("text.outlineWidth", 2.0, 12.0), ("text.inner", 0.2, 0.6)] {
+        assert!(c.base(prop).is_some(), "{prop} isn't keyable");
+        c.keys.insert(prop.into(), vec![crate::model::keys::Key { t: 0.0, v: a, ease: Default::default() }, crate::model::keys::Key { t: 2.0, v: b, ease: Default::default() }]);
+        let mid = c.posed(c.start + 1.0);
+        assert!((mid.base(prop).unwrap() - (a + b) / 2.0).abs() < 1e-6, "{prop} at the middle: {:?}", mid.base(prop));
+    }
 }
 
 #[test]
@@ -274,7 +288,7 @@ fn tool_definitions_are_well_formed() {
         assert!(names.contains(n), "{n} missing");
     }
     let add_text = defs.iter().find(|d| d["name"] == "add_text").unwrap();
-    assert_eq!(add_text["inputSchema"]["properties"]["animation"]["enum"].as_array().unwrap().len(), 33);
+    assert_eq!(add_text["inputSchema"]["properties"]["animation"]["enum"].as_array().unwrap().len(), 34);
     let caps = defs.iter().find(|d| d["name"] == "add_captions").unwrap();
     assert_eq!(caps["inputSchema"]["properties"]["style"]["enum"].as_array().unwrap().len(), 34);
 }
@@ -330,4 +344,37 @@ fn tools_end_to_end() {
     let path = r.unwrap()["path"].as_str().unwrap().to_string();
     assert!(path.ends_with(".mov"));
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn keyframe_and_trim_tools() {
+    let made = tool("create_project", json!({ "template": "sample", "name": "Trim tests" })).unwrap();
+    let id = made["id"].as_str().unwrap().to_string();
+    let doc = tool("get_project", json!({ "project": id })).unwrap();
+    let v1: Vec<Value> = doc["clips"].as_array().unwrap().iter().filter(|c| c["track"] == "V1").cloned().collect();
+    let (a, b) = (v1[0]["id"].as_str().unwrap().to_string(), v1[1]["id"].as_str().unwrap().to_string());
+    let (a_end, b_start) = (v1[0]["end"].as_f64().unwrap(), v1[1]["start"].as_f64().unwrap());
+    assert!((a_end - b_start).abs() < 1e-6, "sample clips touch");
+
+    // One key with a value, then another; the diamond (no value) takes one away again.
+    let r = tool("keyframe", json!({ "project": id, "clip": a, "property": "scale", "time": 1.0, "value": 1.5 })).unwrap();
+    assert_eq!(r["keys"]["scale"].as_array().unwrap().len(), 1);
+    tool("keyframe", json!({ "project": id, "clip": a, "property": "scale", "time": 3.0, "value": 0.5 })).unwrap();
+    let r = tool("keyframe", json!({ "project": id, "clip": a, "property": "scale", "time": 3.0 })).unwrap();
+    assert_eq!(r["keys"]["scale"].as_array().unwrap().len(), 1);
+    assert!(tool("keyframe", json!({ "project": id, "clip": a, "property": "nope", "time": 1.0 })).is_err());
+
+    // Roll the cut between the first two clips: the first gets longer, the second starts later.
+    let r = tool("trim_clip", json!({ "project": id, "clip": a, "mode": "roll-tail", "by": 0.5 })).unwrap();
+    assert!((r["end"].as_f64().unwrap() - (a_end + 0.5)).abs() < 1e-6, "{r}");
+    let doc = tool("get_project", json!({ "project": id })).unwrap();
+    let b_now = doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == b.as_str()).unwrap().clone();
+    assert!((b_now["start"].as_f64().unwrap() - (b_start + 0.5)).abs() < 1e-6);
+    // Ripple the tail back: the second clip follows.
+    tool("trim_clip", json!({ "project": id, "clip": a, "mode": "ripple-tail", "by": -1.0 })).unwrap();
+    let doc = tool("get_project", json!({ "project": id })).unwrap();
+    let b_now = doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == b.as_str()).unwrap().clone();
+    assert!((b_now["start"].as_f64().unwrap() - (b_start - 0.5)).abs() < 1e-6);
+    // Generated scenes have no footage to slip.
+    assert!(tool("trim_clip", json!({ "project": id, "clip": a, "mode": "slip", "by": 1.0 })).is_err());
 }

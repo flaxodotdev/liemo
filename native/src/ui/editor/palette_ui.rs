@@ -83,6 +83,9 @@ impl Editor {
                 e.store.set_in(None);
                 e.store.set_out(None);
             }),
+            cmd("Edit", "Select tool: move and trim clips", "A", |e, _, _| e.set_tool(super::Tool::Select)),
+            cmd("Edit", "Trim tool: ripple, roll, slip and slide", "T", |e, _, _| e.set_tool(super::Tool::Trim)),
+            cmd("Edit", "Blade tool: click a clip to cut it", "B", |e, _, _| e.set_tool(super::Tool::Blade)),
             cmd("Playback", "Play or pause", "Space", |e, _, _| e.toggle_play()),
             cmd("Playback", "Go to the start", "Home", |e, _, _| e.seek(0.0)),
             cmd("Playback", "Go to the end", "End", |e, _, _| {

@@ -773,12 +773,11 @@ impl Editor {
             let a = *a;
             item(*l, a == t.anim, set(Box::new(move |t: &mut TextProps| t.anim = a)))
         }).collect();
-        let tid = id.clone();
-        let tid2 = id.clone();
         let ed = cx.entity();
+        let sid = id.clone();
         let seg_set = move |f: Box<dyn Fn(&mut TextProps)>| {
             let ed = ed.clone();
-            let id = id.clone();
+            let id = sid.clone();
             let f = Rc::new(f);
             move |_w: &mut Window, cx: &mut gpui::App| {
                 let f = f.clone();
@@ -807,13 +806,61 @@ impl Editor {
         let rest: Vec<String> = TEXT_COLORS.iter().map(|c| c.to_string()).filter(|c| !brand_cols.iter().any(|b| b.eq_ignore_ascii_case(c))).collect();
         brand_cols.extend(rest);
         let tcol_picker = color_picker(&mut self.pickers, &format!("tcol-{}", c.id), &t.color, tcol_apply, window, cx);
+        // The word inside: the same words again, smaller, in their own font and colour.
+        let s_inner = seg_set.clone();
+        let mut inner_rows: Vec<AnyElement> = vec![];
+        if let Some(inner) = t.inner.clone() {
+            let inner_font = |fam: &'static str| {
+                item(fam, fam == inner.font, set(Box::new(move |t: &mut TextProps| {
+                    if let Some(i) = t.inner.as_mut() {
+                        i.font = fam.into();
+                    }
+                })))
+            };
+            let mut entries: Vec<MenuEntry> = FONTS.iter().map(|f| inner_font(f.family)).collect();
+            if !installed.is_empty() {
+                entries.push(MenuEntry::Separator);
+                entries.push(MenuEntry::Label(format!("Installed on this Mac ({})", installed.len())));
+                entries.extend(installed.iter().map(|f| inner_font(f.as_str())));
+            }
+            inner_rows.push(field_row("Inside font", self.select("f-ifont", inner.font.clone(), entries, cx), None).into_any_element());
+            let s_icol = seg_set.clone();
+            let icol_apply: Rc<dyn Fn(&mut Editor, String)> = Rc::new({
+                let id = c.id.clone();
+                move |e: &mut Editor, col: String| {
+                    e.store.commit();
+                    e.store.update_text(&id, move |t| {
+                        if let Some(i) = t.inner.as_mut() {
+                            i.color = col;
+                        }
+                    });
+                }
+            });
+            let icol_picker = color_picker(&mut self.pickers, &format!("icol-{}", c.id), &inner.color, icol_apply, window, cx);
+            inner_rows.push(
+                swatches("icol", &brand_cols.iter().map(String::as_str).collect::<Vec<_>>(), &inner.color, 18., Some(icol_picker), move |col, w, cx| {
+                    (s_icol(Box::new(move |t: &mut TextProps| {
+                        if let Some(i) = t.inner.as_mut() {
+                            i.color = col.clone();
+                        }
+                    })))(w, cx)
+                })
+                .into_any_element(),
+            );
+            inner_rows.push(self.keyed_slider(c, "text.inner", "Inside size", 0.1, 0.8, 0.01, |v| format!("{}%", (v * 100.0).round()), None, cx).into_any_element());
+        }
+        // On, the inner words take whichever of black or white stands out against the text.
+        let light = {
+            let k = crate::render::canvas::hex(&t.color);
+            0.299 * k.red() + 0.587 * k.green() + 0.114 * k.blue() > 0.6
+        };
         vec![
             group(Some("Text"), None, false)
                 .child(div().relative().child(self.track_bounds("input:text")).child(Textarea::new(&self.text_input).h(px(64.)).aria_label("Text")))
                 .child(field_row("Font", self.select("f-font", t.font.clone(), font_entries, cx), None))
                 .child(field_row("Weight", self.select("f-weight", weight_label, weight_entries, cx), None))
-                .child(self.slider_field("Size", "f-tsize", t.size, 16.0, 240.0, 1.0, |v| format!("{v}px"), Rc::new(move |e: &mut Editor, v| e.store.update_text(&tid, |t| t.size = v)), cx))
-                .child(self.slider_field("Height", "f-ty", t.y, -320.0, 320.0, 1.0, |v| format!("{}", v.round()), Rc::new(move |e: &mut Editor, v| e.store.update_text(&tid2, |t| t.y = v)), cx))
+                .child(self.keyed_slider(c, "text.size", "Size", 16.0, 240.0, 1.0, |v| format!("{}px", v.round()), None, cx))
+                .child(self.keyed_slider(c, "text.y", "Height", -320.0, 320.0, 1.0, |v| format!("{}", v.round()), None, cx))
                 .child(swatches("tcol", &brand_cols.iter().map(String::as_str).collect::<Vec<_>>(), &t.color, 18., Some(tcol_picker), move |col, w, cx| (s_col(Box::new(move |t: &mut TextProps| t.color = col.clone())))(w, cx)))
                 .child(field_row(
                     "Style",
@@ -826,6 +873,16 @@ impl Editor {
                     ),
                     None,
                 ))
+                .child(field_row(
+                    "Word inside",
+                    segmented("tinner", &[(false, "Off"), (true, "On")], &t.inner.is_some(), |_| false, move |v, w, cx| {
+                        (s_inner(Box::new(move |t: &mut TextProps| {
+                            t.inner = v.then(|| crate::model::types::InnerText { color: if light { "#000000" } else { "#ffffff" }.into(), ..Default::default() });
+                        })))(w, cx)
+                    }),
+                    None,
+                ))
+                .children(inner_rows)
                 .into_any_element(),
             group(Some("Layout & motion"), None, false)
                 .child(field_row(
@@ -840,14 +897,8 @@ impl Editor {
                 ))
                 .child(field_row("Animate", self.select("f-anim", anim_label, anim_entries, cx), None))
                 // Turned in 3D, in perspective.
-                .child(self.slider_field("3D tilt ↕", "f-tiltx", t.tilt_x, -70.0, 70.0, 1.0, |v| format!("{}°", v.round()), Rc::new({
-                    let id = c.id.clone();
-                    move |e: &mut Editor, v| e.store.update_text(&id, |t| t.tilt_x = v)
-                }), cx))
-                .child(self.slider_field("3D tilt ↔", "f-tilty", t.tilt_y, -70.0, 70.0, 1.0, |v| format!("{}°", v.round()), Rc::new({
-                    let id = c.id.clone();
-                    move |e: &mut Editor, v| e.store.update_text(&id, |t| t.tilt_y = v)
-                }), cx))
+                .child(self.keyed_slider(c, "text.tiltX", "3D tilt ↕", -70.0, 70.0, 1.0, |v| format!("{}°", v.round()), None, cx))
+                .child(self.keyed_slider(c, "text.tiltY", "3D tilt ↔", -70.0, 70.0, 1.0, |v| format!("{}°", v.round()), None, cx))
                 .into_any_element(),
         ]
     }
