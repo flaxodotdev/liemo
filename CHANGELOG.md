@@ -2,6 +2,26 @@
 
 What's new in each Liemo release, on the Mac, Windows, Linux, iPhone and iPad.
 
+## 0.9.0
+
+### New
+- **Trim tools, like Resolve's**: the timeline has a Select · Trim · Blade switcher (A, T, B).
+  With Trim, drag an edge to **ripple** (the rest of the track follows), ⌥-drag a cut to
+  **roll** it, drag a clip to **slip** its footage in place, or ⌥-drag it to **slide** it
+  between its neighbours. Blade cuts a clip wherever you click. On iPhone and iPad, pick
+  Ripple, Roll, Slip or Slide from the new Trim button when a clip is selected.
+- **Font swap**: a text animation that flicks through fonts many times a second.
+- **Word inside**: put the same word again, smaller and in its own font and colour, in the
+  middle of big text. There's a preset for it, and for Font swap.
+- **Keyframes on iPhone and iPad**: a diamond beside position, scale, rotation, opacity, volume,
+  effect strength and text settings adds a keyframe at the playhead.
+- **More to animate**: text size, height, 3D tilt, outline width and the inside word's size
+  now take keyframes.
+
+### Better
+- A titles track can now move between video tracks, so text can sit behind a cut-out subject.
+  Right-click (or press and hold on iPhone and iPad) a track and choose Move down (behind).
+
 ## 0.8.0
 
 ### New
