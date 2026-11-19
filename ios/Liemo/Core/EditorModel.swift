@@ -66,6 +66,9 @@ final class EditorModel {
 
     /// What dragging a selected clip on the timeline does, as with Resolve's Trim tool.
     var trimMode: TrimMode = .normal
+    /// A clip on the timeline is being dragged sideways (moved or trimmed): the timeline's own
+    /// drag leaves the playhead alone meanwhile.
+    @ObservationIgnored var clipGesture = false
 
     /// Long side of the preview render, in pixels (set from the stage's size).
     var previewMax: UInt32 = 960

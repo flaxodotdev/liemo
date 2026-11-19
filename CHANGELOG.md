@@ -2,6 +2,19 @@
 
 What's new in each Liemo release, on the Mac, Windows, Linux, iPhone and iPad.
 
+## 0.9.1
+
+### New
+- **As many overlays as you like**: drop an overlay where another one already sits and Liemo
+  puts it on a new overlay track above, so layers stack without pushing each other along.
+- **Text anywhere in the stack**: titles can go on any overlay track and tracks can be moved in
+  front of or behind each other, so text can sit between two overlays. On iPhone and iPad, press
+  and hold a track and choose Move up (in front) or Move down (behind).
+
+### Better
+- On iPhone and iPad, the timeline scrolls properly with many layers: overlapping main-video
+  clips no longer hang off the bottom, and swiping up and down works even over a selected clip.
+
 ## 0.9.0
 
 ### New

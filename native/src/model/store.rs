@@ -35,8 +35,9 @@ const EPS: f64 = 1e-6;
 pub fn track_kinds(k: TrackKind) -> &'static [AssetType] {
     use AssetType::*;
     match k {
-        TrackKind::Text => &[Text],
-        TrackKind::Overlay => &[Overlay, Image, Photo, Video, Scene],
+        // Picture tracks above the main video take any picture, text included, so overlays and
+        // titles can be layered in any order, as in Resolve.
+        TrackKind::Text | TrackKind::Overlay => &[Text, Overlay, Image, Photo, Video, Scene],
         TrackKind::Video => &[Scene, Video, Image, Photo],
         TrackKind::Audio => &[Music, Audio],
     }
@@ -388,8 +389,8 @@ impl Store {
     }
     /// Fit a clip into its track according to the edit mode, and say what moved.
     fn place(&mut self, clips: Vec<Clip>, id: &str, snap_into_place: bool, announce: bool) -> Vec<Clip> {
-        // Titles may overlap: they stack on the Titles track (each in its own row) and all show.
-        if clips.iter().any(|c| c.id == id && c.kind == AssetType::Text) {
+        // Titles may overlap on a titles track: they stack (each in its own row) and all show.
+        if clips.iter().any(|c| c.id == id && c.kind == AssetType::Text && self.tracks.iter().any(|t| t.id == c.track && t.kind == TrackKind::Text)) {
             return clips;
         }
         if self.edit_mode == EditMode::Overwrite {
@@ -539,7 +540,20 @@ impl Store {
         self.add_clip_with(asset_id, track_id, Some(start), false)
     }
     fn add_clip_with(&mut self, asset_id: &str, track_id: Option<&str>, start: Option<f64>, snap_into_place: bool) -> Option<Clip> {
-        let c = make_clip(&self.tracks, self.time, asset_id, track_id, start)?;
+        let mut c = make_clip(&self.tracks, self.time, asset_id, track_id, start)?;
+        // An overlay added without a track goes on the first overlay track that's free at that
+        // moment, or a new one in front: overlays stack instead of pushing each other along.
+        if track_id.is_none() && c.track == "V2" && self.clips.iter().any(|k| k.track == "V2" && k.start < c.start + c.dur - EPS && k.start + k.dur > c.start + EPS) {
+            let busy = |t: &str| self.clips.iter().any(|k| k.track == t && k.start < c.start + c.dur - EPS && k.start + k.dur > c.start + EPS);
+            let free = self.tracks.iter().rev().find(|t| t.kind == TrackKind::Overlay && !t.locked && !busy(&t.id)).map(|t| t.id.clone());
+            c.track = match free {
+                Some(t) => t,
+                None => {
+                    let n = self.tracks.iter().filter(|t| t.kind == TrackKind::Overlay).count() + 1;
+                    self.add_track(TrackKind::Overlay, Some(format!("Overlays {n}")))
+                }
+            };
+        }
         if self.locked(&c.track) {
             return None;
         }
@@ -1235,9 +1249,24 @@ impl Store {
     }
 
     // ---------- Tracks ----------
-    /// A new track of `kind`, next to the others of its kind (titles above, audio below).
+    /// A new track of `kind`: picture and titles tracks on top (in front), audio at the bottom.
     /// Returns its id.
     pub fn add_track(&mut self, kind: TrackKind, name: Option<String>) -> String {
+        self.add_track_at(kind, name, None)
+    }
+    /// A clip dropped on an overlay track where something already is: a new overlay track right
+    /// above that one takes it, so pictures layer instead of pushing each other along. Otherwise
+    /// the track itself.
+    pub fn stack_target(&mut self, track: &str, start: f64, dur: f64) -> String {
+        let Some(i) = self.tracks.iter().position(|t| t.id == track) else { return track.to_string() };
+        if self.tracks[i].kind != TrackKind::Overlay || !self.clips.iter().any(|k| k.track == track && k.start < start + dur - EPS && k.start + k.dur > start + EPS) {
+            return track.to_string();
+        }
+        let n = self.tracks.iter().filter(|t| t.kind == TrackKind::Overlay).count() + 1;
+        self.add_track_at(TrackKind::Overlay, Some(format!("Overlays {n}")), Some(i))
+    }
+    /// A new track at `at` in the list (higher is in front), or where its kind goes by default.
+    pub fn add_track_at(&mut self, kind: TrackKind, name: Option<String>, at: Option<usize>) -> String {
         let prefix = match kind {
             TrackKind::Text => "T",
             TrackKind::Audio => "A",
@@ -1253,14 +1282,12 @@ impl Store {
         });
         self.commit();
         let t = Track { id: id.clone(), name, kind, hidden: false, muted: false, locked: false };
-        // Picture tracks stack on top of the other picture tracks (in front); titles go first;
-        // audio goes last.
-        let at = match kind {
-            TrackKind::Text => 0,
+        // Picture and titles tracks go on top (in front of everything); audio goes last.
+        let at = at.unwrap_or(match kind {
             TrackKind::Audio => self.tracks.len(),
-            _ => self.tracks.iter().position(|t| t.kind != TrackKind::Text).unwrap_or(0),
-        };
-        self.tracks.insert(at, t);
+            _ => 0,
+        });
+        self.tracks.insert(at.min(self.tracks.len()), t);
         self.changed();
         id
     }

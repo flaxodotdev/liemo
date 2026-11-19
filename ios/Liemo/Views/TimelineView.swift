@@ -21,6 +21,9 @@ struct TimelineView: View {
     @State private var vScroll: CGFloat = 0
     @State private var vStart: CGFloat?
     @State private var dragAxis: Axis?
+    /// Events seen in the current drag: scrubbing waits one, so a drag that a clip takes (it
+    /// says so through `model.clipGesture`) never nudges the playhead first.
+    @State private var dragEvents = 0
 
     private let ruler: CGFloat = 30
     private let gap: CGFloat = 6
@@ -41,7 +44,10 @@ struct TimelineView: View {
     /// when it has clips (tracks added on the Mac included). `scroll` lifts them all.
     private func lanes(_ doc: ProjectDoc, height: CGFloat, scroll: CGFloat = 0) -> [Lane] {
         let used = Set(doc.clips.map(\.track))
-        var stack = [Lane(track: "V1", height: 58, rowH: 58)]
+        // The main video grows with its stacked rows like every other lane: a fixed height would
+        // leave the rows below the first hanging off the bottom, where scrolling can't reach.
+        let mainRows = max(1, stackRows(doc.clips.filter { $0.track == "V1" }).count)
+        var stack = [Lane(track: "V1", height: CGFloat(mainRows) * 58 + CGFloat(mainRows - 1) * 4, rows: mainRows, rowH: 58)]
         let audio = doc.tracks.filter { $0.kind == "audio" }.map(\.id)
         let sounding = audio.filter { used.contains($0) }
         if sounding.isEmpty {
@@ -121,15 +127,18 @@ struct TimelineView: View {
                             .background(Color.white, in: Circle())
                             .foregroundStyle(.black)
                     }
-                    .offset(x: geo.size.width - 48, y: main.y + (main.height - 36) / 2)
+                    .offset(x: geo.size.width - 48, y: main.y + (main.rowH - 36) / 2)
                     .accessibilityLabel("Add media")
                 }
             }
             .clipped()
             .contentShape(Rectangle())
-            .gesture(
+            // Simultaneous, so a vertical swipe scrolls the layers even when it starts on a clip
+            // (selected clips and their trim handles have drags of their own).
+            .simultaneousGesture(
                 DragGesture(minimumDistance: 5)
                     .onChanged { v in
+                        dragEvents += 1
                         // Mostly up or down (with lanes to scroll): scroll them. A slight
                         // vertical bias — fingers drift sideways, and a diagonal drag must
                         // not lock into scrubbing when there are layers to reach.
@@ -142,6 +151,8 @@ struct TimelineView: View {
                             vScroll = (s + v.translation.height).clamped(0, scrollMax)
                             return
                         }
+                        // A clip is being moved or trimmed: that drag is the clip's.
+                        if model.clipGesture || dragEvents < 2 { return }
                         if model.playing { model.pause() }
                         let s = scrubStart ?? model.time
                         scrubStart = s
@@ -151,6 +162,7 @@ struct TimelineView: View {
                         scrubStart = nil
                         vStart = nil
                         dragAxis = nil
+                        dragEvents = 0
                     }
             )
             .simultaneousGesture(
@@ -269,6 +281,8 @@ private struct ClipView: View {
     @State private var dx: CGFloat = 0
     @State private var kind: Kind?
     @State private var gen = 0
+    /// This drag went up or down: it scrolls the layers, so the clip stays put.
+    @State private var vertical = false
 
     enum Kind { case move, left, right }
 
@@ -356,11 +370,25 @@ private struct ClipView: View {
     private func drag(_ k: Kind, minimum: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: minimum)
             .onChanged { v in
+                if vertical { return }
+                // Same test as the timeline's own drag, so one swipe never both scrolls and moves.
+                if kind == nil && abs(v.translation.height) > abs(v.translation.width) * 0.75 {
+                    vertical = true
+                    return
+                }
+                model.clipGesture = true
                 gen += 1
                 kind = k
                 dx = v.translation.width
             }
-            .onEnded { v in commit(k, v.translation.width) }
+            .onEnded { v in
+                model.clipGesture = false
+                if vertical {
+                    vertical = false
+                    return
+                }
+                commit(k, v.translation.width)
+            }
     }
 
     private func commit(_ k: Kind, _ moved: CGFloat) {

@@ -378,3 +378,44 @@ fn keyframe_and_trim_tools() {
     // Generated scenes have no footage to slip.
     assert!(tool("trim_clip", json!({ "project": id, "clip": a, "mode": "slip", "by": 1.0 })).is_err());
 }
+
+#[test]
+fn overlays_stack_and_text_layers_between_them() {
+    let made = tool("create_project", json!({ "template": "blank", "name": "Layers" })).or_else(|_| tool("create_project", json!({ "name": "Layers" }))).unwrap();
+    let id = made["id"].as_str().unwrap().to_string();
+    let ov = crate::model::assets::overlays().into_iter().next().unwrap().id;
+    // Two overlays at the same moment: the second goes on a new track in front, not after the first.
+    let a = tool("add_clip", json!({ "project": id, "asset": ov, "start": 1.0 })).unwrap();
+    let b = tool("add_clip", json!({ "project": id, "asset": ov, "start": 1.0 })).unwrap();
+    let doc = tool("get_project", json!({ "project": id })).unwrap();
+    let clip = |cid: &Value| doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == cid["clip"]["id"].as_str().unwrap_or(cid["id"].as_str().unwrap_or(""))).cloned().unwrap();
+    let (ca, cb) = (clip(&a), clip(&b));
+    assert_eq!(ca["track"], "V2");
+    assert_ne!(cb["track"], "V2");
+    assert_eq!(ca["start"], cb["start"], "stacked, not pushed along");
+    let order: Vec<String> = doc["tracks"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(order[0], cb["track"].as_str().unwrap(), "the new track is in front: {order:?}");
+    // Text goes on an overlay track, between the two.
+    let t = tool("add_text", json!({ "project": id, "content": "Behind", "track": "V2", "start": 1.0 })).unwrap();
+    let tid = t["clip"]["id"].as_str().or(t["id"].as_str()).unwrap().to_string();
+    let doc = tool("get_project", json!({ "project": id })).unwrap();
+    assert_eq!(doc["clips"].as_array().unwrap().iter().find(|c| c["id"] == tid.as_str()).unwrap()["track"], "V2");
+    assert!(tool("add_text", json!({ "project": id, "content": "No", "track": "A1" })).is_err());
+}
+
+#[test]
+fn dropping_on_a_busy_overlay_track_layers_above_it() {
+    let mut st = crate::model::store::Store::new("t".into(), vec![], default_tracks(), vec![]);
+    let ov = crate::model::assets::overlays().into_iter().next().unwrap().id;
+    st.add_clip(&ov, Some("V2"), Some(2.0)).unwrap();
+    // A free stretch of V2 takes the drop itself.
+    assert_eq!(st.stack_target("V2", 20.0, 3.0), "V2");
+    // A busy one gets a new track directly above V2 (in front of it, below anything higher).
+    let above = st.stack_target("V2", 3.0, 3.0);
+    assert_ne!(above, "V2");
+    let pos = |id: &str| st.tracks.iter().position(|t| t.id == id).unwrap();
+    assert_eq!(pos(&above) + 1, pos("V2"));
+    assert!(pos("T1") < pos(&above));
+    // The main video and titles tracks never layer this way.
+    assert_eq!(st.stack_target("V1", 0.0, 100.0), "V1");
+}

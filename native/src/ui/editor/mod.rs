@@ -1811,7 +1811,10 @@ impl Editor {
             }
             if let Some(track) = self.lane_at(pos) {
                 let mut time = snap_frame(self.time_at(pos.x));
-                if self.store.edit_mode == crate::model::store::EditMode::Insert {
+                // Overlay tracks layer what's dropped on them (see stack_target), so the drop
+                // lands right where it's let go.
+                let layers = self.store.track(&track).kind == crate::model::types::TrackKind::Overlay;
+                if self.store.edit_mode == crate::model::store::EditMode::Insert && !layers {
                     // Same rule as the drop itself: inside a clip lands before it (first half) or after it.
                     if let Some(h) = self.store.clips.iter().find(|k| k.track == track && time > k.start && time < k.start + k.dur) {
                         time = if time - h.start < h.dur / 2.0 { h.start } else { h.start + h.dur };
@@ -1855,7 +1858,8 @@ impl Editor {
                     let def = self.store.track(default_track(kind)).name.clone();
                     self.store.toast(format!("{} doesn't take {} clips, so it went on {def}.", tr.name, format!("{kind:?}").to_lowercase()));
                 }
-                self.store.add_clip(&p.id, if *ok { Some(track.as_str()) } else { None }, Some(*time));
+                let track = if *ok { Some(self.store.stack_target(track, *time, asset(&p.id).map(|a| a.dur).unwrap_or(1.0))) } else { None };
+                self.store.add_clip(&p.id, track.as_deref(), Some(*time));
             }
             _ => {}
         }

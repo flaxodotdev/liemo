@@ -358,10 +358,11 @@ fn all_definitions() -> Vec<Value> {
                 "duration": { "type": "number", "description": "Seconds; default the asset's length" },
                 "in": { "type": "number", "description": "Seconds into the source (video/audio)" },
             }), &["project", "asset"]),
-        tool("add_text", "Add text", "Add a title, caption or lower third on the Titles track.",
+        tool("add_text", "Add text", "Add a title, caption or lower third: on the Titles track, or on any overlay track to layer it between pictures.",
             json!({
                 "project": project_prop(),
                 "style": { "type": "string", "enum": text_presets().iter().map(|a| a.id.clone()).collect::<Vec<_>>(), "description": "Starting style; default tx-title" },
+                "track": { "type": "string", "description": "Titles track (default T1) or any overlay track: higher tracks are in front, so text on a track below an overlay sits behind it" },
                 "content": { "type": "string" },
                 "start": { "type": "number" },
                 "duration": { "type": "number" },
@@ -739,7 +740,11 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 if asset(&style).and_then(|x| x.text.clone()).is_none() {
                     return Err(format!("No text style {style}"));
                 }
-                let c = st.add_clip_exact(&style, Some("T1"), f(&args, "start").unwrap_or(0.0)).ok_or("The Titles track is locked")?;
+                let track = s(&args, "track").unwrap_or("T1").to_string();
+                if !crate::model::store::accepts(&st.tracks, &track, AssetType::Text) {
+                    return Err(format!("Text can't go on {track}: use a titles or overlay track (get_project lists them)"));
+                }
+                let c = st.add_clip_exact(&style, Some(&track), f(&args, "start").unwrap_or(0.0)).ok_or("That track is locked")?;
                 if let Some(d) = f(&args, "duration") {
                     st.update_clip(&c.id, |k| k.dur = d.max(0.1));
                 }
