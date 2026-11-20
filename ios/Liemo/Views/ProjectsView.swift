@@ -8,6 +8,7 @@ struct ProjectsView: View {
     @State private var renaming: ProjectSummary?
     @State private var newName = ""
     @State private var stamp = UUID()
+    @AppStorage("liemo-mode") private var mode = AppMode.editor.rawValue
 
     private let core = Core.shared
 
@@ -37,6 +38,11 @@ struct ProjectsView: View {
             }
             .onAppear {
                 refresh()
+                // A reel made from the music player opens here.
+                if let id = UserDefaults.standard.string(forKey: "liemo-open-project") {
+                    UserDefaults.standard.removeObject(forKey: "liemo-open-project")
+                    path.append(id)
+                }
                 // The launch-argument checks below run once per launch, not every time the list returns.
                 guard !LaunchChecks.ran else { return }
                 LaunchChecks.ran = true
@@ -95,16 +101,26 @@ struct ProjectsView: View {
     private var header: some View {
         HStack(spacing: 10) {
             LiemoMark(size: 26)
-            Text("Liemo").font(.system(size: 22, weight: .semibold))
+            Text("Liemo").font(.system(size: 22, weight: .semibold)).lineLimit(1).fixedSize()
             Spacer()
+            Button { mode = AppMode.music.rawValue } label: {
+                Image(systemName: "music.note").font(.system(size: 16, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .background(Theme.surface2, in: Circle()).foregroundStyle(Theme.ink)
+            }
+            .accessibilityLabel("Music player")
             Button { reeling = true } label: {
-                Label("Quick reel", systemImage: "wand.and.stars").font(.system(size: 15, weight: .semibold))
-                    .padding(.horizontal, 14).frame(height: 36)
+                // The words when there's room, just the wand on narrow phones.
+                ViewThatFits(in: .horizontal) {
+                    Label("Quick reel", systemImage: "wand.and.stars").lineLimit(1).fixedSize().padding(.horizontal, 12)
+                    Image(systemName: "wand.and.stars").frame(width: 36)
+                }
+                .font(.system(size: 15, weight: .semibold)).frame(height: 36)
                     .background(Theme.surface2, in: Capsule()).foregroundStyle(Theme.ink)
             }
             Button { creating = true } label: {
                 Label("New", systemImage: "plus").font(.system(size: 15, weight: .semibold))
-                    .padding(.horizontal, 14).frame(height: 36)
+                    .lineLimit(1).fixedSize().padding(.horizontal, 12).frame(height: 36)
                     .background(Color.white, in: Capsule()).foregroundStyle(.black)
             }
         }

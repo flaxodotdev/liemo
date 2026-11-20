@@ -44,8 +44,8 @@ pub mod import {
     use std::sync::Arc;
     use tiny_skia::Pixmap;
 
-    const VIDEO: &[&str] = &["mp4", "mov", "m4v", "3gp", "hevc"];
-    const AUDIO: &[&str] = &["mp3", "wav", "m4a", "aac", "flac", "aif", "aiff", "caf"];
+    const VIDEO: &[&str] = &["mp4", "mov", "m4v", "3gp", "hevc", "webm", "mkv"];
+    const AUDIO: &[&str] = &["mp3", "wav", "m4a", "aac", "flac", "aif", "aiff", "caf", "ogg", "oga", "opus"];
     const IMAGE: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "heic", "heif"];
 
     pub fn kind_of(path: &Path) -> Option<AssetType> {
@@ -235,7 +235,8 @@ pub mod audio {
 
     /// The file's sound as 48 kHz interleaved stereo, decoded by the host.
     pub fn decode(path: &Path) -> Option<AudioBuf> {
-        let samples = host()?.decode_audio(path.display().to_string())?;
+        let bytes = host()?.decode_audio(path.display().to_string())?;
+        let samples: Vec<f32> = bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
         (!samples.is_empty()).then_some(AudioBuf { samples })
     }
 

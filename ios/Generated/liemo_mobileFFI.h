@@ -396,9 +396,19 @@ RustBuffer uniffi_liemo_mobile_fn_method_engine_project_thumb_path(uint64_t ptr,
 RustBuffer uniffi_liemo_mobile_fn_method_engine_render_audio(uint64_t ptr, double start, uint32_t frames, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_AUDIO_BYTES
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_AUDIO_BYTES
+RustBuffer uniffi_liemo_mobile_fn_method_engine_render_audio_bytes(uint64_t ptr, double start, uint32_t frames, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_AUDIO_RANGE
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_AUDIO_RANGE
 RustBuffer uniffi_liemo_mobile_fn_method_engine_render_audio_range(uint64_t ptr, double start, double stop, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_AUDIO_RANGE_BYTES
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_AUDIO_RANGE_BYTES
+RustBuffer uniffi_liemo_mobile_fn_method_engine_render_audio_range_bytes(uint64_t ptr, double start, double stop, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_FN_METHOD_ENGINE_RENDER_CLIP
@@ -849,9 +859,21 @@ uint16_t uniffi_liemo_mobile_checksum_method_engine_render_audio(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_AUDIO_BYTES
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_AUDIO_BYTES
+uint16_t uniffi_liemo_mobile_checksum_method_engine_render_audio_bytes(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_AUDIO_RANGE
 #define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_AUDIO_RANGE
 uint16_t uniffi_liemo_mobile_checksum_method_engine_render_audio_range(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_AUDIO_RANGE_BYTES
+#define UNIFFI_FFIDEF_UNIFFI_LIEMO_MOBILE_CHECKSUM_METHOD_ENGINE_RENDER_AUDIO_RANGE_BYTES
+uint16_t uniffi_liemo_mobile_checksum_method_engine_render_audio_range_bytes(void
     
 );
 #endif

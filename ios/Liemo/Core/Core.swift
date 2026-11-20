@@ -15,6 +15,9 @@ final class Core: @unchecked Sendable {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         dataDir = support.appendingPathComponent("Liemo", isDirectory: true)
         try? FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
+        // Older projects may point at sounds inside the app itself, whose path changes with
+        // every update: the engine looks for them here again.
+        setenv("RAYNA_BUNDLE", Bundle.main.bundlePath, 1)
         engine = Engine(dataDir: dataDir.path, host: host)
     }
 

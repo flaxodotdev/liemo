@@ -276,7 +276,34 @@ pub fn put_media(m: &MediaRecord) -> Result<()> {
 }
 pub fn get_media(id: &str) -> Option<MediaRecord> {
     let bytes = std::fs::read(media_dir().join(format!("{id}.json"))).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    let mut m: MediaRecord = serde_json::from_slice(&bytes).ok()?;
+    if !m.path.exists() {
+        // The app bundle moves on every iOS update too; its sounds may be in older projects.
+        let found = relocate(&m.path, &root())
+            .or_else(|| std::env::var_os("RAYNA_BUNDLE").and_then(|b| relocate(&m.path, Path::new(&b))));
+        if let Some(found) = found {
+            m.path = found;
+            let _ = put_media(&m);
+        }
+    }
+    Some(m)
+}
+
+/// A file the app keeps that moved with the app's own folder. iOS gives an app a new container
+/// path on updates and restores (`…/Application/<new id>/…`), so a saved absolute path goes stale
+/// while the file is still there. Look for the old path's tail (longest first, at least the file
+/// and its folder) under the data folder and the few folders above it, the container's own.
+pub fn relocate(old: &Path, root: &Path) -> Option<PathBuf> {
+    let parts: Vec<_> = old.components().skip(1).collect();
+    for base in root.ancestors().take(5) {
+        for k in (2..parts.len()).rev() {
+            let candidate: PathBuf = base.join(parts[parts.len() - k..].iter().collect::<PathBuf>());
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 /// Forget media records no remaining project uses. The files themselves are left alone.
@@ -392,3 +419,29 @@ pub fn create_project(sample: bool, name: Option<String>, np: &NewProject) -> an
     Ok(p.id)
 }
 
+
+#[cfg(test)]
+mod relocate_tests {
+    use super::relocate;
+
+    #[test]
+    fn finds_media_after_the_app_folder_moves() {
+        let tmp = std::env::temp_dir().join(format!("liemo-relocate-{}", std::process::id()));
+        // Today's container, with the file the old path named.
+        let root = tmp.join("Application/NEW-ID/Library/Application Support/Liemo");
+        std::fs::create_dir_all(root.join("imports")).unwrap();
+        std::fs::write(root.join("imports/Song.m4a"), b"x").unwrap();
+        std::fs::create_dir_all(tmp.join("Application/NEW-ID/Documents")).unwrap();
+        std::fs::write(tmp.join("Application/NEW-ID/Documents/clip.mov"), b"x").unwrap();
+
+        let old = std::path::Path::new("/var/mobile/Containers/Data/Application/OLD-ID/Library/Application Support/Liemo/imports/Song.m4a");
+        assert_eq!(relocate(old, &root), Some(root.join("imports/Song.m4a")));
+        // Outside the data folder but still inside the app's container.
+        let old = std::path::Path::new("/var/mobile/Containers/Data/Application/OLD-ID/Documents/clip.mov");
+        assert_eq!(relocate(old, &root), Some(tmp.join("Application/NEW-ID/Documents/clip.mov")));
+        // Really gone stays gone.
+        let old = std::path::Path::new("/var/mobile/Containers/Data/Application/OLD-ID/Library/Application Support/Liemo/imports/gone.png");
+        assert_eq!(relocate(old, &root), None);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}

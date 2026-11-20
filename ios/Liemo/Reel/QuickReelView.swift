@@ -6,6 +6,9 @@ import SwiftUI
 /// are recognised and get their real lyrics from the web, so the words land on their moments.
 struct QuickReelView: View {
     let done: (String?) -> Void
+    /// A song to start with (from the music player): recognised and given its lyrics like any other.
+    var song: URL? = nil
+    @State private var songTaken = false
 
     enum Pick {
         case bundled(Song)
@@ -78,6 +81,9 @@ struct QuickReelView: View {
             .overlay { if let p = progress ?? songWork { working(p) } }
             .interactiveDismissDisabled(progress != nil || songWork != nil)
             .navigationDestination(isPresented: $libraryOpen) { SongLibraryView() }
+        }
+        .onAppear {
+            if let song, !songTaken { songTaken = true; own(song) }
         }
         .sheet(item: $editing) { song in
             LyricsEditor(song: song) { updated in

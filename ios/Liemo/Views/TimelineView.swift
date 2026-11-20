@@ -368,7 +368,9 @@ private struct ClipView: View {
     }
 
     private func drag(_ k: Kind, minimum: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: minimum)
+        // Measured on the screen, not on the handle: the handle rides along with the edge it
+        // drags, so in its own space the distance kept shifting under the finger (the jiggle).
+        DragGesture(minimumDistance: minimum, coordinateSpace: .global)
             .onChanged { v in
                 if vertical { return }
                 // Same test as the timeline's own drag, so one swipe never both scrolls and moves.

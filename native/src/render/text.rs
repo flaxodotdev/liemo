@@ -66,6 +66,16 @@ fn fonts() -> &'static Vec<FontData> {
             "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
             "/System/Library/Fonts/Helvetica.ttc",
             "/Library/Fonts/Arial Unicode.ttf",
+            // iPhone and iPad: Latin, Greek and Cyrillic, Hebrew, Arabic, symbols. Every fallback
+            // is read into memory up front, so the 40 MB Japanese and Korean faces stay out.
+            "/System/Library/Fonts/Core/Helvetica.ttc",
+            "/System/Library/Fonts/Core/ArialHB.ttc",
+            "/System/Library/Fonts/Core/GeezaPro.ttc",
+            "/System/Library/Fonts/Core/CJKSymbolsFallback.ttc",
+            "/System/Library/Fonts/Core/AppleSymbols.ttf",
+            // Android.
+            "/system/fonts/Roboto-Regular.ttf",
+            "/system/fonts/NotoSansSymbols-Regular-Subsetted.ttf",
         ] {
             if let Ok(bytes) = std::fs::read(p) {
                 v.push(FontData { data: Box::leak(bytes.into_boxed_slice()), index: 0, variable: false });
@@ -99,6 +109,11 @@ fn system_db() -> &'static fontdb::Database {
         // fontdb only knows the Mac's font folders; on iPhone and iPad they all live under here.
         if cfg!(target_os = "ios") {
             db.load_fonts_dir("/System/Library/Fonts");
+        }
+        // Android keeps its fonts in /system/fonts (and phone makers' extras in /product/fonts).
+        if cfg!(target_os = "android") {
+            db.load_fonts_dir("/system/fonts");
+            db.load_fonts_dir("/product/fonts");
         }
         db
     })
@@ -238,7 +253,11 @@ fn shape(text: &str, st: &TextStyle) -> Shaped {
     let mut pen = 0.0f32;
     // Split into runs by face.
     let mut runs: Vec<(usize, String)> = vec![];
-    for ch in text.chars() {
+    // Invisible formatting marks (zero-width joiners, direction marks, word joiners, BOM) that
+    // lyrics pasted from the web carry: nothing to draw, and no face has a glyph for them.
+    for ch in text.chars().filter(|c| !matches!(*c as u32, 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x206F | 0xFEFF)) {
+        // Thin and narrow spaces (French puts one before ? and !) draw as a plain space.
+        let ch = if matches!(ch as u32, 0x2000..=0x200A | 0x202F | 0x205F) { ' ' } else { ch };
         let fi = if is_emoji(ch) { usize::MAX } else { face_for(primary, ch) };
         match runs.last_mut() {
             Some((f, s)) if *f == fi && fi != usize::MAX => s.push(ch),
@@ -454,3 +473,4 @@ pub fn glyph_tile(text: &str, cell: u32, st: &TextStyle, dy: f32) -> Pixmap {
     fill_text(&mut c, text, cell as f32 / 2.0, cell as f32 / 2.0 + dy, st, Align::Center, Baseline::Middle, Color::WHITE);
     c.into_pixmap()
 }
+

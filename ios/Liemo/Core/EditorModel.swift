@@ -185,6 +185,7 @@ final class EditorModel {
     func update(_ clip: String, _ fields: [String: Any], done: (() -> Void)? = nil) {
         var f = fields
         f["clip"] = clip
+        f["project"] = id
         let (a, core, pid) = (f, core, id)
         Task.detached(priority: .userInitiated) {
             let r = core.call("update_clip", a)

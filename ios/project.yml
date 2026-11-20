@@ -6,7 +6,7 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    MARKETING_VERSION: "0.9.1"
+    MARKETING_VERSION: "0.10.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: "B5UL5U45T7"
@@ -45,6 +45,10 @@ targets:
         NSMicrophoneUsageDescription: Liemo records voiceovers for your videos.
         NSSpeechRecognitionUsageDescription: Liemo turns what's said in your video into captions, on this device.
         ITSAppUsesNonExemptEncryption: false
+        # The music player keeps playing with the screen off, and its Music folder shows in Files.
+        UIBackgroundModes: [audio]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.flaxo.liemo

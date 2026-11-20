@@ -1,0 +1,8 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+# Built by scripts/build-core.sh
+app/src/main/jniLibs/

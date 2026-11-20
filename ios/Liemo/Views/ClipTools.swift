@@ -446,7 +446,7 @@ struct SfxPanel: View {
                                     row(s.name, String(format: "%.1fs", s.dur)) {
                                         preview(s.url)
                                     } add: {
-                                        if let url = s.url, model.addMedia(url, track: "A2", duration: s.dur, extra: [:]) { done() }
+                                        if let url = s.copy(), model.addMedia(url, track: "A2", duration: s.dur, extra: [:]) { done() }
                                     }
                                 }
                             }

@@ -2,6 +2,34 @@
 
 What's new in each Liemo release, on the Mac, Windows, Linux, iPhone and iPad.
 
+## 0.10.0
+
+### New
+- **A music player on iPhone and iPad**: tap ♪ on the projects screen to switch Liemo into a
+  music player (and Editor to switch back). It starts empty: add songs, music videos or whole
+  folders from Files, or drop them into Files › On My iPhone › Liemo › Music. Browse by song,
+  artist, album, genre, playlist and video; search; queue, shuffle, repeat, a sleep timer, the
+  lock screen and Control Center, and it keeps playing with the screen off.
+- **Rework any song as it plays**: speed, pitch (with or without following the speed, like a
+  record), reverb and room, bass and treble, with presets like Sped up, Nightcore, Slowed +
+  reverb and Lo-fi. Liemo can remember each song's own sound.
+- **Loop the hook**: Liemo finds the part of a song that hits and loops it seamlessly. Pick it
+  again on the song's waveform, set its length in bars, or let Liemo find it.
+- **Make a reel from your music**: any song in the player opens Quick reel with that song ready,
+  lyrics included.
+- **Liemo for Android** (early): projects, the editor with its timeline, preview and inspector,
+  the library, Quick reel and export, on the same engine as every other Liemo.
+
+### Fixed
+- On iPhone and iPad, resizing or trimming a clip no longer fails with “Missing "project"”, and
+  dragging a clip's edge no longer jiggles.
+- Projects keep their pictures, music and sound effects after an app update (iOS moves an app's
+  folder when it updates; Liemo now finds the files again).
+- Captions draw every letter: when a caption's font lacks one, iPhone and Android fall back on
+  the system's fonts instead of a box. Invisible characters from pasted lyrics are ignored.
+- Clips and captions laid end to end (Quick reel, the MCP tools) no longer overlap by a sliver
+  and stack onto extra rows.
+
 ## 0.9.1
 
 ### New

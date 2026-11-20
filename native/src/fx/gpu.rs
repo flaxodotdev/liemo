@@ -63,7 +63,13 @@ pub fn gpu() -> Option<&'static Gpu> {
     G.get_or_init(|| {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         // Metal on Apple; Vulkan on Linux, DirectX 12 or Vulkan on Windows.
-        desc.backends = if cfg!(any(target_os = "macos", target_os = "ios")) { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN | wgpu::Backends::DX12 };
+        desc.backends = if cfg!(any(target_os = "macos", target_os = "ios")) {
+            wgpu::Backends::METAL
+        } else if cfg!(target_os = "android") {
+            wgpu::Backends::VULKAN | wgpu::Backends::GL
+        } else {
+            wgpu::Backends::VULKAN | wgpu::Backends::DX12
+        };
         let instance = wgpu::Instance::new(desc);
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() })).ok()?;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {

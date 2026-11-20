@@ -37,8 +37,9 @@ pub trait MediaHost: Send + Sync {
     fn video_frame(&self, path: String, time: f64, max_w: u32, max_h: u32) -> Option<MediaFrame>;
     /// A picture the engine can't decode itself (HEIC…), long side at most `max`.
     fn decode_image(&self, path: String, max: u32) -> Option<MediaFrame>;
-    /// The file's sound as 48 kHz interleaved stereo.
-    fn decode_audio(&self, path: String) -> Option<Vec<f32>>;
+    /// The file's sound as 48 kHz interleaved stereo, as little-endian 32-bit floats (bytes, so
+    /// a song crosses the language boundary in one piece rather than sample by sample).
+    fn decode_audio(&self, path: String) -> Option<Vec<u8>>;
     /// Where the subject is in a picture (people, pets, things in front): a mask whose alpha
     /// is 255 on the subject and 0 behind it, at any size. None when nothing stands out.
     fn segment(&self, frame: MediaFrame) -> Option<MediaFrame>;
@@ -51,6 +52,10 @@ pub struct ToolResult {
     pub text: String,
     /// render_frame's picture.
     pub png: Option<Vec<u8>>,
+}
+
+fn f32_bytes(v: &[f32]) -> Vec<u8> {
+    v.iter().flat_map(|x| x.to_le_bytes()).collect()
 }
 
 fn frame_of(pm: &Pixmap) -> MediaFrame {
@@ -261,6 +266,15 @@ impl Engine {
             crate::audio::mix::mix(&mut out, &o.store.clips, &o.store.tracks, start, 48000.0, f64::NEG_INFINITY, f64::INFINITY, 1.0);
         }
         out
+    }
+
+    /// `render_audio` as little-endian 32-bit float bytes (Android plays these straight).
+    pub fn render_audio_bytes(&self, start: f64, frames: u32) -> Vec<u8> {
+        f32_bytes(&self.render_audio(start, frames))
+    }
+    /// `render_audio_range` as little-endian 32-bit float bytes.
+    pub fn render_audio_range_bytes(&self, start: f64, stop: f64) -> Vec<u8> {
+        f32_bytes(&self.render_audio_range(start, stop))
     }
 
     /// The open project's whole mix from `start` to `stop` seconds (48 kHz interleaved stereo),

@@ -57,7 +57,13 @@ final class AVMediaHost: MediaHost, @unchecked Sendable {
         return frame(of: img, max: nil)
     }
 
-    func decodeAudio(path: String) -> [Float]? {
+    /// The engine's side: `samples` as little-endian float bytes.
+    func decodeAudio(path: String) -> Data? {
+        samples(path: path).map { s in s.withUnsafeBytes { Data($0) } }
+    }
+
+    /// A file's sound as 48 kHz interleaved stereo.
+    func samples(path: String) -> [Float]? {
         let asset = AVURLAsset(url: URL(fileURLWithPath: path))
         guard let track = blocking({ try await asset.loadTracks(withMediaType: .audio).first }) ?? nil,
               let reader = try? AVAssetReader(asset: asset) else { return nil }

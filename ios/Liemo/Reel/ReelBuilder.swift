@@ -111,7 +111,7 @@ final class ReelBuilder: @unchecked Sendable {
 
         // 1. The song: find the drop, rework from there — unless the user picked the moment.
         step(plan.vibe == .original ? "Finding the drop…" : "Making it \(plan.vibe.name.lowercased())…")
-        let raw = core.host.decodeAudio(path: song.path) ?? []
+        let raw = core.host.samples(path: song.path) ?? []
         let rawDuration = Double(raw.count) / 2 / 48000
         let window = plan.length * plan.vibe.rate
         let start = plan.songStart.map { min($0, max(0, rawDuration - window)) } ?? SongFX.dropStart(raw, window: window)
@@ -130,7 +130,7 @@ final class ReelBuilder: @unchecked Sendable {
         var tempo = SongFX.beats(minute).bpm * plan.vibe.rate
         while tempo > 175 { tempo /= 2 }
         while tempo < 80 { tempo *= 2 }
-        let mix = core.host.decodeAudio(path: audio.path) ?? []
+        let mix = core.host.samples(path: audio.path) ?? []
         let (bpm, first) = SongFX.beats(mix, near: tempo)
         let beat = 60 / bpm
         step(String(format: "Cutting at %.0f BPM…", bpm))

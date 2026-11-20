@@ -689,10 +689,20 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func renderAudio(start: Double, frames: UInt32)  -> [Float]
     
     /**
+     * `render_audio` as little-endian 32-bit float bytes (Android plays these straight).
+     */
+    func renderAudioBytes(start: Double, frames: UInt32)  -> Data
+    
+    /**
      * The open project's whole mix from `start` to `stop` seconds (48 kHz interleaved stereo),
      * for export.
      */
     func renderAudioRange(start: Double, stop: Double)  -> [Float]
+    
+    /**
+     * `render_audio_range` as little-endian 32-bit float bytes.
+     */
+    func renderAudioRangeBytes(start: Double, stop: Double)  -> Data
     
     /**
      * One clip of the open project alone at `time` (its effects and motion, nothing else), on
@@ -1019,6 +1029,20 @@ open func renderAudio(start: Double, frames: UInt32) -> [Float]  {
 }
     
     /**
+     * `render_audio` as little-endian 32-bit float bytes (Android plays these straight).
+     */
+open func renderAudioBytes(start: Double, frames: UInt32) -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_render_audio_bytes(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(start),
+        FfiConverterUInt32.lower(frames),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * The open project's whole mix from `start` to `stop` seconds (48 kHz interleaved stereo),
      * for export.
      */
@@ -1026,6 +1050,20 @@ open func renderAudioRange(start: Double, stop: Double) -> [Float]  {
     return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_liemo_mobile_fn_method_engine_render_audio_range(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(start),
+        FfiConverterDouble.lower(stop),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * `render_audio_range` as little-endian 32-bit float bytes.
+     */
+open func renderAudioRangeBytes(start: Double, stop: Double) -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_liemo_mobile_fn_method_engine_render_audio_range_bytes(
             self.uniffiCloneHandle(),
         FfiConverterDouble.lower(start),
         FfiConverterDouble.lower(stop),uniffiCallStatus
@@ -1212,9 +1250,10 @@ public protocol MediaHost: AnyObject, Sendable {
     func decodeImage(path: String, max: UInt32)  -> MediaFrame?
     
     /**
-     * The file's sound as 48 kHz interleaved stereo.
+     * The file's sound as 48 kHz interleaved stereo, as little-endian 32-bit floats (bytes, so
+     * a song crosses the language boundary in one piece rather than sample by sample).
      */
-    func decodeAudio(path: String)  -> [Float]?
+    func decodeAudio(path: String)  -> Data?
     
     /**
      * Where the subject is in a picture (people, pets, things in front): a mask whose alpha
@@ -1323,10 +1362,11 @@ open func decodeImage(path: String, max: UInt32) -> MediaFrame?  {
 }
     
     /**
-     * The file's sound as 48 kHz interleaved stereo.
+     * The file's sound as 48 kHz interleaved stereo, as little-endian 32-bit floats (bytes, so
+     * a song crosses the language boundary in one piece rather than sample by sample).
      */
-open func decodeAudio(path: String) -> [Float]?  {
-    return try!  FfiConverterOptionSequenceFloat.lift(try! rustCall() {
+open func decodeAudio(path: String) -> Data?  {
+    return try!  FfiConverterOptionData.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_liemo_mobile_fn_method_mediahost_decode_audio(
             self.uniffiCloneHandle(),
@@ -1464,7 +1504,7 @@ fileprivate struct UniffiCallbackInterfaceMediaHost {
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
             let makeCall = {
-                () throws -> [Float]? in
+                () throws -> Data? in
                 guard let uniffiObj = try? FfiConverterTypeMediaHost.handleMap.get(handle: uniffiHandle) else {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
@@ -1474,7 +1514,7 @@ fileprivate struct UniffiCallbackInterfaceMediaHost {
             }
 
             
-            let writeReturn = { uniffiOutReturn.pointee = FfiConverterOptionSequenceFloat.lower($0) }
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterOptionData.lower($0) }
             uniffiTraitInterfaceCall(
                 callStatus: uniffiCallStatus,
                 makeCall: makeCall,
@@ -1877,30 +1917,6 @@ fileprivate struct FfiConverterOptionTypeMediaProbe: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionSequenceFloat: FfiConverterRustBuffer {
-    typealias SwiftType = [Float]?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterSequenceFloat.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterSequenceFloat.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
     typealias SwiftType = [Float]
 
@@ -2042,7 +2058,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_liemo_mobile_checksum_method_engine_render_audio() != 25875) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_liemo_mobile_checksum_method_engine_render_audio_bytes() != 15323) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_liemo_mobile_checksum_method_engine_render_audio_range() != 3288) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_liemo_mobile_checksum_method_engine_render_audio_range_bytes() != 18423) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_engine_render_clip() != 29595) {
@@ -2078,7 +2100,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_liemo_mobile_checksum_method_mediahost_decode_image() != 49787) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_liemo_mobile_checksum_method_mediahost_decode_audio() != 29460) {
+    if (uniffi_liemo_mobile_checksum_method_mediahost_decode_audio() != 59932) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_liemo_mobile_checksum_method_mediahost_segment() != 53644) {

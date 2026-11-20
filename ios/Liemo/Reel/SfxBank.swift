@@ -11,6 +11,19 @@ struct SfxSound {
     let dur: Double
 
     var url: URL? { Bundle.main.url(forResource: file, withExtension: "m4a") }
+
+    /// A copy in Liemo's own folder for the timeline: the app's bundle moves with every update,
+    /// so a project must never point into it.
+    func copy() -> URL? {
+        guard let src = url else { return nil }
+        let dir = Core.shared.mediaDir.appendingPathComponent("sfx", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dst = dir.appendingPathComponent("\(file).m4a")
+        if !FileManager.default.fileExists(atPath: dst.path) {
+            try? FileManager.default.copyItem(at: src, to: dst)
+        }
+        return FileManager.default.fileExists(atPath: dst.path) ? dst : nil
+    }
 }
 
 enum SfxBank {

@@ -718,7 +718,10 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 if dur.is_some() || inp.is_some() {
                     st.update_clip(&c.id, |k| {
                         if let Some(d) = dur {
-                            k.dur = d.max(crate::model::store::min_clip());
+                            // The start lands on a frame, so the end does too: clips cut back
+                            // to back meet exactly instead of overlapping by a sliver.
+                            let end = crate::model::time::snap_frame(start.unwrap_or(0.0).max(0.0) + d);
+                            k.dur = (end - k.start).max(crate::model::store::min_clip());
                         }
                         if let Some(i) = inp {
                             k.in_ = i.max(0.0);
@@ -746,7 +749,9 @@ pub fn call(name: &str, a: &Value, ws: &mut dyn Workspace) -> R<ToolOut> {
                 }
                 let c = st.add_clip_exact(&style, Some(&track), f(&args, "start").unwrap_or(0.0)).ok_or("That track is locked")?;
                 if let Some(d) = f(&args, "duration") {
-                    st.update_clip(&c.id, |k| k.dur = d.max(0.1));
+                    // End on a frame like the start, so back-to-back captions share one row.
+                    let end = crate::model::time::snap_frame(f(&args, "start").unwrap_or(0.0).max(0.0) + d);
+                    st.update_clip(&c.id, |k| k.dur = (end - k.start).max(0.1));
                 }
                 apply_text(st, &c.id, &args)?;
                 let content = s(&args, "content").unwrap_or("").to_string();
