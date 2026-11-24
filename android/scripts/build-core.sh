@@ -5,14 +5,14 @@
 #   android/scripts/build-core.sh            release build
 #   PROFILE=debug android/scripts/build-core.sh
 #
-# Needs the NDK (sdkmanager "ndk;28.2.13676358"), cargo-ndk (cargo install cargo-ndk) and the
+# Needs the NDK (sdkmanager "ndk;27.2.12479018"), cargo-ndk (cargo install cargo-ndk) and the
 # Rust targets (rustup target add aarch64-linux-android x86_64-linux-android).
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 native=$(cd "$here/../native" && pwd)
 profile=${PROFILE:-release}
 flag=$([ "$profile" = release ] && echo --release || true)
-sdk=${ANDROID_HOME:-$HOME/Library/Android/sdk}
+sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
 export ANDROID_NDK_HOME=${ANDROID_NDK_HOME:-$(ls -d "$sdk"/ndk/* | sort -V | tail -1)}
 
 cd "$native"

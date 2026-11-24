@@ -27,6 +27,29 @@ engine's API in `native/mobile/src/api.rs`.
 
 The version comes from `native/mobile/Cargo.toml`, so it follows every Liemo release.
 
+## GitHub releases and updates
+
+The `Release` GitHub Actions workflow builds a universal arm64 + x86_64 APK for each `v*` tag
+and attaches it as `Liemo-<version>-android-universal.apk`. The website links to this latest
+asset. Installed Android copies check the latest stable GitHub release at startup and offer to
+download/install a newer APK through Android's package installer.
+
+Android requires every update to use the same signing key as the installed app. Before tagging
+an Android release, configure these repository Actions secrets from a persistent release
+keystore; never regenerate or lose this keystore. The key created for Liemo is backed up at
+`~/.config/liemo/android-release.keystore`; its password is stored in this Mac's Keychain under
+`liemo-android-release-keystore-password`:
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | Base64-encoded JKS/PKCS12 keystore file |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `ANDROID_KEY_ALIAS` | Signing key alias |
+| `ANDROID_KEY_PASSWORD` | Signing key password |
+
+The APK installs from GitHub only when the user allows Liemo to install unknown apps. The OS
+installer verifies its signature and asks the user to confirm the update.
+
 ## Not on Android yet
 
 Effects, filters and transitions pickers, captions, voiceover, Liemo AI, quick reels, the song

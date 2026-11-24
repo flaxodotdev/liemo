@@ -27,9 +27,22 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Until there's a Play upload key, release builds are signed with the debug key so
-            // they install on a phone.
-            signingConfig = signingConfigs.getByName("debug")
+            // Keep a stable certificate across releases so Android accepts in-place updates.
+            val releaseStore = System.getenv("ANDROID_KEYSTORE_BASE64")
+            if (!releaseStore.isNullOrBlank()) {
+                val keystoreFile = rootDir.resolve("release.keystore")
+                keystoreFile.writeBytes(java.util.Base64.getDecoder().decode(releaseStore))
+                signingConfig = signingConfigs.create("release") {
+                    storeFile = keystoreFile
+                    storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                    keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                    keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                }
+            } else {
+                // Keep local release builds possible. CI explicitly requires the release key
+                // before it publishes an APK, so a debug certificate can never reach Releases.
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
     compileOptions {

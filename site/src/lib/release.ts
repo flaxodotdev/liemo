@@ -4,7 +4,7 @@
 export const REPO = "https://github.com/flaxodotdev/liemo";
 const LATEST = `${REPO}/releases/latest`;
 
-export type Platform = "mac-arm" | "mac-intel" | "windows" | "linux";
+export type Platform = "mac-arm" | "mac-intel" | "windows" | "linux" | "android";
 
 export type Download = { platform: Platform; label: string; detail: string; url: string };
 
@@ -15,6 +15,7 @@ const PLATFORMS: { platform: Platform; label: string; detail: string; match: Reg
   { platform: "mac-intel", label: "Mac", detail: "Intel · .dmg", match: /macos-x86_64\.dmg$/ },
   { platform: "windows", label: "Windows", detail: "x86_64 · .zip", match: /windows-x86_64\.zip$/ },
   { platform: "linux", label: "Linux", detail: "x86_64 · .tar.gz", match: /linux-x86_64\.tar\.gz$/ },
+  { platform: "android", label: "Android", detail: "APK · arm64 + x86_64", match: /android-universal\.apk$/ },
 ];
 
 export async function latestRelease(): Promise<Release> {

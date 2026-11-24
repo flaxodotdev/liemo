@@ -248,7 +248,7 @@ export default async function Home() {
                 </li>
               </ul>
               <p className="mx-auto mt-4 max-w-[640px] text-left text-[12.5px] text-muted">
-                Linux needs FFmpeg 6 or newer and a Vulkan driver. Windows includes FFmpeg.
+                Linux needs a Vulkan driver. Windows includes FFmpeg. Android installs from the downloaded APK; future updates are checked in the app.
               </p>
             </div>
           </section>

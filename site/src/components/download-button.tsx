@@ -9,7 +9,8 @@ import type { Download, Platform } from "@/lib/release";
 function detect(): Platform {
   const ua = navigator.userAgent;
   if (/Windows/i.test(ua)) return "windows";
-  if (/Linux/i.test(ua) && !/Android/i.test(ua)) return "linux";
+  if (/Android/i.test(ua)) return "android";
+  if (/Linux/i.test(ua)) return "linux";
   return "mac-arm";
 }
 

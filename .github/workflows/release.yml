@@ -10,6 +10,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      android_only:
+        description: Build and publish Android to the latest GitHub Release without desktop builds
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -91,6 +97,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    if: github.event_name == 'push' || inputs.android_only != true
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -153,6 +160,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    if: github.event_name == 'push' || inputs.android_only != true
     runs-on: windows-2025
     defaults:
       run:
@@ -200,9 +208,58 @@ jobs:
             native/dist/*.zip.sig
           if-no-files-found: error
 
+  android:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - uses: android-actions/setup-android@v3
+      - name: Install Android NDK and cargo-ndk
+        run: |
+          sdkmanager "ndk;27.2.12479018" "platforms;android-36" "build-tools;36.0.0"
+          cargo install cargo-ndk --locked
+      - name: Build Android engine
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android29-clang"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          export CC_x86_64_linux_android="$toolchain/x86_64-linux-android29-clang"
+          export AR_x86_64_linux_android="$toolchain/llvm-ar"
+          android/scripts/build-core.sh
+      - name: Build signed APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && \
+            [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ] || {
+              echo "::error::Configure all four ANDROID_* signing secrets; see android/README.md"; exit 1;
+            }
+          cd android
+          ./gradlew assembleRelease
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' ../native/mobile/Cargo.toml | head -1)
+          cp app/build/outputs/apk/release/app-release.apk "../Liemo-$v-android-universal.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liemo-android
+          path: Liemo-*-android-universal.apk
+          if-no-files-found: error
+
   publish:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build, linux, windows]
+    needs: [build, linux, windows, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -221,3 +278,21 @@ jobs:
           awk -v v="$v" '/^## / { if (on) exit; on = ($2 == v); next } on' CHANGELOG.md > notes.md 2>/dev/null || true
           if [ -s notes.md ]; then notes=(--notes-file notes.md); else notes=(--generate-notes); fi
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Liemo $v" "${notes[@]}" --verify-tag
+
+  publish_android:
+    if: github.event_name == 'workflow_dispatch' && inputs.android_only == true
+    needs: [android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: liemo-android
+          path: dist
+      - name: Attach APK to latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          gh release upload "$tag" dist/*.apk --repo "$GITHUB_REPOSITORY" --clobber
