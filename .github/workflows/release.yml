@@ -223,6 +223,8 @@ jobs:
         with:
           workspaces: native
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install Android NDK and cargo-ndk
         run: |
           sdkmanager "ndk;27.2.12479018" "platforms;android-36" "build-tools;36.0.0"
