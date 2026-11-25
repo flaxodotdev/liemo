@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -31,7 +33,7 @@ android {
             val releaseStore = System.getenv("ANDROID_KEYSTORE_BASE64")
             if (!releaseStore.isNullOrBlank()) {
                 val keystoreFile = rootDir.resolve("release.keystore")
-                keystoreFile.writeBytes(java.util.Base64.getDecoder().decode(releaseStore))
+                keystoreFile.writeBytes(Base64.getDecoder().decode(releaseStore))
                 signingConfig = signingConfigs.create("release") {
                     storeFile = keystoreFile
                     storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
